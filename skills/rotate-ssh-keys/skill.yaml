@@ -1,0 +1,33 @@
+# GemmaForge Skill: SSH Host Key Rotation (stub)
+#
+# Demonstrates the skills system extensibility. This skill would
+# rotate SSH host keys on the target VM and verify that SSH access
+# still works. It uses the same tools as the STIG skill but with
+# different prompts and validation criteria.
+#
+# Status: STUB — prompts are placeholders. Replace with real content
+# to make this a working demo.
+
+name: "SSH Host Key Rotation"
+description: "Rotate SSH host keys on the target system and verify connectivity is maintained."
+version: "0.1.0"
+target_os: "Rocky Linux 9"
+
+prompts:
+  architect: "prompts/architect.md"
+  worker: "prompts/worker.md"
+  auditor: "prompts/auditor.md"
+
+tools:
+  architect: []  # No scan tool needed — the task is predefined
+  worker:
+    - apply_fix
+  auditor:
+    - check_health
+    - revert_last_fix
+
+validators:
+  - name: "ssh-connectivity"
+    command: "echo 'SSH connection successful'"
+    success_pattern: "successful"
+    failure_pattern: "refused"

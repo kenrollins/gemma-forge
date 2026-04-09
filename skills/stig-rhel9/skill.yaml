@@ -1,0 +1,37 @@
+# GemmaForge Skill: DISA STIG Remediation for RHEL 9 / Rocky 9
+#
+# The first and headline skill. Autonomously scans a Rocky Linux 9
+# target for DISA STIG compliance violations, remediates them one at
+# a time, and verifies the mission app stays healthy after each fix.
+#
+# See ADR-0006 (DISA STIG profile, not CIS) and ADR-0005 (Rocky 9).
+
+name: "DISA STIG Remediation — RHEL 9"
+description: "Autonomous STIG compliance remediation against DISA RHEL 9 STIG on Rocky Linux 9, with revert-on-failure protection for the mission app."
+version: "0.1.0"
+target_os: "Rocky Linux 9"
+
+prompts:
+  architect: "prompts/architect.md"
+  worker: "prompts/worker.md"
+  auditor: "prompts/auditor.md"
+
+tools:
+  architect:
+    - run_stig_scan
+  worker:
+    - apply_fix
+  auditor:
+    - check_health
+    - revert_last_fix
+
+validators:
+  - name: "mission-app-health"
+    command: "/usr/local/bin/mission-healthcheck.sh"
+    success_pattern: "HEALTHY"
+    failure_pattern: "UNHEALTHY"
+
+stig:
+  profile: "xccdf_org.ssgproject.content_profile_stig"
+  datastream: "/usr/share/xml/scap/ssg/content/ssg-rl9-ds.xml"
+  results_dir: "/tmp/gemma-forge-stig"

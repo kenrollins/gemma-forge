@@ -1,0 +1,11 @@
+# Mission app healthcheck validator
+#
+# This is the Auditor's gate: after each STIG fix, this check must pass
+# or the fix gets reverted. The mission app (nginx + postgres) must
+# survive every remediation step.
+
+name: "Mission App Health"
+description: "Verifies nginx, postgres, and sshd are running on the target VM."
+command: "/usr/local/bin/mission-healthcheck.sh"
+success_pattern: "HEALTHY"
+failure_pattern: "UNHEALTHY"

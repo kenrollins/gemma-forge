@@ -41,6 +41,8 @@ from gemma_forge.harness.tools.healthcheck import mission_healthcheck
 from gemma_forge.harness.tools.openscap import stig_scan
 from gemma_forge.harness.tools.ssh import SSHConfig, ssh_apply, ssh_revert
 from gemma_forge.models.vllm_llm import VllmLlm
+from gemma_forge.skills.base import Skill
+from gemma_forge.skills.loader import load_skill
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -93,6 +95,16 @@ async def revert_last_fix() -> str:
     return await ssh_revert(_ssh_config)
 
 
+# Map from tool names (in skill.yaml) to actual tool functions.
+# Skills reference tools by name; this registry resolves them.
+TOOL_REGISTRY = {
+    "run_stig_scan": run_stig_scan,
+    "apply_fix": apply_fix,
+    "check_health": check_health,
+    "revert_last_fix": revert_last_fix,
+}
+
+
 def build_ralph_loop(
     ssh_config: SSHConfig,
     stig_profile: str,
@@ -101,8 +113,14 @@ def build_ralph_loop(
     worker_llm: VllmLlm,
     auditor_llm: VllmLlm,
     max_iterations: int = 10,
+    skill: Optional[Skill] = None,
 ) -> LoopAgent:
-    """Build the Ralph loop as an ADK LoopAgent with three sub-agents."""
+    """Build the Ralph loop as an ADK LoopAgent with three sub-agents.
+
+    If a skill is provided, prompts and tool assignments come from the
+    skill manifest. Otherwise falls back to the hardcoded defaults in
+    agents.py (for backwards compatibility during development).
+    """
 
     # Set module-level config so the tool functions can access it
     global _ssh_config, _stig_profile, _stig_datastream
@@ -110,25 +128,43 @@ def build_ralph_loop(
     _stig_profile = stig_profile
     _stig_datastream = stig_datastream
 
+    # Resolve prompts — from skill or hardcoded fallback
+    if skill:
+        arch_prompt = skill.get_prompt("architect")
+        work_prompt = skill.get_prompt("worker")
+        aud_prompt = skill.get_prompt("auditor")
+        arch_tools = [TOOL_REGISTRY[t] for t in skill.get_tools("architect")]
+        work_tools = [TOOL_REGISTRY[t] for t in skill.get_tools("worker")]
+        aud_tools = [TOOL_REGISTRY[t] for t in skill.get_tools("auditor")]
+        logger.info("Using skill: %s", skill.name)
+    else:
+        arch_prompt = ARCHITECT_INSTRUCTION
+        work_prompt = WORKER_INSTRUCTION
+        aud_prompt = AUDITOR_INSTRUCTION
+        arch_tools = [run_stig_scan]
+        work_tools = [apply_fix]
+        aud_tools = [check_health, revert_last_fix]
+        logger.info("Using hardcoded prompts (no skill loaded)")
+
     architect = Agent(
         name="architect",
         model=architect_llm,
-        instruction=ARCHITECT_INSTRUCTION,
-        tools=[run_stig_scan],
+        instruction=arch_prompt,
+        tools=arch_tools,
     )
 
     worker = Agent(
         name="worker",
         model=worker_llm,
-        instruction=WORKER_INSTRUCTION,
-        tools=[apply_fix],
+        instruction=work_prompt,
+        tools=work_tools,
     )
 
     auditor = Agent(
         name="auditor",
         model=auditor_llm,
-        instruction=AUDITOR_INSTRUCTION,
-        tools=[check_health, revert_last_fix],
+        instruction=aud_prompt,
+        tools=aud_tools,
     )
 
     loop = LoopAgent(
@@ -140,8 +176,17 @@ def build_ralph_loop(
     return loop
 
 
-async def run_ralph(config_path: str = "config/harness.yaml") -> None:
-    """Run the Ralph loop end-to-end."""
+async def run_ralph(
+    config_path: str = "config/harness.yaml",
+    skill_name: Optional[str] = None,
+) -> None:
+    """Run the Ralph loop end-to-end.
+
+    Args:
+        config_path: Path to harness config YAML.
+        skill_name: Name of the skill directory under skills/
+                    (e.g., "stig-rhel9"). If None, uses hardcoded defaults.
+    """
 
     # Load configs
     harness_cfg = {}
@@ -163,6 +208,18 @@ async def run_ralph(config_path: str = "config/harness.yaml") -> None:
         user=vm_cfg.get("user", "adm-forge"),
         key_path=vm_cfg.get("ssh_key", "/data/vm/gemma-forge/keys/adm-forge"),
     )
+
+    # Load skill if specified
+    skill = None
+    if skill_name:
+        skill = load_skill(skill_name)
+        logger.info("Loaded skill: %s — %s", skill.name, skill.description)
+        # Override STIG config from skill manifest if available
+        if skill.manifest.stig:
+            stig_cfg = {
+                "profile": skill.manifest.stig.profile,
+                "datastream": skill.manifest.stig.datastream,
+            }
 
     # Create LLM instances for each role
     def _make_llm(role: str) -> VllmLlm:
@@ -188,6 +245,7 @@ async def run_ralph(config_path: str = "config/harness.yaml") -> None:
         worker_llm=worker_llm,
         auditor_llm=auditor_llm,
         max_iterations=max_iters,
+        skill=skill,
     )
 
     # Set up ADK runner
@@ -266,9 +324,14 @@ def main() -> int:
 
     parser = argparse.ArgumentParser(description="GemmaForge Ralph Loop (ADK)")
     parser.add_argument("--config", default="config/harness.yaml")
+    parser.add_argument(
+        "--skill",
+        default="stig-rhel9",
+        help="Skill directory name under skills/ (default: stig-rhel9)",
+    )
     args = parser.parse_args()
 
-    asyncio.run(run_ralph(args.config))
+    asyncio.run(run_ralph(args.config, skill_name=args.skill))
     return 0
 
 

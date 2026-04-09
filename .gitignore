@@ -1,0 +1,87 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+ENV/
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+.turbo/
+*.tsbuildinfo
+.pnpm-store/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Secrets and runtime config — NEVER commit
+*.env
+.env.*
+!.env.example
+*.pem
+*.key
+id_ed25519*
+id_rsa*
+infra/vm/config.env
+infra/vm/keys/
+gemma_forge/observability/.langfuse_secret
+
+# OpenTofu / Terraform local state
+infra/vm/tofu/.terraform/
+infra/vm/tofu/.terraform.lock.hcl
+infra/vm/tofu/terraform.tfstate*
+infra/vm/tofu/*.tfstate*
+infra/vm/tofu/*.auto.tfvars
+
+# Anything that belongs under /data/vm/ — must never end up in the repo
+*.qcow2
+*.qcow2.*
+*.img
+*.iso
+seed/
+pool/
+snapshots/
+
+# Local model cache (huge — lives outside repo)
+models/
+*.safetensors
+*.gguf
+
+# Logs and run artifacts
+logs/
+runs/
+*.log
+trace-*.json
+
+# Local-only working files — never committed to the public repo
+# - docs/whitepaper/ holds private feedstock for the whitepaper
+#   (audience strategy, talking points, vendor names, etc.).
+#   It exists on disk locally but is intentionally not tracked.
+# - scratch/ is general personal scratch space — drafts, command snippets,
+#   anything you don't want to think twice about before scribbling.
+# - *.local.md is a per-file opt-out for "draft I'm not ready to commit yet."
+docs/whitepaper/
+scratch/
+*.local.md

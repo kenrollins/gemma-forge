@@ -1,0 +1,89 @@
+# GemmaForge — Compose v2 spec.
+#
+# This file is consumed natively by `docker compose` (the runtime on the
+# reference XR7620) and is also valid input to `podman compose`. The Compose
+# v2 spec deliberately omits the legacy `version:` field and avoids
+# Docker-only extensions so Federal customers running Podman on RHEL can
+# bring this up unmodified. See docs/adr/0003-podman-primary-docker-compatible.md.
+#
+# IMPORTANT: This compose file describes ONLY the client-side stack —
+# observability, FastAPI, and the Next.js UI. The inference plane
+# (Triton + vLLM) is a SHARED HOST SERVICE that lives at /data/triton/
+# and is managed by systemd OUTSIDE this compose project. See
+# docs/adr/0014-triton-vllm-director-shared-host-service.md.
+#
+# Bringing GemmaForge up therefore involves two steps:
+#   1. (one-time, host-level) install + start the Triton director under
+#      /data/triton/ via the host setup script in Phase 0.5
+#   2. (per-demo) `docker compose up` from this file to start the
+#      observability + application stack
+#
+# Phase 0 status: SKELETON. Service definitions are filled in by their
+# respective phases (Phase 5 observability, Phase 6 application).
+
+name: gemma-forge
+
+networks:
+  forge:
+    driver: bridge
+
+volumes:
+  langfuse-db:
+  jaeger-data:
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # Observability — Phase 5
+  # OTel-primary tracing fanned out to Jaeger (Federal-standard) and Langfuse
+  # (LLM-native UX). See docs/adr/0007-opentelemetry-primary-langfuse-secondary.md.
+  # ---------------------------------------------------------------------------
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    profiles: ["observability"]
+    networks: [forge]
+    ports:
+      - "16686:16686"  # UI
+      - "4317:4317"    # OTLP gRPC
+      - "4318:4318"    # OTLP HTTP
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+
+  langfuse:
+    image: langfuse/langfuse:latest
+    profiles: ["observability"]
+    networks: [forge]
+    ports:
+      - "3001:3000"
+    volumes:
+      - langfuse-db:/var/lib/langfuse
+
+  # ---------------------------------------------------------------------------
+  # Application plane — Phase 6
+  # The FastAPI service is the only component that talks to the Triton
+  # director. The UI never reaches Triton directly; it goes through
+  # forge-api over WebSockets and REST.
+  # ---------------------------------------------------------------------------
+
+  forge-api:
+    build:
+      context: .
+      dockerfile: web/api/Dockerfile
+    profiles: ["app"]
+    networks: [forge]
+    ports:
+      - "8080:8080"
+    environment:
+      # The Triton director lives outside this compose project on the host.
+      # Override these via .env if your host layout differs.
+      TRITON_DIRECTOR_URL: "${TRITON_DIRECTOR_URL:-http://host.containers.internal:8000}"
+      TRITON_MODEL_REPO: "${TRITON_MODEL_REPO:-/data/triton/models}"
+
+  forge-ui:
+    build:
+      context: ./web/ui
+    profiles: ["app"]
+    networks: [forge]
+    ports:
+      - "3000:3000"

@@ -4,7 +4,8 @@
 # (`make vm-up`, `make demo`, etc.) are added by their owning phases.
 
 .PHONY: help install lint format test compose-config clean \
-       vllm-build vllm-install demo-up demo-down demo-status demo-logs demo-test
+       vllm-build vllm-install demo-up demo-down demo-status demo-logs demo-test \
+       vm-up vm-down vm-reset vm-ssh vm-health
 
 help:  ## Show this help
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z_-]+:.*## / {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -96,3 +97,25 @@ demo-test:  ## Verify all 3 inference endpoints are responding
 	echo ""; \
 	echo "$$PASS/3 endpoints responding."; \
 	if [ $$FAIL -gt 0 ]; then echo "Run 'make demo-logs' to diagnose failures."; exit 1; fi
+
+# ---------------------------------------------------------------------------
+# Target VM — Rocky 9 mission-app for STIG remediation
+# ---------------------------------------------------------------------------
+
+vm-up:  ## Provision the Rocky 9 mission-app VM (first run takes ~5 min)
+	./infra/vm/scripts/vm-up.sh
+
+vm-down:  ## Destroy the mission-app VM (preserves base image + keys)
+	./infra/vm/scripts/vm-down.sh
+
+vm-reset:  ## Instant revert to the golden baseline snapshot (sub-10s)
+	./infra/vm/scripts/vm-snapshot.sh restore baseline
+	@echo "VM reset to baseline. Run 'make vm-health' to verify."
+
+vm-ssh:  ## SSH into the mission-app VM as adm-forge
+	@IP=$$(cd infra/vm/tofu && tofu output -state=/data/vm/gemma-forge/state/terraform.tfstate -raw mission_app_ip 2>/dev/null) && \
+	ssh -i /data/vm/gemma-forge/keys/adm-forge -o StrictHostKeyChecking=no "adm-forge@$$IP"
+
+vm-health:  ## Run the mission-app healthcheck over SSH
+	@IP=$$(cd infra/vm/tofu && tofu output -state=/data/vm/gemma-forge/state/terraform.tfstate -raw mission_app_ip 2>/dev/null) && \
+	ssh -i /data/vm/gemma-forge/keys/adm-forge -o StrictHostKeyChecking=no "adm-forge@$$IP" /usr/local/bin/mission-healthcheck.sh

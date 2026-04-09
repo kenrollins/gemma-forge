@@ -1,0 +1,90 @@
+#cloud-config
+# GemmaForge Mission App — cloud-init user data
+#
+# This configures the Rocky 9 target VM that the Ralph loop operates on.
+# The VM runs Nginx + Postgres as a "mission app" that must stay healthy
+# while the agent remediates STIG findings on the host.
+#
+# NOTE: This file is processed by OpenTofu's templatefile() function.
+# Bash $${var} is escaped as $$$${var} to avoid HCL interpolation.
+# HCL interpolation uses $${...} for variables passed from ToFu.
+
+hostname: mission-app
+fqdn: mission-app.gemma-forge.local
+manage_etc_hosts: true
+
+users:
+  - name: adm-forge
+    gecos: GemmaForge Service Account
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    lock_passwd: true
+    ssh_authorized_keys:
+      - ${ssh_pubkey}
+
+package_update: true
+package_upgrade: false
+
+packages:
+  - nginx
+  - postgresql-server
+  - postgresql
+  - openscap-scanner
+  - scap-security-guide
+  - firewalld
+  - curl
+  - jq
+
+runcmd:
+  - postgresql-setup --initdb
+  - systemctl enable --now postgresql
+  - sudo -u postgres psql -c "CREATE DATABASE mission_app;"
+  - sudo -u postgres psql -d mission_app -c "CREATE TABLE status (id serial PRIMARY KEY, check_time timestamp DEFAULT now(), status text NOT NULL);"
+  - sudo -u postgres psql -d mission_app -c "INSERT INTO status (status) VALUES ('initialized');"
+  - |
+    cat > /usr/share/nginx/html/index.html << 'HTML'
+    <!DOCTYPE html>
+    <html>
+    <head><title>GemmaForge Mission App</title></head>
+    <body>
+    <h1>Mission App — Operational</h1>
+    <p>This is the target application that the GemmaForge Ralph loop
+    must keep alive while remediating STIG findings on this host.</p>
+    <p>Status: <strong>HEALTHY</strong></p>
+    </body>
+    </html>
+    HTML
+  - systemctl enable --now nginx
+  - systemctl enable --now firewalld
+  - firewall-cmd --permanent --add-service=http
+  - firewall-cmd --permanent --add-service=ssh
+  - firewall-cmd --reload
+  - |
+    cat > /usr/local/bin/mission-healthcheck.sh << 'SCRIPT'
+    #!/bin/bash
+    ERRORS=()
+    if ! curl -sf http://localhost/ > /dev/null 2>&1; then
+        ERRORS+=("nginx: not responding on port 80")
+    fi
+    if ! pg_isready -q 2>/dev/null; then
+        ERRORS+=("postgres: not ready")
+    fi
+    if ! sudo -u postgres psql -d mission_app -c "SELECT 1;" > /dev/null 2>&1; then
+        ERRORS+=("postgres: mission_app database not queryable")
+    fi
+    if ! systemctl is-active --quiet sshd; then
+        ERRORS+=("sshd: not active")
+    fi
+    if [ $${#ERRORS[@]} -eq 0 ]; then
+        echo "HEALTHY: nginx=ok postgres=ok sshd=ok"
+        exit 0
+    else
+        echo "UNHEALTHY:"
+        for err in "$${ERRORS[@]}"; do
+            echo "  - $$err"
+        done
+        exit 1
+    fi
+    SCRIPT
+    chmod +x /usr/local/bin/mission-healthcheck.sh
+  - echo "GemmaForge mission-app cloud-init complete" >> /var/log/gemma-forge-init.log

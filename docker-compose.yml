@@ -6,19 +6,25 @@
 # Docker-only extensions so Federal customers running Podman on RHEL can
 # bring this up unmodified. See docs/adr/0003-podman-primary-docker-compatible.md.
 #
-# IMPORTANT: This compose file describes ONLY the client-side stack —
-# observability, FastAPI, and the Next.js UI. The inference plane
-# (Triton + vLLM) is a SHARED HOST SERVICE that lives at /data/triton/
-# and is managed by systemd OUTSIDE this compose project. See
-# docs/adr/0014-triton-vllm-director-shared-host-service.md.
+# IMPORTANT: This compose file describes ONLY the GemmaForge-scoped stack:
+#   - the OTel-pure observability stack (otel-collector, jaeger,
+#     prometheus, grafana) -- see docs/adr/0007-otel-jaeger-prometheus-grafana.md
+#   - the FastAPI service and Next.js UI -- Phase 6
+#
+# It deliberately does NOT include:
+#   - the Triton+vLLM inference plane: that is a SHARED HOST SERVICE under
+#     /data/triton/ managed by systemd OUTSIDE this compose project. See
+#     docs/adr/0014-triton-vllm-director-shared-host-service.md.
+#   - Langfuse: dropped entirely in favor of the OTel-pure stack. See
+#     docs/adr/0007-otel-jaeger-prometheus-grafana.md for the rationale.
 #
 # Bringing GemmaForge up therefore involves two steps:
 #   1. (one-time, host-level) install + start the Triton director under
-#      /data/triton/ via the host setup script in Phase 0.5
-#   2. (per-demo) `docker compose up` from this file to start the
-#      observability + application stack
+#      /data/triton/ via infra/triton/scripts/install.sh
+#   2. (per-demo) `docker compose --profile observability --profile app up -d`
+#      from this file to start the GemmaForge-scoped stack
 #
-# Phase 0 status: SKELETON. Service definitions are filled in by their
+# Phase 0.5 status: SKELETON. Service definitions are filled in by their
 # respective phases (Phase 5 observability, Phase 6 application).
 
 name: gemma-forge
@@ -28,43 +34,90 @@ networks:
     driver: bridge
 
 volumes:
-  langfuse-db:
+  prometheus-data:
+  grafana-data:
   jaeger-data:
 
 services:
 
-  # ---------------------------------------------------------------------------
+  # ===========================================================================
   # Observability — Phase 5
-  # OTel-primary tracing fanned out to Jaeger (Federal-standard) and Langfuse
-  # (LLM-native UX). See docs/adr/0007-opentelemetry-primary-langfuse-secondary.md.
-  # ---------------------------------------------------------------------------
+  # OTel-pure stack: instrumentation in the harness flows OTLP to a single
+  # collector, which fans out to Jaeger (traces) and Prometheus (metrics).
+  # Token accounting is done via the OpenTelemetry GenAI semantic conventions
+  # (gen_ai.* attributes), with token counters scraped by Prometheus and
+  # surfaced in Grafana dashboards. No Langfuse, no SaaS, no vendor lock-in.
+  #
+  # See docs/adr/0007-otel-jaeger-prometheus-grafana.md.
+  # ===========================================================================
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.121.0
+    profiles: ["observability"]
+    networks: [forge]
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./infra/observability/otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "4317:4317"  # OTLP gRPC (harness exporters)
+      - "4318:4318"  # OTLP HTTP (browser / fetch-based clients)
+      - "8889:8889"  # Prometheus exporter scrape endpoint
+    depends_on:
+      - jaeger
+      - prometheus
 
   jaeger:
-    image: jaegertracing/all-in-one:latest
+    image: jaegertracing/jaeger:2.4.0
     profiles: ["observability"]
     networks: [forge]
     ports:
-      - "16686:16686"  # UI
-      - "4317:4317"    # OTLP gRPC
-      - "4318:4318"    # OTLP HTTP
+      - "16686:16686"  # Jaeger UI
     environment:
-      COLLECTOR_OTLP_ENABLED: "true"
+      # Jaeger v2 is OTel-native; it ingests OTLP directly via the collector.
+      LOG_LEVEL: info
+    volumes:
+      - jaeger-data:/var/lib/jaeger
 
-  langfuse:
-    image: langfuse/langfuse:latest
+  prometheus:
+    image: prom/prometheus:v3.1.0
     profiles: ["observability"]
     networks: [forge]
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.enable-lifecycle"
+    volumes:
+      - ./infra/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    profiles: ["observability"]
+    networks: [forge]
+    environment:
+      GF_SECURITY_ADMIN_USER: "${GRAFANA_ADMIN_USER:-admin}"
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:-admin}"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./infra/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
     ports:
       - "3001:3000"
-    volumes:
-      - langfuse-db:/var/lib/langfuse
+    depends_on:
+      - prometheus
+      - jaeger
 
-  # ---------------------------------------------------------------------------
+  # ===========================================================================
   # Application plane — Phase 6
   # The FastAPI service is the only component that talks to the Triton
-  # director. The UI never reaches Triton directly; it goes through
-  # forge-api over WebSockets and REST.
-  # ---------------------------------------------------------------------------
+  # director on the host. The UI never reaches Triton directly; it goes
+  # through forge-api over WebSockets and REST.
+  # ===========================================================================
 
   forge-api:
     build:
@@ -79,6 +132,10 @@ services:
       # Override these via .env if your host layout differs.
       TRITON_DIRECTOR_URL: "${TRITON_DIRECTOR_URL:-http://host.containers.internal:8000}"
       TRITON_MODEL_REPO: "${TRITON_MODEL_REPO:-/data/triton/models}"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
+      OTEL_SERVICE_NAME: "gemma-forge.api"
+    depends_on:
+      - otel-collector
 
   forge-ui:
     build:

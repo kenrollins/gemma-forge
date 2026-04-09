@@ -37,7 +37,11 @@ Thumbs.db
 *.swo
 
 # Secrets and runtime config — NEVER commit
-*.env
+# Match dotenv files (root .env, .env.local, .env.production, etc.) but
+# NOT named config files like triton-defaults.env that are public-safe
+# repo defaults. Anything sensitive must follow the .env naming convention
+# or live under a path explicitly listed below.
+.env
 .env.*
 !.env.example
 *.pem

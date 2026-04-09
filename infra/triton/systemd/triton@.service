@@ -1,0 +1,38 @@
+# Triton Inference Server (vLLM backend) — single-GPU narrow instance.
+#
+# Templated unit. The instance specifier %i is the GPU index, e.g.:
+#   triton@0.service  -> GPU 0
+#   triton@2.service  -> GPU 2
+#
+# Phase 0.5 / ADR-0013 / ADR-0014. Installed by infra/triton/scripts/install.sh.
+#
+# IMPORTANT: when triton@wide-01.service is enabled, triton@0 and triton@1
+# must NOT be enabled. They would compete for the same physical GPUs.
+
+[Unit]
+Description=Triton Inference Server (vLLM backend) — narrow, GPU %i
+Documentation=https://github.com/triton-inference-server/server
+Documentation=file:///data/code/gemma-forge/infra/triton/README.md
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+Restart=on-failure
+RestartSec=10s
+TimeoutStartSec=600
+TimeoutStopSec=60s
+StandardOutput=append:/data/triton/logs/triton-gpu%i.log
+StandardError=append:/data/triton/logs/triton-gpu%i.log
+
+# The runner script handles port allocation (8000+i*10 etc.), the docker
+# run invocation, the GPU pinning workaround for triton-inference-server#7786,
+# and idempotent cleanup of any stale container.
+ExecStart=/data/code/gemma-forge/infra/triton/scripts/triton-narrow.sh %i
+ExecStop=/usr/bin/docker stop --time=60 triton-gpu%i
+
+[Install]
+WantedBy=multi-user.target

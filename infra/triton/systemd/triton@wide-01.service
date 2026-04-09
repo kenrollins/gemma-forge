@@ -1,0 +1,41 @@
+# Triton Inference Server (vLLM backend) — wide instance, GPUs 0+1, tp=2.
+#
+# Dedicated single-instance unit (not a template — its name happens to use
+# @wide-01 for visual consistency with the narrow templates, and the runner
+# script accepts an instance name argument). Hosts Gemma 4 31B-IT in
+# tensor_parallel_size=2 across GPUs 0 and 1, per the official vLLM Gemma 4
+# recipe. Architect and Worker share this engine because they execute
+# sequentially within a Ralph loop iteration.
+#
+# Phase 0.5 / ADR-0013 / ADR-0014 / ADR-0015. Installed by
+# infra/triton/scripts/install.sh.
+#
+# IMPORTANT: when this unit is enabled, triton@0.service and triton@1.service
+# must NOT be enabled. They would compete for the same physical GPUs.
+
+[Unit]
+Description=Triton Inference Server (vLLM backend) — wide, GPUs 0+1, tp=2 (Gemma 4 31B-IT)
+Documentation=https://github.com/triton-inference-server/server
+Documentation=https://docs.vllm.ai/projects/recipes/en/latest/Google/Gemma4.html
+Documentation=file:///data/code/gemma-forge/infra/triton/README.md
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+Conflicts=triton@0.service triton@1.service
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+Restart=on-failure
+RestartSec=10s
+TimeoutStartSec=900
+TimeoutStopSec=120s
+StandardOutput=append:/data/triton/logs/triton-wide-01.log
+StandardError=append:/data/triton/logs/triton-wide-01.log
+
+ExecStart=/data/code/gemma-forge/infra/triton/scripts/triton-wide.sh wide-01
+ExecStop=/usr/bin/docker stop --time=120 triton-wide-01
+
+[Install]
+WantedBy=multi-user.target

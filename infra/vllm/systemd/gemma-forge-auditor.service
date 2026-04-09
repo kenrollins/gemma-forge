@@ -1,0 +1,37 @@
+# GemmaForge Auditor — Gemma 4 E4B-IT, GPU 2
+#
+# Fast validation model. Checks mission-app health and re-scans STIG
+# compliance after each Worker remediation.
+#
+# Port: 8060 (HTTP, OpenAI-compatible)
+
+[Unit]
+Description=GemmaForge Auditor — Gemma 4 E4B-IT (GPU 2)
+Documentation=file:///data/code/gemma-forge/infra/vllm/README.md
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+[Service]
+Type=simple
+Restart=on-failure
+RestartSec=10s
+TimeoutStartSec=600
+TimeoutStopSec=60s
+StandardOutput=append:/data/triton/logs/gemma-forge-auditor.log
+StandardError=append:/data/triton/logs/gemma-forge-auditor.log
+
+ExecStart=/data/code/gemma-forge/infra/vllm/scripts/serve.sh \
+    gemma-forge-auditor \
+    /weights/gemma-4-E4B-it \
+    2 \
+    8060 \
+    --max-model-len 4096 \
+    --dtype bfloat16
+
+ExecStop=/usr/bin/docker stop --time=60 gemma-forge-auditor
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,16 @@
+# Triton model configuration — Gemma 4 E2B-IT (Sentry)
+#
+# Loaded by triton@3.service on GPU 3 with tensor_parallel_size=1.
+# See ADR-0013, ADR-0014, ADR-0015.
+
+backend: "vllm"
+max_batch_size: 0
+model_transaction_policy {
+  decoupled: True
+}
+instance_group [
+  {
+    count: 1
+    kind: KIND_MODEL
+  }
+]

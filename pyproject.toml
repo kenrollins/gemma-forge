@@ -35,12 +35,15 @@ dependencies = [
     # SSH to the target VM(s)
     "asyncssh>=2.14,<3.0",
 
-    # Observability — OpenTelemetry primary, Langfuse secondary
+    # Observability — OTel-pure stack (Jaeger + Prometheus + Grafana).
+    # NO Langfuse: see docs/adr/0007-otel-jaeger-prometheus-grafana.md.
+    # Token accounting flows through the OpenTelemetry GenAI semantic
+    # conventions (gen_ai.* attributes).
     "opentelemetry-api>=1.25,<2.0",
     "opentelemetry-sdk>=1.25,<2.0",
     "opentelemetry-exporter-otlp>=1.25,<2.0",
     "opentelemetry-instrumentation-httpx>=0.46b0",
-    "langfuse>=2.40,<3.0",
+    "opentelemetry-semantic-conventions>=0.46b0",
 
     # NVML for GPU telemetry surfaced to the dashboard
     "nvidia-ml-py>=12.0,<13.0",
@@ -59,6 +62,17 @@ dev = [
     "pytest-asyncio>=0.23,<1.0",
     "pytest-cov>=5.0,<6.0",
     "types-PyYAML",
+]
+
+# Host-operator tooling. Install with `pip install -e ".[infra]"` (or
+# `[dev,infra]` for everything). Deliberately separate from `dev` and
+# from runtime `dependencies` so the harness Docker image (Phase 6+)
+# does NOT carry the model-download tooling. These deps are only
+# needed on the box that downloads weights into /data/triton/weights/
+# during Phase 1 host setup.
+infra = [
+    "huggingface_hub>=0.26,<1.0",
+    "hf-transfer>=0.1.8,<1.0",  # accelerated parallel downloads for HF
 ]
 
 [project.urls]

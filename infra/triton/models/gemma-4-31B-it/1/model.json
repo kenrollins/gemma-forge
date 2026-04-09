@@ -1,0 +1,8 @@
+{
+  "model": "/weights/gemma-4-31B-it",
+  "tensor_parallel_size": 2,
+  "distributed_executor_backend": "ray",
+  "max_model_len": 32768,
+  "gpu_memory_utilization": 0.90,
+  "dtype": "bfloat16"
+}

@@ -49,6 +49,7 @@ exec docker run --rm \
     -p "${GRPC_PORT}:8001" \
     -p "${METRICS_PORT}:8002" \
     -v "${TRITON_MODEL_REPO}:/models:ro" \
+    -v "${TRITON_WEIGHTS_DIR}:/weights:ro" \
     -v "${TRITON_LOG_DIR}:/logs" \
     --shm-size=1g \
     --ulimit memlock=-1 \

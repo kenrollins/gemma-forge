@@ -79,7 +79,7 @@ log "Triton image present: ${TRITON_IMAGE}"
 # ---------- 2. Directory tree -----------------------------------------------
 
 log "ensuring ${DATA_TRITON}/ tree exists"
-for d in models systemd config logs; do
+for d in models systemd config logs weights; do
     if [[ ! -d "${DATA_TRITON}/${d}" ]]; then
         log "  creating ${DATA_TRITON}/${d}"
         mkdir -p "${DATA_TRITON}/${d}"
@@ -93,6 +93,23 @@ if [[ -f "${DATA_TRITON}/config/triton-defaults.env" ]]; then
     log "  already present (preserving local edits)"
 else
     cp "${INFRA_TRITON}/config/triton-defaults.env" "${DATA_TRITON}/config/triton-defaults.env"
+fi
+
+# ---------- 3b. Triton model repository deployment --------------------------
+
+log "deploying Triton model repository definitions to ${DATA_TRITON}/models/"
+if [[ -d "${INFRA_TRITON}/models" ]]; then
+    # rsync rather than cp -r so re-runs only update what's changed and
+    # don't blow away anything an operator has hand-edited under
+    # /data/triton/models/. The --update flag preserves newer files on
+    # the host side.
+    if command -v rsync >/dev/null 2>&1; then
+        rsync -a --update "${INFRA_TRITON}/models/" "${DATA_TRITON}/models/"
+    else
+        cp -rn "${INFRA_TRITON}/models/." "${DATA_TRITON}/models/"
+    fi
+    log "  deployed:"
+    find "${DATA_TRITON}/models" -mindepth 1 -maxdepth 1 -type d -printf '    %f\n' 2>&1 | sort
 fi
 
 # ---------- 4. systemd units ------------------------------------------------

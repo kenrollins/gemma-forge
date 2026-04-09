@@ -1,0 +1,19 @@
+# Triton model configuration — Gemma 4 31B-IT (Architect + Worker shared engine)
+#
+# Loaded by triton@wide-01.service on GPUs 0+1 with tensor_parallel_size=2.
+# See ADR-0013, ADR-0014, ADR-0015.
+#
+# The vLLM backend infers I/O shapes automatically; we only declare the
+# bare minimum here. Real engine arguments live in 1/model.json.
+
+backend: "vllm"
+max_batch_size: 0  # batching is handled by vLLM continuous batching, not Triton
+model_transaction_policy {
+  decoupled: True  # required for streaming responses from vLLM
+}
+instance_group [
+  {
+    count: 1
+    kind: KIND_MODEL
+  }
+]

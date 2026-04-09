@@ -1,0 +1,16 @@
+# Triton model configuration — Gemma 4 E4B-IT (Auditor)
+#
+# Loaded by triton@2.service on GPU 2 with tensor_parallel_size=1.
+# See ADR-0013, ADR-0014, ADR-0015.
+
+backend: "vllm"
+max_batch_size: 0
+model_transaction_policy {
+  decoupled: True
+}
+instance_group [
+  {
+    count: 1
+    kind: KIND_MODEL
+  }
+]

@@ -68,8 +68,9 @@ seed/
 pool/
 snapshots/
 
-# Local model cache (huge — lives outside repo)
-models/
+# Local model cache (huge — lives outside repo).
+# Anchored to root so infra/triton/models/ (config files, not weights) is tracked.
+/models/
 *.safetensors
 *.gguf
 

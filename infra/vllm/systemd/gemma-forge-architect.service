@@ -31,7 +31,7 @@ ExecStart=/data/code/gemma-forge/infra/vllm/scripts/serve.sh \
     0,1 \
     8050 \
     --tensor-parallel-size 2 \
-    --max-model-len 4096
+    --max-model-len 8192
 
 ExecStop=/usr/bin/docker stop --time=120 gemma-forge-architect
 

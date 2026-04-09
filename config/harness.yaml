@@ -1,0 +1,18 @@
+# GemmaForge harness configuration
+#
+# Controls the Ralph loop behavior: target VM, loop limits, STIG profile.
+
+loop:
+  max_iterations: 20
+  max_rules_per_run: 5  # limit how many STIG rules to remediate in a single demo
+
+vm:
+  ip: "192.168.122.43"
+  user: "adm-forge"
+  ssh_key: "/data/vm/gemma-forge/keys/adm-forge"
+  healthcheck_cmd: "/usr/local/bin/mission-healthcheck.sh"
+
+stig:
+  profile: "xccdf_org.ssgproject.content_profile_stig"
+  datastream: "/usr/share/xml/scap/ssg/content/ssg-rl9-ds.xml"
+  results_dir: "/tmp/gemma-forge-stig"

@@ -55,4 +55,6 @@ exec docker run --rm \
     --model "${MODEL_PATH}" \
     --gpu-memory-utilization 0.90 \
     --dtype auto \
+    --enable-auto-tool-choice \
+    --tool-call-parser gemma4 \
     "${EXTRA_ARGS[@]}"

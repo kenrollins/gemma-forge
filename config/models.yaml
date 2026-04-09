@@ -1,0 +1,24 @@
+# GemmaForge model configuration
+#
+# Maps agent roles to vLLM endpoints. Each role gets:
+#   - endpoint: the vLLM OpenAI-compatible base URL
+#   - model: the model name as served by vLLM (matches --model arg)
+#
+# Architect and Worker share the same engine (ADR-0015: they execute
+# sequentially in the Ralph loop, so sharing is correct).
+
+architect:
+  endpoint: "http://localhost:8050/v1"
+  model: "/weights/Gemma-4-31B-IT-NVFP4"
+
+worker:
+  endpoint: "http://localhost:8050/v1"
+  model: "/weights/Gemma-4-31B-IT-NVFP4"
+
+auditor:
+  endpoint: "http://localhost:8060/v1"
+  model: "/weights/gemma-4-E4B-it"
+
+sentry:
+  endpoint: "http://localhost:8070/v1"
+  model: "/weights/gemma-4-E2B-it"

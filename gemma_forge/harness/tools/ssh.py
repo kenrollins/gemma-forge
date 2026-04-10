@@ -39,23 +39,28 @@ _last_fix_description: Optional[str] = None
 
 async def _run_ssh(config: SSHConfig, script: str) -> tuple[str, str, int]:
     """Run a bash script on the target VM and return (stdout, stderr, exit_code)."""
-    async with asyncssh.connect(
-        config.host,
-        username=config.user,
-        client_keys=[config.key_path],
-        known_hosts=None,
-        connect_timeout=config.connect_timeout,
-    ) as conn:
-        result = await conn.run(
-            f"sudo bash -c {shlex.quote(script)}",
-            check=False,
-            timeout=120,
-        )
-        return (
-            result.stdout or "",
-            result.stderr or "",
-            result.returncode or 0,
-        )
+    try:
+        async with asyncssh.connect(
+            config.host,
+            username=config.user,
+            client_keys=[config.key_path],
+            known_hosts=None,
+            connect_timeout=config.connect_timeout,
+        ) as conn:
+            result = await conn.run(
+                f"sudo bash -c {shlex.quote(script)}",
+                check=False,
+                timeout=300,
+            )
+            return (
+                result.stdout or "",
+                result.stderr or "",
+                result.returncode or 0,
+            )
+    except (asyncssh.process.TimeoutError, asyncio.TimeoutError, TimeoutError) as e:
+        return ("", f"SSH_TIMEOUT: command exceeded 300s — {e}", 124)
+    except (OSError, asyncssh.Error) as e:
+        return ("", f"SSH_ERROR: {e}", 125)
 
 
 async def ssh_apply(

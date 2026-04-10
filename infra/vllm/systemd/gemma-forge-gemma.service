@@ -1,0 +1,28 @@
+# GemmaForge — Gemma 4 31B bf16 FULL PRECISION, TP=4, ALL 4 GPUs
+#
+# No quantization. 14.8 tok/s sustained. 17,968 token KV cache.
+# 2× faster than GB10 DGX Spark at full precision.
+# Serves Architect, Worker, and Reflector roles (sequential).
+
+[Unit]
+Description=GemmaForge — Gemma 4 31B bf16 (TP=4, All GPUs)
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+[Service]
+Type=simple
+Restart=on-failure
+RestartSec=15s
+TimeoutStartSec=600
+TimeoutStopSec=120s
+StandardOutput=append:/data/triton/logs/gemma-forge-gemma.log
+StandardError=append:/data/triton/logs/gemma-forge-gemma.log
+
+ExecStart=/data/code/gemma-forge/infra/vllm/scripts/serve-gemma-bf16-tp4.sh
+ExecStop=/usr/bin/docker stop --time=120 gemma-forge-gemma
+
+[Install]
+WantedBy=multi-user.target

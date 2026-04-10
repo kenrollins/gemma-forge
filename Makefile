@@ -57,7 +57,7 @@ obs-status:  ## Show observability stack status
 # Inference plane — vLLM serving layer
 # ---------------------------------------------------------------------------
 
-DEMO_SERVICES := gemma-forge-architect gemma-forge-auditor
+DEMO_SERVICES := gemma-forge-gemma
 
 vllm-build:  ## Build the gemma-forge/vllm:latest container image
 	docker build -t gemma-forge/vllm:latest -f infra/vllm/Dockerfile .

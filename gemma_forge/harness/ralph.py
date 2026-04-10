@@ -1,24 +1,34 @@
 # NOTE: Do NOT add `from __future__ import annotations` to this module.
-# ADK's FunctionTool parser inspects parameter annotations as type objects
-# (e.g., `str`, `int`). The __future__ import makes them lazy strings
-# (e.g., `'str'`), which ADK cannot parse.
+# ADK's FunctionTool parser requires real type objects, not lazy strings.
 
-"""Ralph loop — stateful agent-driven STIG remediation.
+"""Ralph loop — proper reflexion architecture.
 
-Architecture:
-  - Python loop owns iteration control and STATE management
-  - ADK Agent + Runner owns each individual agent turn (tool calling)
-  - Each iteration starts with a FRESH conversation + compact state summary
-  - State persists across iterations as a structured dict, NOT as conversation
+Architecture (based on Shinn et al. NeurIPS 2023 + Anthropic harness patterns):
 
-This is the correct Ralph loop design: working memory (conversation) is
-per-iteration; persistent state (what's been tried, what worked) survives
-across iterations in a compact form.
+  OUTER LOOP: Architect picks a rule from remaining list
+  INNER LOOP (max 3 retries per rule):
+    1. Architect plans approach (informed by episodic memory for this rule)
+    2. Worker generates fix script
+    3. HARNESS validates script against banned approaches
+    4. HARNESS executes fix via SSH
+    5. HARNESS evaluates deterministically (health + rule check + journal)
+    6. If PASS → record success, break inner loop
+    7. If FAIL → revert, Reflector analyzes, update memories, retry
+  After 3 failures → ESCALATE (not skip — distinct category)
+
+Memory tiers:
+  - Working: per-attempt conversation (cleared each try via fresh ADK session)
+  - Episodic: per-rule attempts + reflections (cleared when rule resolved)
+  - Semantic: cross-task banned approaches + preferred tools (persists entire run)
+
+Model decisions: which rule, which approach, what script, why it failed
+Harness decisions: retry policy, script validation, revert, evaluation, termination
 """
 
 import asyncio
 import json
 import logging
+import re
 import sys
 import time
 from dataclasses import dataclass, field
@@ -33,7 +43,6 @@ from google.genai import types
 
 from gemma_forge.harness.agents import (
     ARCHITECT_INSTRUCTION,
-    AUDITOR_INSTRUCTION,
     REFLECTOR_INSTRUCTION,
     WORKER_INSTRUCTION,
 )
@@ -52,8 +61,7 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 
-
-# -- Module-level SSH config (avoids closures that break ADK parsing) ---------
+# -- Module-level config (avoids closures that break ADK parsing) -------------
 
 _ssh_config: Optional[SSHConfig] = None
 _stig_profile: str = ""
@@ -61,19 +69,15 @@ _stig_datastream: str = ""
 
 
 async def run_stig_scan() -> str:
-    """Scan the target VM for STIG compliance violations.
-    Returns a summary with the top failing rules."""
+    """Scan the target VM for STIG compliance violations."""
     assert _ssh_config is not None
-    full_result = await stig_scan(_ssh_config, _stig_profile, _stig_datastream)
-    # Truncate for agent context safety (8192 token budget).
-    # The full list is in RunState.failing_rules from the initial scan.
-    lines = full_result.split("\n")
-    header = lines[0] if lines else ""
+    full = await stig_scan(_ssh_config, _stig_profile, _stig_datastream)
+    lines = full.split("\n")
     rules = [l for l in lines if l.startswith("- ")]
-    truncated = header + "\n\nTop 15 failing rules:\n" + "\n".join(rules[:15])
-    if len(rules) > 15:
-        truncated += f"\n... and {len(rules) - 15} more. See state summary for the full list."
-    return truncated
+    header = lines[0] if lines else ""
+    return header + "\n\nTop 15:\n" + "\n".join(rules[:15]) + (
+        f"\n... and {len(rules)-15} more" if len(rules) > 15 else ""
+    )
 
 
 async def apply_fix(fix_script: str, revert_script: str, description: str) -> str:
@@ -88,96 +92,105 @@ async def apply_fix(fix_script: str, revert_script: str, description: str) -> st
     return await ssh_apply(_ssh_config, fix_script, revert_script, description)
 
 
-async def check_health() -> str:
-    """Check if the mission app (nginx + postgres + sshd) is still healthy.
-    Returns HEALTHY or UNHEALTHY with details."""
-    assert _ssh_config is not None
-    return await mission_healthcheck(_ssh_config)
+# -- Memory tiers -------------------------------------------------------------
+
+@dataclass
+class EpisodicMemory:
+    """Per-rule memory: what approaches were tried and what the Reflector said."""
+    rule_id: str
+    attempts: list = field(default_factory=list)  # list of {approach, result, reflection}
+
+    def summary(self) -> str:
+        if not self.attempts:
+            return "No prior attempts."
+        lines = [f"Prior attempts on {self.rule_id} ({len(self.attempts)} tries):"]
+        for i, a in enumerate(self.attempts, 1):
+            lines.append(f"  Attempt {i}: {a.get('approach','?')[:80]}")
+            lines.append(f"    Result: {a.get('result','?')[:80]}")
+            if a.get('reflection'):
+                lines.append(f"    Reflection: {a['reflection'][:120]}")
+        return "\n".join(lines)
 
 
-async def revert_last_fix() -> str:
-    """Revert the most recently applied fix."""
-    assert _ssh_config is not None
-    return await ssh_revert(_ssh_config)
+@dataclass
+class SemanticMemory:
+    """Cross-task memory: banned approaches, preferred tools, lessons learned."""
+    banned_patterns: list = field(default_factory=list)  # regex patterns to reject
+    preferred_approaches: list = field(default_factory=list)
+    lessons: list = field(default_factory=list)
 
+    # Always-banned for safety
+    ALWAYS_BANNED = [
+        r'\bsystemctl\s+(stop|disable)\s+sshd',
+        r'\bsystemctl\s+(stop|disable)\s+firewalld',
+        r'\breboot\b',
+        r'\bshutdown\b',
+        r'\binit\s+[06]\b',
+    ]
 
-async def verify_stig_rule(rule_id: str) -> str:
-    """Re-check a specific STIG rule to verify a fix actually worked.
+    def validate_script(self, script: str) -> tuple:
+        """Check script against all bans. Returns (ok, reason)."""
+        for pattern in self.ALWAYS_BANNED + self.banned_patterns:
+            if re.search(pattern, script, re.IGNORECASE):
+                return False, f"Script contains banned pattern: {pattern}"
+        return True, "ok"
 
-    Args:
-        rule_id: The XCCDF rule ID to check (e.g., xccdf_org.ssgproject.content_rule_package_aide_installed).
-    """
-    assert _ssh_config is not None
-    return await stig_check_rule(_ssh_config, rule_id, _stig_profile, _stig_datastream)
+    def summary(self) -> str:
+        lines = []
+        if self.banned_patterns:
+            lines.append("BANNED APPROACHES (harness will reject scripts containing these):")
+            for b in self.banned_patterns[-10:]:
+                lines.append(f"  ✗ {b}")
+        if self.preferred_approaches:
+            lines.append("PREFERRED APPROACHES:")
+            for p in self.preferred_approaches[-5:]:
+                lines.append(f"  ✓ {p}")
+        if self.lessons:
+            lines.append("STRATEGIC LESSONS:")
+            for l in self.lessons[-3:]:
+                lines.append(f"  • {l}")
+        return "\n".join(lines) if lines else ""
 
-
-async def check_system_journal() -> str:
-    """Read recent system journal entries for errors or warnings.
-    Catches side effects the healthcheck might miss: service failures,
-    SELinux denials, disk pressure, unexpected restarts."""
-    assert _ssh_config is not None
-    return await read_recent_journal(_ssh_config)
-
-
-TOOL_REGISTRY = {
-    "run_stig_scan": run_stig_scan,
-    "apply_fix": apply_fix,
-    "check_health": check_health,
-    "revert_last_fix": revert_last_fix,
-    "verify_stig_rule": verify_stig_rule,
-    "check_system_journal": check_system_journal,
-}
-
-
-# -- Persistent state ---------------------------------------------------------
 
 @dataclass
 class RunState:
-    """Persistent state that survives across iterations.
-
-    This is the 'checklist' — NOT conversation history. Each iteration
-    starts with a fresh conversation but reads from this state.
-    """
+    """Persistent state across the entire run."""
     failing_rules: list = field(default_factory=list)
     remediated: list = field(default_factory=list)
-    reverted: list = field(default_factory=list)
+    escalated: list = field(default_factory=list)  # failed after max retries
     skipped: list = field(default_factory=list)
+    current_rule: Optional[dict] = None
     current_iteration: int = 0
-    reflections: list = field(default_factory=list)  # Strategic guidance from the Reflector
+    semantic: SemanticMemory = field(default_factory=SemanticMemory)
+    episodic: dict = field(default_factory=dict)  # rule_id -> EpisodicMemory
+
+    def get_episodic(self, rule_id: str) -> EpisodicMemory:
+        if rule_id not in self.episodic:
+            self.episodic[rule_id] = EpisodicMemory(rule_id=rule_id)
+        return self.episodic[rule_id]
 
     def summary_for_architect(self) -> str:
-        """Compact state summary injected into the Architect's fresh context."""
-        lines = [f"ITERATION {self.current_iteration} STATE:"]
-        lines.append(f"Progress: {len(self.remediated)} fixed, {len(self.reverted)} reverted, {len(self.skipped)} skipped, {len(self.failing_rules)} remaining")
+        lines = [f"RUN STATE (iteration {self.current_iteration}):"]
+        lines.append(f"  Fixed: {len(self.remediated)} | Escalated: {len(self.escalated)} | Skipped: {len(self.skipped)} | Remaining: {len(self.failing_rules)}")
 
         if self.remediated:
-            lines.append(f"\nFixed ({len(self.remediated)}):")
-            for r in self.remediated[-10:]:  # Show last 10 to keep context bounded
+            lines.append(f"\nRemediated ({len(self.remediated)}):")
+            for r in self.remediated[-8:]:
                 lines.append(f"  ✓ {r['rule_id']}: {r['title']}")
-            if len(self.remediated) > 10:
-                lines.append(f"  ... and {len(self.remediated) - 10} earlier fixes")
 
-        if self.reverted:
-            lines.append(f"\nFailed — DO NOT retry these approaches:")
-            for r in self.reverted:
-                lines.append(f"  ✗ {r['rule_id']}: {r['title']} — {r['reason']}")
+        if self.escalated:
+            lines.append(f"\nEscalated — gave up after 3 attempts:")
+            for r in self.escalated:
+                lines.append(f"  ✗ {r['rule_id']}: {r['title']}")
 
-        if self.skipped:
-            lines.append(f"\nSkipped ({len(self.skipped)}) — cannot fix on a running system:")
-            for r in self.skipped[-5:]:
-                lines.append(f"  ⊘ {r['rule_id']}: {r['reason']}")
-
-        if self.reflections:
-            lines.append(f"\nSTRATEGIC GUIDANCE from Reflector (READ THIS CAREFULLY):")
-            # Show the most recent reflection — it supersedes older ones
-            lines.append(f"  {self.reflections[-1]}")
+        sem = self.semantic.summary()
+        if sem:
+            lines.append(f"\n{sem}")
 
         if self.failing_rules:
-            lines.append(f"\nRemaining ({len(self.failing_rules)}, first 15):")
+            lines.append(f"\nRemaining rules (first 15 of {len(self.failing_rules)}):")
             for r in self.failing_rules[:15]:
                 lines.append(f"  - {r['rule_id']}: {r['title']}")
-            if len(self.failing_rules) > 15:
-                lines.append(f"  ... and {len(self.failing_rules) - 15} more")
 
         return "\n".join(lines)
 
@@ -190,33 +203,19 @@ async def _run_agent_turn(
     message: str,
     run_log=None,
 ) -> str:
-    """Run ONE agent turn with a FRESH session. Returns text response.
-
-    Captures timing data for TTFT and tokens/sec calculation.
-    """
+    """Run ONE agent turn with a FRESH session (working memory cleared)."""
     turn_start = time.time()
 
-    runner = Runner(
-        app_name="gemma-forge",
-        agent=agent,
-        session_service=session_service,
-    )
-    session = session_service.create_session(
-        app_name="gemma-forge",
-        user_id="operator",
-    )
+    runner = Runner(app_name="gemma-forge", agent=agent, session_service=session_service)
+    session = session_service.create_session(app_name="gemma-forge", user_id="operator")
 
     response_parts = []
     first_token_time = None
     total_tokens = {"prompt": 0, "completion": 0}
 
     async for event in runner.run_async(
-        user_id="operator",
-        session_id=session.id,
-        new_message=types.Content(
-            role="user",
-            parts=[types.Part(text=message)],
-        ),
+        user_id="operator", session_id=session.id,
+        new_message=types.Content(role="user", parts=[types.Part(text=message)]),
     ):
         if event.content and event.content.parts:
             for part in event.content.parts:
@@ -225,30 +224,21 @@ async def _run_agent_turn(
                         first_token_time = time.time()
                     logger.info("[%s] %s", event.author, part.text[:300])
                     response_parts.append(part.text)
-
                 if part.function_call:
                     if first_token_time is None:
                         first_token_time = time.time()
                     logger.info("[%s] → TOOL: %s(%s)", event.author,
-                                part.function_call.name,
-                                str(part.function_call.args)[:200])
+                                part.function_call.name, str(part.function_call.args)[:200])
                     if run_log:
-                        run_log.log_tool_call(
-                            event.author, part.function_call.name,
-                            dict(part.function_call.args) if part.function_call.args else {},
-                        )
-
+                        run_log.log_tool_call(event.author, part.function_call.name,
+                            dict(part.function_call.args) if part.function_call.args else {})
                 if part.function_response:
                     resp = str(part.function_response.response)[:500]
                     logger.info("[%s] ← RESULT: %s", event.author, resp[:200])
                     if run_log:
-                        run_log.log_tool_result(
-                            event.author,
-                            part.function_response.name or "unknown",
-                            resp,
-                        )
+                        run_log.log_tool_result(event.author,
+                            part.function_response.name or "unknown", resp)
 
-        # Extract token usage from custom_metadata (set by VllmLlm adapter)
         if event.custom_metadata and "usage" in event.custom_metadata:
             usage = event.custom_metadata["usage"]
             total_tokens["prompt"] += usage.get("prompt_tokens", 0)
@@ -259,13 +249,11 @@ async def _run_agent_turn(
             if run_log:
                 run_log.log_error(event.author, event.error_message)
 
-    # Calculate timing metrics
     turn_end = time.time()
     turn_elapsed = turn_end - turn_start
     ttft = (first_token_time - turn_start) if first_token_time else turn_elapsed
     tok_per_sec = (total_tokens["completion"] / turn_elapsed) if turn_elapsed > 0 and total_tokens["completion"] > 0 else 0
 
-    # Log the agent response with token metrics
     if run_log and response_parts:
         run_log.log("agent_response", agent.name, {
             "text": "\n".join(response_parts)[:1000],
@@ -281,20 +269,40 @@ async def _run_agent_turn(
     return "\n".join(response_parts).strip()
 
 
+# -- Deterministic evaluator --------------------------------------------------
+
+async def evaluate_fix(ssh_config: SSHConfig, rule_id: str, profile: str, datastream: str) -> dict:
+    """Deterministic evaluation — no LLM. Returns structured result."""
+    health = await mission_healthcheck(ssh_config)
+    health_ok = "HEALTHY" in health
+
+    rule_result = await stig_check_rule(ssh_config, rule_id, profile, datastream)
+    rule_ok = "PASS" in rule_result.upper()
+
+    journal = await read_recent_journal(ssh_config)
+    journal_clean = "JOURNAL_CLEAN" in journal or "no entries" in journal.lower()
+
+    passed = health_ok and rule_ok and journal_clean
+
+    return {
+        "passed": passed,
+        "health": health,
+        "health_ok": health_ok,
+        "rule_check": rule_result,
+        "rule_ok": rule_ok,
+        "journal": journal[:300],
+        "journal_clean": journal_clean,
+        "summary": f"health={health_ok} rule={rule_ok} journal={journal_clean}",
+    }
+
+
 # -- Main loop ----------------------------------------------------------------
 
 async def run_ralph(
     config_path: str = "config/harness.yaml",
     skill_name: Optional[str] = None,
 ) -> None:
-    """Run the Ralph loop with proper state management.
-
-    Each iteration:
-      1. Architect gets FRESH session + compact state summary → picks a rule
-      2. Worker gets FRESH session + Architect's plan → calls apply_fix
-      3. Auditor gets FRESH session + apply result → calls check_health
-      4. State updated; conversation discarded
-    """
+    """Run the Ralph loop with proper reflexion architecture."""
     global _ssh_config, _stig_profile, _stig_datastream
 
     harness_cfg = {}
@@ -330,35 +338,31 @@ async def run_ralph(
     _stig_profile = stig_cfg.get("profile", "xccdf_org.ssgproject.content_profile_stig")
     _stig_datastream = stig_cfg.get("datastream", "/usr/share/xml/scap/ssg/content/ssg-rl9-ds.xml")
 
-    def _make_llm(role: str) -> VllmLlm:
-        cfg = models_cfg.get(role, {})
+    # Single model config — all roles share Gemma bf16 tp=4
+    gemma_cfg = models_cfg.get("gemma", {})
+    def _make_llm() -> VllmLlm:
         return VllmLlm(
-            model=role,
-            base_url=cfg.get("endpoint", "http://localhost:8050/v1"),
-            served_model_name=cfg.get("model", ""),
-            max_tokens=cfg.get("max_tokens", 1024),
+            model="gemma-4-31B-it",
+            base_url=gemma_cfg.get("endpoint", "http://localhost:8050/v1"),
+            served_model_name=gemma_cfg.get("model", "/weights/gemma-4-31B-it"),
+            max_tokens=gemma_cfg.get("max_tokens", 2048),
         )
 
     arch_prompt = skill.get_prompt("architect") if skill else ARCHITECT_INSTRUCTION
     work_prompt = skill.get_prompt("worker") if skill else WORKER_INSTRUCTION
-    aud_prompt = skill.get_prompt("auditor") if skill else AUDITOR_INSTRUCTION
     ref_prompt = skill.get_prompt("reflector") if skill else REFLECTOR_INSTRUCTION
 
-    architect = Agent(name="architect", model=_make_llm("architect"),
+    architect = Agent(name="architect", model=_make_llm(),
                       instruction=arch_prompt, tools=[run_stig_scan])
-    worker = Agent(name="worker", model=_make_llm("worker"),
+    worker = Agent(name="worker", model=_make_llm(),
                    instruction=work_prompt, tools=[apply_fix])
-    # Reflector shares the Gemma engine with Architect/Worker (GPUs 0+1)
-    # It only runs after reverts — no contention with sequential turns
-    reflector = Agent(name="reflector", model=_make_llm("architect"),
+    reflector = Agent(name="reflector", model=_make_llm(),
                       instruction=ref_prompt, tools=[])
-    auditor = Agent(name="auditor", model=_make_llm("auditor"),
-                    instruction=aud_prompt,
-                    tools=[check_health, verify_stig_rule, check_system_journal, revert_last_fix])
 
     session_service = InMemorySessionService()
-    max_iters = loop_cfg.get("max_iterations", 10)
-    max_rules = loop_cfg.get("max_rules_per_run", 5)
+    max_outer = loop_cfg.get("max_iterations", 50)
+    max_retries = loop_cfg.get("max_retries_per_rule", 3)
+    max_rules = loop_cfg.get("max_rules_per_run", 50)
 
     try:
         from gemma_forge.observability.otel import init_telemetry
@@ -370,90 +374,63 @@ async def run_ralph(
     run_log = RunLogger()
 
     logger.info("=" * 60)
-    logger.info("RALPH LOOP — Stateful remediation")
+    logger.info("RALPH LOOP — Proper reflexion architecture")
     logger.info("=" * 60)
-    logger.info("Skill: %s", skill.name if skill else "hardcoded")
-    logger.info("Max iterations: %d | Max rules: %d", max_iters, max_rules)
+    logger.info("Model: Gemma 4 31B bf16 full precision, TP=4, all 4 GPUs")
+    logger.info("Max outer iterations: %d | Max retries per rule: %d", max_outer, max_retries)
     logger.info("Run log: %s", run_log.log_path)
+    logger.info("")
 
     state = RunState()
 
-    # -- Initial scan (full, not truncated) --
-    # Call stig_scan() directly to get ALL failing rules for state.
-    # The run_stig_scan tool function returns a truncated version
-    # for agent context safety, but we need the full list for state.
-    logger.info("\nRunning initial STIG scan...")
-    raw_scan = await stig_scan(_ssh_config, _stig_profile, _stig_datastream)
-    for line in raw_scan.split("\n"):
+    # -- Initial scan (full, for state population) --
+    logger.info("Running initial STIG scan...")
+    raw = await stig_scan(_ssh_config, _stig_profile, _stig_datastream)
+    for line in raw.split("\n"):
         if line.startswith("- "):
             parts = line[2:].split(": ", 1)
             if len(parts) == 2:
-                state.failing_rules.append({
-                    "rule_id": parts[0].strip(),
-                    "title": parts[1].strip(),
-                })
+                state.failing_rules.append({"rule_id": parts[0].strip(), "title": parts[1].strip()})
     logger.info("Found %d failing rules", len(state.failing_rules))
-    run_log.log("scan_complete", "system", {
-        "failing_count": len(state.failing_rules),
-    }, include_gpu=True)
+    run_log.log("scan_complete", "system", {"failing_count": len(state.failing_rules)}, include_gpu=True)
 
-    # -- Remediation loop --
-    for iteration in range(1, max_iters + 1):
-        if len(state.remediated) >= max_rules:
-            logger.info("Reached max_rules (%d)", max_rules)
-            break
-        if not state.failing_rules:
-            logger.info("All rules remediated!")
+    # -- Outer loop: pick rules --
+    rules_processed = 0
+    for outer_iter in range(1, max_outer + 1):
+        if rules_processed >= max_rules or not state.failing_rules:
             break
 
-        state.current_iteration = iteration
-        run_log.set_iteration(iteration)
+        state.current_iteration = outer_iter
+
+        # Architect picks a rule
+        logger.info("\n" + "=" * 60)
+        logger.info("OUTER ITERATION %d | fixed:%d escalated:%d remaining:%d",
+                     outer_iter, len(state.remediated), len(state.escalated), len(state.failing_rules))
+        logger.info("=" * 60)
+
         run_log.log("iteration_start", "system", {
-            "iteration": iteration,
+            "iteration": outer_iter,
             "failing": len(state.failing_rules),
             "remediated": len(state.remediated),
-            "reverted": len(state.reverted),
+            "escalated": len(state.escalated),
+            "reverted": len(state.escalated),  # for frontend compat
         }, include_gpu=True)
 
-        logger.info("\n" + "-" * 60)
-        logger.info("ITERATION %d | fixed:%d reverted:%d remaining:%d",
-                     iteration, len(state.remediated), len(state.reverted),
-                     len(state.failing_rules))
-        logger.info("-" * 60)
-
-        # -- ARCHITECT (fresh session) --
-        arch_msg = (
-            f"{state.summary_for_architect()}\n\n"
-            f"Select ONE rule to remediate. Explain your plan briefly."
-        )
+        arch_msg = f"{state.summary_for_architect()}\n\nSelect ONE rule to remediate. Explain your approach."
         arch_resp = await _run_agent_turn(architect, session_service, arch_msg, run_log)
 
-        # Check if the Architect wants to SKIP this rule
+        # Check for SKIP
         if "SKIP:" in arch_resp.upper():
-            # Find which rule was skipped
-            skipped_rule = None
             for rule in state.failing_rules:
                 if rule["rule_id"] in arch_resp:
-                    skipped_rule = rule
+                    logger.info(">>> SKIPPED: %s <<<", rule["rule_id"])
+                    state.skipped.append({**rule, "reason": arch_resp[:150], "iteration": outer_iter})
+                    state.failing_rules = [r for r in state.failing_rules if r["rule_id"] != rule["rule_id"]]
+                    run_log.log("skip", "architect", {"rule_id": rule["rule_id"], "reason": arch_resp[:150]})
                     break
-            if skipped_rule:
-                reason = arch_resp.split("SKIP:")[-1].strip()[:150] if "SKIP:" in arch_resp else "cannot fix on running system"
-                logger.info(">>> SKIPPED: %s — %s <<<", skipped_rule["rule_id"], reason)
-                state.skipped.append({
-                    "rule_id": skipped_rule["rule_id"],
-                    "title": skipped_rule["title"],
-                    "reason": reason,
-                    "iteration": iteration,
-                })
-                state.failing_rules = [
-                    r for r in state.failing_rules if r["rule_id"] != skipped_rule["rule_id"]
-                ]
-                run_log.log("skip", "architect", {
-                    "rule_id": skipped_rule["rule_id"],
-                    "reason": reason,
-                })
-                continue  # Next iteration — no Worker/Auditor needed
+            continue
 
+        # Identify selected rule
         selected = None
         for rule in state.failing_rules:
             if rule["rule_id"] in arch_resp or rule["title"].lower() in arch_resp.lower():
@@ -461,72 +438,126 @@ async def run_ralph(
                 break
         if not selected:
             selected = state.failing_rules[0]
-        logger.info("Selected: %s", selected["rule_id"])
 
-        # -- WORKER (fresh session) --
-        work_msg = (
-            f"Fix this STIG rule:\n"
-            f"  Rule: {selected['rule_id']}\n"
-            f"  Title: {selected['title']}\n\n"
-            f"Architect's plan:\n{arch_resp[:400]}\n\n"
-            f"Call apply_fix now."
-        )
-        work_resp = await _run_agent_turn(worker, session_service, work_msg, run_log)
+        state.current_rule = selected
+        episodic = state.get_episodic(selected["rule_id"])
+        logger.info("Selected: %s (%s)", selected["rule_id"], selected["title"])
 
-        # -- AUDITOR (fresh session) --
-        aud_msg = (
-            f"A fix was applied for: {selected['rule_id']} ({selected['title']})\n\n"
-            f"Worker's report:\n{work_resp[:300]}\n\n"
-            f"Call check_health now. If unhealthy or fix failed, call revert_last_fix."
-        )
-        aud_resp = await _run_agent_turn(auditor, session_service, aud_msg, run_log)
+        # -- Inner loop: retry same rule up to max_retries --
+        rule_succeeded = False
+        for attempt in range(1, max_retries + 1):
+            logger.info("\n  --- Attempt %d/%d for %s ---", attempt, max_retries, selected["rule_id"])
 
-        # -- Update state --
-        if "AUDIT_PASS" in aud_resp:
-            logger.info(">>> FIX ACCEPTED <<<")
-            state.remediated.append({
+            # Worker generates fix (with episodic + semantic context)
+            work_context = f"Fix this STIG rule:\n  Rule: {selected['rule_id']}\n  Title: {selected['title']}\n\n"
+            work_context += f"Architect's plan:\n{arch_resp[:400]}\n\n"
+            if episodic.attempts:
+                work_context += f"\n{episodic.summary()}\n\n"
+            sem = state.semantic.summary()
+            if sem:
+                work_context += f"\n{sem}\n\n"
+            work_context += "Call apply_fix now."
+
+            work_resp = await _run_agent_turn(worker, session_service, work_context, run_log)
+
+            # HARNESS: deterministic evaluation
+            logger.info("  EVALUATING (deterministic)...")
+            eval_result = await evaluate_fix(_ssh_config, selected["rule_id"], _stig_profile, _stig_datastream)
+            logger.info("  EVAL: %s", eval_result["summary"])
+            run_log.log("evaluation", "harness", eval_result)
+
+            if eval_result["passed"]:
+                # SUCCESS
+                logger.info("  >>> RULE REMEDIATED: %s <<<", selected["rule_id"])
+                state.remediated.append({
+                    "rule_id": selected["rule_id"],
+                    "title": selected["title"],
+                    "approach": work_resp[:100],
+                    "attempt": attempt,
+                    "iteration": outer_iter,
+                })
+                state.failing_rules = [r for r in state.failing_rules if r["rule_id"] != selected["rule_id"]]
+                rule_succeeded = True
+                rules_processed += 1
+                run_log.log("remediated", "harness", {
+                    "rule_id": selected["rule_id"], "attempt": attempt,
+                })
+                break
+            else:
+                # FAIL — revert and reflect
+                logger.warning("  >>> EVAL FAILED — reverting <<<")
+                revert_result = await ssh_revert(_ssh_config)
+                logger.info("  Revert: %s", revert_result[:100])
+                run_log.log("revert", "harness", {
+                    "rule_id": selected["rule_id"],
+                    "reason": eval_result["summary"],
+                    "result": revert_result[:200],
+                    "attempt": attempt,
+                }, include_gpu=True)
+
+                # REFLECTOR analyzes (on Gemma — strongest reasoner)
+                if attempt < max_retries:
+                    ref_msg = (
+                        f"Rule: {selected['rule_id']} ({selected['title']})\n"
+                        f"Attempt {attempt} of {max_retries} FAILED.\n\n"
+                        f"Worker's approach:\n{work_resp[:300]}\n\n"
+                        f"Evaluation result:\n{json.dumps(eval_result, indent=2)[:400]}\n\n"
+                        f"{episodic.summary()}\n\n"
+                        f"Analyze: WHY did this approach fail? What should the Worker try DIFFERENTLY on the next attempt?\n"
+                        f"Output structured guidance:\n"
+                        f"BANNED: <regex pattern to reject in future scripts>\n"
+                        f"PREFERRED: <alternative approach to try>\n"
+                        f"LESSON: <one-sentence strategic insight>"
+                    )
+                    logger.info("  REFLECTOR analyzing attempt %d failure...", attempt)
+                    ref_resp = await _run_agent_turn(reflector, session_service, ref_msg, run_log)
+
+                    # Parse structured reflection
+                    reflection_text = ref_resp[:500]
+                    for line in ref_resp.split("\n"):
+                        line = line.strip()
+                        if line.upper().startswith("BANNED:"):
+                            ban = line[7:].strip()
+                            if ban and len(ban) > 3:
+                                state.semantic.banned_patterns.append(ban)
+                                logger.info("  + Banned: %s", ban)
+                        elif line.upper().startswith("PREFERRED:"):
+                            pref = line[10:].strip()
+                            if pref:
+                                state.semantic.preferred_approaches.append(pref)
+                                logger.info("  + Preferred: %s", pref)
+                        elif line.upper().startswith("LESSON:"):
+                            lesson = line[7:].strip()
+                            if lesson:
+                                state.semantic.lessons.append(lesson)
+                                logger.info("  + Lesson: %s", lesson)
+
+                    episodic.attempts.append({
+                        "approach": work_resp[:200],
+                        "result": eval_result["summary"],
+                        "reflection": reflection_text,
+                    })
+
+                    run_log.log("reflection", "reflector", {
+                        "text": reflection_text,
+                        "attempt": attempt,
+                        "banned_count": len(state.semantic.banned_patterns),
+                    })
+
+        if not rule_succeeded:
+            # ESCALATED — gave up after max retries
+            logger.warning("  >>> ESCALATED: %s (failed %d attempts) <<<", selected["rule_id"], max_retries)
+            state.escalated.append({
                 "rule_id": selected["rule_id"],
                 "title": selected["title"],
-                "approach": work_resp[:100],
-                "iteration": iteration,
+                "attempts": max_retries,
+                "iteration": outer_iter,
             })
-            state.failing_rules = [
-                r for r in state.failing_rules if r["rule_id"] != selected["rule_id"]
-            ]
-        else:
-            logger.warning(">>> FIX REJECTED / REVERTED <<<")
-            state.reverted.append({
+            state.failing_rules = [r for r in state.failing_rules if r["rule_id"] != selected["rule_id"]]
+            rules_processed += 1
+            run_log.log("escalated", "harness", {
                 "rule_id": selected["rule_id"],
-                "title": selected["title"],
-                "approach": work_resp[:100],
-                "reason": aud_resp[:150],
-                "iteration": iteration,
-            })
-            run_log.log_revert("auditor", aud_resp[:150], "state updated")
-
-            # -- REFLECTOR (runs on Gemma, same GPUs as Architect) --
-            # Analyzes failure patterns and generates strategic guidance
-            failures_summary = "\n".join(
-                f"  - Iteration {r['iteration']}: {r['rule_id']} — approach: {r['approach'][:80]} — reason: {r['reason'][:80]}"
-                for r in state.reverted
-            )
-            ref_msg = (
-                f"The following fixes have been REVERTED so far:\n{failures_summary}\n\n"
-                f"Most recent failure:\n"
-                f"  Rule: {selected['rule_id']} ({selected['title']})\n"
-                f"  Approach: {work_resp[:200]}\n"
-                f"  Auditor's reason: {aud_resp[:200]}\n\n"
-                f"Analyze the pattern. What strategy should the Architect change?"
-            )
-            logger.info("REFLECTOR analyzing failure patterns...")
-            ref_resp = await _run_agent_turn(
-                reflector, session_service, ref_msg, run_log,
-            )
-            state.reflections.append(ref_resp[:500])
-            logger.info("REFLECTION: %s", ref_resp[:200])
-            run_log.log("reflection", "reflector", {
-                "text": ref_resp[:500],
-                "failures_analyzed": len(state.reverted),
+                "attempts": max_retries,
             })
 
     # -- Summary --
@@ -535,27 +566,30 @@ async def run_ralph(
     logger.info("=" * 60)
     logger.info("Iterations: %d", state.current_iteration)
     logger.info("Remediated: %d", len(state.remediated))
-    logger.info("Reverted:   %d", len(state.reverted))
+    logger.info("Escalated:  %d", len(state.escalated))
     logger.info("Skipped:    %d", len(state.skipped))
     logger.info("Remaining:  %d", len(state.failing_rules))
+    logger.info("Banned approaches: %d", len(state.semantic.banned_patterns))
+    logger.info("Lessons learned: %d", len(state.semantic.lessons))
 
     for r in state.remediated:
-        logger.info("  ✓ %s: %s", r["rule_id"], r["title"])
-    for r in state.reverted:
-        logger.info("  ✗ %s: %s", r["rule_id"], r["title"])
+        logger.info("  ✓ %s: %s (attempt %d)", r["rule_id"], r["title"], r.get("attempt", "?"))
+    for r in state.escalated:
+        logger.info("  ✗ %s: %s (failed %d attempts)", r["rule_id"], r["title"], r["attempts"])
     for r in state.skipped:
-        logger.info("  ⊘ %s: %s", r["rule_id"], r["reason"][:80])
+        logger.info("  ⊘ %s: %s", r["rule_id"], r.get("reason", "")[:60])
 
     run_log.log_summary({
         "iterations": state.current_iteration,
         "remediated": len(state.remediated),
-        "reverted": len(state.reverted),
+        "escalated": len(state.escalated),
         "skipped": len(state.skipped),
         "remaining": len(state.failing_rules),
+        "banned_approaches": state.semantic.banned_patterns,
+        "lessons": state.semantic.lessons,
         "elapsed_s": round(time.time() - run_log.start_time, 2),
         "remediated_rules": state.remediated,
-        "reverted_rules": state.reverted,
-        "skipped_rules": state.skipped,
+        "escalated_rules": state.escalated,
     })
     logger.info("Run log: %s", run_log.log_path)
 

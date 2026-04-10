@@ -1,26 +1,14 @@
 # GemmaForge model configuration
 #
-# Two model families, two parallelism strategies:
-#   - Gemma 4 31B NVFP4 (Google) — Architect + Worker — TP=2 on GPUs 0+1
-#   - Nemotron-3-Nano-30B NVFP4 (NVIDIA) — Auditor — PP=2 on GPUs 2+3
+# Single model, full precision, all 4 GPUs:
+#   Gemma 4 31B bf16 — TP=4 across all 4 L4s
+#   No quantization. 14.8 tok/s. 17,968 token KV cache.
+#   2× faster than GB10 DGX Spark at full precision.
 #
-# The Auditor runs a DIFFERENT model family from the Architect/Worker
-# for cross-model evaluation — the "red team / blue team" principle.
-# See ADR-0015 (revised).
+# All three LLM roles (Architect, Worker, Reflector) share this engine
+# sequentially. The Evaluator is deterministic Python — no LLM needed.
 
-architect:
+gemma:
   endpoint: "http://localhost:8050/v1"
-  model: "/weights/Gemma-4-31B-IT-NVFP4"
-  max_tokens: 1024
-
-worker:
-  endpoint: "http://localhost:8050/v1"
-  model: "/weights/Gemma-4-31B-IT-NVFP4"
-  max_tokens: 1024
-
-auditor:
-  endpoint: "http://localhost:8060/v1"
-  model: "/weights/Nemotron-3-Nano-30B-A3B-NVFP4"
-  max_tokens: 4096  # Nemotron PP=2 has 1.2M token KV cache — no reason to limit
-
-# GPU 3: available for future skills (no sentry assigned)
+  model: "/weights/gemma-4-31B-it"
+  max_tokens: 2048

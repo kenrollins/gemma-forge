@@ -34,6 +34,7 @@ from google.genai import types
 from gemma_forge.harness.agents import (
     ARCHITECT_INSTRUCTION,
     AUDITOR_INSTRUCTION,
+    REFLECTOR_INSTRUCTION,
     WORKER_INSTRUCTION,
 )
 from gemma_forge.harness.tools.healthcheck import mission_healthcheck
@@ -133,6 +134,7 @@ class RunState:
     reverted: list = field(default_factory=list)
     skipped: list = field(default_factory=list)
     current_iteration: int = 0
+    reflections: list = field(default_factory=list)  # Strategic guidance from the Reflector
 
     def summary_for_architect(self) -> str:
         """Compact state summary injected into the Architect's fresh context."""
@@ -155,6 +157,11 @@ class RunState:
             lines.append(f"\nSkipped ({len(self.skipped)}) — cannot fix on a running system:")
             for r in self.skipped[-5:]:
                 lines.append(f"  ⊘ {r['rule_id']}: {r['reason']}")
+
+        if self.reflections:
+            lines.append(f"\nSTRATEGIC GUIDANCE from Reflector (READ THIS CAREFULLY):")
+            # Show the most recent reflection — it supersedes older ones
+            lines.append(f"  {self.reflections[-1]}")
 
         if self.failing_rules:
             lines.append(f"\nRemaining ({len(self.failing_rules)}, first 15):")
@@ -326,11 +333,16 @@ async def run_ralph(
     arch_prompt = skill.get_prompt("architect") if skill else ARCHITECT_INSTRUCTION
     work_prompt = skill.get_prompt("worker") if skill else WORKER_INSTRUCTION
     aud_prompt = skill.get_prompt("auditor") if skill else AUDITOR_INSTRUCTION
+    ref_prompt = skill.get_prompt("reflector") if skill else REFLECTOR_INSTRUCTION
 
     architect = Agent(name="architect", model=_make_llm("architect"),
                       instruction=arch_prompt, tools=[run_stig_scan])
     worker = Agent(name="worker", model=_make_llm("worker"),
                    instruction=work_prompt, tools=[apply_fix])
+    # Reflector shares the Gemma engine with Architect/Worker (GPUs 0+1)
+    # It only runs after reverts — no contention with sequential turns
+    reflector = Agent(name="reflector", model=_make_llm("architect"),
+                      instruction=ref_prompt, tools=[])
     auditor = Agent(name="auditor", model=_make_llm("auditor"),
                     instruction=aud_prompt,
                     tools=[check_health, verify_stig_rule, check_system_journal, revert_last_fix])
@@ -479,6 +491,31 @@ async def run_ralph(
                 "iteration": iteration,
             })
             run_log.log_revert("auditor", aud_resp[:150], "state updated")
+
+            # -- REFLECTOR (runs on Gemma, same GPUs as Architect) --
+            # Analyzes failure patterns and generates strategic guidance
+            failures_summary = "\n".join(
+                f"  - Iteration {r['iteration']}: {r['rule_id']} — approach: {r['approach'][:80]} — reason: {r['reason'][:80]}"
+                for r in state.reverted
+            )
+            ref_msg = (
+                f"The following fixes have been REVERTED so far:\n{failures_summary}\n\n"
+                f"Most recent failure:\n"
+                f"  Rule: {selected['rule_id']} ({selected['title']})\n"
+                f"  Approach: {work_resp[:200]}\n"
+                f"  Auditor's reason: {aud_resp[:200]}\n\n"
+                f"Analyze the pattern. What strategy should the Architect change?"
+            )
+            logger.info("REFLECTOR analyzing failure patterns...")
+            ref_resp = await _run_agent_turn(
+                reflector, session_service, ref_msg, run_log,
+            )
+            state.reflections.append(ref_resp[:500])
+            logger.info("REFLECTION: %s", ref_resp[:200])
+            run_log.log("reflection", "reflector", {
+                "text": ref_resp[:500],
+                "failures_analyzed": len(state.reverted),
+            })
 
     # -- Summary --
     logger.info("\n" + "=" * 60)

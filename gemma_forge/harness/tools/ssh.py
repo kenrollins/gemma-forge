@@ -13,11 +13,14 @@ goes back to a snapshot."
 from __future__ import annotations
 
 import asyncio
+import logging
 import shlex
 from dataclasses import dataclass, field
 from typing import Optional
 
 import asyncssh
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -38,7 +41,14 @@ _last_fix_description: Optional[str] = None
 
 
 async def _run_ssh(config: SSHConfig, script: str) -> tuple[str, str, int]:
-    """Run a bash script on the target VM and return (stdout, stderr, exit_code)."""
+    """Run a bash script on the target VM. Falls back to virsh console if SSH fails.
+
+    The fallback is critical: if the agent hardens SSH (FIPS, cipher policy,
+    firewall), it can lock itself out. The serial console is an out-of-band
+    channel that bypasses the guest's network stack entirely — nothing the
+    agent does inside the VM can break it.
+    """
+    # Try SSH first (fast, full-featured)
     try:
         async with asyncssh.connect(
             config.host,
@@ -58,9 +68,22 @@ async def _run_ssh(config: SSHConfig, script: str) -> tuple[str, str, int]:
                 result.returncode or 0,
             )
     except (asyncssh.process.TimeoutError, asyncio.TimeoutError, TimeoutError) as e:
-        return ("", f"SSH_TIMEOUT: command exceeded 300s — {e}", 124)
+        logger.warning("SSH timeout — falling back to virsh console: %s", e)
     except (OSError, asyncssh.Error) as e:
-        return ("", f"SSH_ERROR: {e}", 125)
+        logger.warning("SSH failed — falling back to virsh console: %s", e)
+
+    # Fallback: virsh console (out-of-band, survives SSH lockout)
+    try:
+        from .console import run_via_console
+        logger.info("Using virsh console fallback for command execution")
+        return await run_via_console(
+            domain="gemma-forge-mission-app",
+            command=script,
+            user=config.user,
+        )
+    except Exception as e:
+        logger.error("Both SSH and console fallback failed: %s", e)
+        return ("", f"ALL_CHANNELS_FAILED: SSH and console both failed — {e}", 126)
 
 
 async def ssh_apply(

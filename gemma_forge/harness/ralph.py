@@ -110,21 +110,30 @@ class RunState:
     failing_rules: list = field(default_factory=list)
     remediated: list = field(default_factory=list)
     reverted: list = field(default_factory=list)
+    skipped: list = field(default_factory=list)
     current_iteration: int = 0
 
     def summary_for_architect(self) -> str:
         """Compact state summary injected into the Architect's fresh context."""
         lines = [f"ITERATION {self.current_iteration} STATE:"]
+        lines.append(f"Progress: {len(self.remediated)} fixed, {len(self.reverted)} reverted, {len(self.skipped)} skipped, {len(self.failing_rules)} remaining")
 
         if self.remediated:
             lines.append(f"\nFixed ({len(self.remediated)}):")
-            for r in self.remediated:
+            for r in self.remediated[-10:]:  # Show last 10 to keep context bounded
                 lines.append(f"  ✓ {r['rule_id']}: {r['title']}")
+            if len(self.remediated) > 10:
+                lines.append(f"  ... and {len(self.remediated) - 10} earlier fixes")
 
         if self.reverted:
             lines.append(f"\nFailed — DO NOT retry these approaches:")
             for r in self.reverted:
                 lines.append(f"  ✗ {r['rule_id']}: {r['title']} — {r['reason']}")
+
+        if self.skipped:
+            lines.append(f"\nSkipped ({len(self.skipped)}) — cannot fix on a running system:")
+            for r in self.skipped[-5:]:
+                lines.append(f"  ⊘ {r['rule_id']}: {r['reason']}")
 
         if self.failing_rules:
             lines.append(f"\nRemaining ({len(self.failing_rules)}, first 15):")
@@ -339,6 +348,32 @@ async def run_ralph(
         )
         arch_resp = await _run_agent_turn(architect, session_service, arch_msg, run_log)
 
+        # Check if the Architect wants to SKIP this rule
+        if "SKIP:" in arch_resp.upper():
+            # Find which rule was skipped
+            skipped_rule = None
+            for rule in state.failing_rules:
+                if rule["rule_id"] in arch_resp:
+                    skipped_rule = rule
+                    break
+            if skipped_rule:
+                reason = arch_resp.split("SKIP:")[-1].strip()[:150] if "SKIP:" in arch_resp else "cannot fix on running system"
+                logger.info(">>> SKIPPED: %s — %s <<<", skipped_rule["rule_id"], reason)
+                state.skipped.append({
+                    "rule_id": skipped_rule["rule_id"],
+                    "title": skipped_rule["title"],
+                    "reason": reason,
+                    "iteration": iteration,
+                })
+                state.failing_rules = [
+                    r for r in state.failing_rules if r["rule_id"] != skipped_rule["rule_id"]
+                ]
+                run_log.log("skip", "architect", {
+                    "rule_id": skipped_rule["rule_id"],
+                    "reason": reason,
+                })
+                continue  # Next iteration — no Worker/Auditor needed
+
         selected = None
         for rule in state.failing_rules:
             if rule["rule_id"] in arch_resp or rule["title"].lower() in arch_resp.lower():
@@ -396,21 +431,26 @@ async def run_ralph(
     logger.info("Iterations: %d", state.current_iteration)
     logger.info("Remediated: %d", len(state.remediated))
     logger.info("Reverted:   %d", len(state.reverted))
+    logger.info("Skipped:    %d", len(state.skipped))
     logger.info("Remaining:  %d", len(state.failing_rules))
 
     for r in state.remediated:
         logger.info("  ✓ %s: %s", r["rule_id"], r["title"])
     for r in state.reverted:
         logger.info("  ✗ %s: %s", r["rule_id"], r["title"])
+    for r in state.skipped:
+        logger.info("  ⊘ %s: %s", r["rule_id"], r["reason"][:80])
 
     run_log.log_summary({
         "iterations": state.current_iteration,
         "remediated": len(state.remediated),
         "reverted": len(state.reverted),
+        "skipped": len(state.skipped),
         "remaining": len(state.failing_rules),
         "elapsed_s": round(time.time() - run_log.start_time, 2),
         "remediated_rules": state.remediated,
         "reverted_rules": state.reverted,
+        "skipped_rules": state.skipped,
     })
     logger.info("Run log: %s", run_log.log_path)
 

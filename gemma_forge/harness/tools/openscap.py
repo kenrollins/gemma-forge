@@ -65,12 +65,11 @@ echo "notselected"
         i += 1
 
     summary = f"STIG SCAN: {len(failing)} failing rules found.\n\n"
-    # Return at most 20 failing rules to fit in context window
+    # Return ALL failing rules so the harness state captures the full list.
+    # The Architect's per-iteration view is limited by RunState.summary_for_architect().
     if failing:
-        summary += "Failing rules (first 20):\n"
-        summary += "\n".join(failing[:20])
-        if len(failing) > 20:
-            summary += f"\n... and {len(failing) - 20} more"
+        summary += "Failing rules:\n"
+        summary += "\n".join(failing)
     else:
         summary += "No failing rules — system is compliant!"
 

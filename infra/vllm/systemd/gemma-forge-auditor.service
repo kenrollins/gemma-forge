@@ -2,11 +2,10 @@
 #
 # Cross-model evaluation: NVIDIA Nemotron evaluates Google Gemma's work.
 # Pipeline parallelism splits layers across GPUs (not matrices), giving
-# massive KV cache headroom (1.2M tokens vs Gemma's 10K with TP).
+# 1.2M token KV cache (120x more than Gemma's TP=2).
 #
 # Port: 8060 (HTTP, OpenAI-compatible)
 # Tool calling: qwen3_coder parser + nano_v3 reasoning parser
-# See ADR-0015 (revised) for the model lineup rationale.
 
 [Unit]
 Description=GemmaForge Auditor — Nemotron-3-Nano-30B NVFP4 (PP=2, GPUs 2+3)
@@ -20,34 +19,13 @@ StartLimitBurst=3
 [Service]
 Type=simple
 Restart=on-failure
-RestartSec=10s
+RestartSec=15s
 TimeoutStartSec=600
 TimeoutStopSec=60s
 StandardOutput=append:/data/triton/logs/gemma-forge-auditor.log
 StandardError=append:/data/triton/logs/gemma-forge-auditor.log
 
-ExecStartPre=-/usr/bin/docker rm -f gemma-forge-auditor
-ExecStart=/usr/bin/docker run --rm \
-    --name gemma-forge-auditor \
-    --gpus "device=2,3" \
-    -e CUDA_VISIBLE_DEVICES=0,1 \
-    -p 8060:8000 \
-    -v /data/triton/weights:/weights:ro \
-    --shm-size=2g \
-    --ulimit memlock=-1 \
-    --ulimit stack=67108864 \
-    gemma-forge/vllm:latest \
-    --model /weights/Nemotron-3-Nano-30B-A3B-NVFP4 \
-    --pipeline-parallel-size 2 \
-    --max-model-len 32768 \
-    --gpu-memory-utilization 0.90 \
-    --dtype auto \
-    --trust-remote-code \
-    --enable-auto-tool-choice \
-    --tool-call-parser qwen3_coder \
-    --reasoning-parser-plugin nano_v3_reasoning_parser.py \
-    --reasoning-parser nano_v3
-
+ExecStart=/data/code/gemma-forge/infra/vllm/scripts/serve-auditor.sh
 ExecStop=/usr/bin/docker stop --time=60 gemma-forge-auditor
 
 [Install]

@@ -1,0 +1,50 @@
+# GemmaForge Skill: Disconnected Log Triage and Threat Hunting
+#
+# Status: PLANNED
+#
+# A deployed system accumulates days of logs while disconnected. The agent
+# ingests logs, identifies anomalies, generates hypotheses, tests each one
+# by correlating across log sources, and refines when initial indicators
+# turn out to be false positives.
+
+name: "Disconnected Log Triage"
+description: "Autonomous threat hunting in accumulated logs — the agent reasons through anomalies, eliminates false positives, and converges on real threats."
+version: "0.1.0"
+target_os: "Rocky Linux 9"
+status: planned
+
+prompts:
+  architect: "prompts/architect.md"
+  worker: "prompts/worker.md"
+  auditor: "prompts/auditor.md"
+
+tools:
+  architect:
+    - run_stig_scan  # TODO: replace with pull_logs / search_logs tool
+  worker:
+    - apply_fix      # TODO: replace with run_query tool
+  auditor:
+    - check_health   # TODO: replace with validate_finding tool
+
+demo:
+  setup_notes: |
+    Pre-load 50,000 lines of synthetic syslog on the target VM with:
+      - 3 planted attack indicators (SSH brute force, privilege escalation,
+        data exfiltration attempt) buried in noise
+      - 10 deliberate red herrings (NTP sync patterns that look like
+        beaconing, cron jobs that look like lateral movement)
+    The agent starts with broad pattern matching, reasons through false
+    positives iteration by iteration, and converges on the 3 real threats.
+  ralph_loop_value: |
+    First-pass anomaly detection produces 90% false positives. The value
+    is in the agent's second and third passes — "this looked like C2
+    beaconing, but the timing correlates with scheduled updates, so I'll
+    reclassify and look for actual lateral movement instead."
+  federal_hook: |
+    "Your SOC analyst isn't at the FOB. This agent does their first
+    4 hours of triage in 90 seconds — and explains its reasoning so
+    the operator can act on it."
+  ddil_relevance: |
+    Log triage is the canonical "wait until we get back to base" task.
+    Every hour of delay is an hour the adversary has free rein. The
+    agent works entirely offline against local logs.

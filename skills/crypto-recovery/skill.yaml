@@ -1,0 +1,49 @@
+# GemmaForge Skill: Encrypted Partition / Key Management Recovery
+#
+# Status: PLANNED
+#
+# Data-at-rest encryption is mandatory (FIPS 140-2/140-3). When an
+# encrypted volume won't mount, the agent diagnoses the encryption
+# subsystem, checks key escrow locations, and attempts recovery —
+# reasoning about which path is safest before each attempt.
+
+name: "Crypto Recovery"
+description: "Autonomous diagnosis and recovery of LUKS-encrypted volumes — the agent reasons through key escrow paths and recovery options without risking data loss."
+version: "0.1.0"
+target_os: "Rocky Linux 9"
+status: planned
+
+prompts:
+  architect: "prompts/architect.md"
+  worker: "prompts/worker.md"
+  auditor: "prompts/auditor.md"
+
+tools:
+  architect:
+    - run_stig_scan  # TODO: replace with diagnose_crypto tool
+  worker:
+    - apply_fix
+  auditor:
+    - check_health
+
+demo:
+  setup_notes: |
+    Set up a LUKS-encrypted volume on the VM. Break access by:
+      1. Clear the cached passphrase
+      2. Corrupt the primary key slot
+      3. Leave a backup LUKS header in a non-obvious location
+    The agent discovers the backup header through filesystem
+    exploration and recovers the volume.
+  ralph_loop_value: |
+    Crypto recovery has real consequences — wrong attempts can lock out
+    the volume permanently. The agent must reason about which recovery
+    path is safest, attempt it, and if it fails, understand WHY before
+    trying the next. Not blind retry — informed reasoning.
+  federal_hook: |
+    "Classified data locked behind a broken encryption layer. Your
+    crypto officer is at Bragg. This agent gets you back in — or tells
+    you exactly why it can't, so you know whether to escalate to
+    destruction."
+  ddil_relevance: |
+    Crypto failures at the edge are mission-stoppers with no remote
+    support path. Today's answer is "pack the drive and ship it back."

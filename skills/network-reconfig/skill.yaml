@@ -1,0 +1,54 @@
+# GemmaForge Skill: Network Reconfiguration Under Partial Connectivity
+#
+# Status: PLANNED
+#
+# A tactical network partially degrades. The agent diagnoses the topology,
+# identifies broken paths, reconfigures routes to use surviving paths,
+# updates DNS, and validates end-to-end connectivity.
+
+name: "Network Reconfiguration (DDIL)"
+description: "Autonomous network diagnosis and re-routing when connectivity partially degrades — the agent adapts to whatever paths still work."
+version: "0.1.0"
+target_os: "Rocky Linux 9"
+status: planned
+
+prompts:
+  architect: "prompts/architect.md"
+  worker: "prompts/worker.md"
+  auditor: "prompts/auditor.md"
+
+tools:
+  architect:
+    - run_stig_scan  # TODO: replace with diagnose_network tool
+  worker:
+    - apply_fix
+  auditor:
+    - check_health
+    - revert_last_fix
+
+validators:
+  - name: "endpoint-reachability"
+    command: "curl -sf http://mission-endpoint/ > /dev/null && echo HEALTHY || echo UNHEALTHY"
+    success_pattern: "HEALTHY"
+    failure_pattern: "UNHEALTHY"
+
+demo:
+  setup_notes: |
+    Set up the VM with two network interfaces. Break the primary path
+    (drop the default route), misconfigure the secondary (wrong subnet
+    mask). The agent must discover the working interface, fix its
+    configuration, update routing, and restore connectivity to a
+    simulated "mission endpoint" (an HTTP service on the host).
+  ralph_loop_value: |
+    Network diagnosis is inherently iterative. Ping fails → check route
+    (exists but next-hop unreachable) → try alternate interface (up but
+    no IP) → run DHCP (wrong subnet) → assign static IP (DNS wrong) →
+    update DNS → finally end-to-end works. Each step generates new info.
+  federal_hook: |
+    "The SATCOM link just died. Your TACNET is half-broken. This agent
+    re-routes through whatever's still working — right now, not after
+    a 45-minute help desk call."
+  ddil_relevance: |
+    THIS IS DDIL. The scenario is literally "the network degraded and
+    the agent adapts." Every Federal audience member who has experienced
+    a link drop will feel this one viscerally.

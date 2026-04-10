@@ -1,0 +1,55 @@
+# GemmaForge Skill: Degraded-Mode Service Recovery
+#
+# Status: PLANNED
+#
+# A mission-critical app stack partially fails. The agent SSHs in, checks
+# each service, reads error logs, hypothesizes root causes, tries fixes,
+# and adapts when each fix reveals the next layer of the problem.
+
+name: "Degraded-Mode Service Recovery"
+description: "Autonomous diagnosis and repair of a multi-service application stack with cascading failures — each fix reveals the next problem."
+version: "0.1.0"
+target_os: "Rocky Linux 9"
+status: planned
+
+prompts:
+  architect: "prompts/architect.md"
+  worker: "prompts/worker.md"
+  auditor: "prompts/auditor.md"
+
+tools:
+  architect:
+    - run_stig_scan  # TODO: replace with diagnose_services tool
+  worker:
+    - apply_fix
+  auditor:
+    - check_health
+    - revert_last_fix
+
+validators:
+  - name: "mission-app-health"
+    command: "/usr/local/bin/mission-healthcheck.sh"
+    success_pattern: "HEALTHY"
+    failure_pattern: "UNHEALTHY"
+
+demo:
+  setup_notes: |
+    Break the mission app VM in 3 layered ways:
+      1. Fill /var/log to 95% (disk pressure)
+      2. Corrupt an nginx upstream config (502 errors)
+      3. Revoke postgres user permissions (database queries fail)
+    The agent must diagnose and fix all three in sequence, where each
+    fix reveals the next problem. The audience sees a 502 become a 200.
+  ralph_loop_value: |
+    System failures are ambiguous. The agent might try restarting nginx
+    (fails — not a crash, it's a config issue), then check the config,
+    find the corruption, fix it (app still broken — database permissions),
+    then fix the DB. Each attempt generates new diagnostic information.
+  federal_hook: |
+    "Your sysadmin is 200 miles away and the satellite link is down.
+    The server just threw a 500. This agent diagnoses and fixes it
+    while your operator watches."
+  ddil_relevance: |
+    Every forward-deployed system eventually breaks. Today's answer is
+    "reboot and pray" or "wait for the reach-back team." This agent
+    replaces both.

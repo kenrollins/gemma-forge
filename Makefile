@@ -57,7 +57,7 @@ obs-status:  ## Show observability stack status
 # Inference plane — vLLM serving layer
 # ---------------------------------------------------------------------------
 
-DEMO_SERVICES := gemma-forge-architect gemma-forge-auditor gemma-forge-sentry
+DEMO_SERVICES := gemma-forge-architect gemma-forge-auditor
 
 vllm-build:  ## Build the gemma-forge/vllm:latest container image
 	docker build -t gemma-forge/vllm:latest -f infra/vllm/Dockerfile .
@@ -95,9 +95,8 @@ demo-status:  ## Show service status + GPU memory usage
 	@nvidia-smi --query-gpu=index,name,memory.used,memory.total --format=csv,noheader
 	@echo ""
 	@echo "=== Endpoints ==="
-	@printf "  Architect (31B NVFP4 tp=2): "; curl -s -o /dev/null -w "http://localhost:8050 [%{http_code}]" http://localhost:8050/v1/models 2>/dev/null || echo "not responding"; echo
-	@printf "  Auditor   (E4B):            "; curl -s -o /dev/null -w "http://localhost:8060 [%{http_code}]" http://localhost:8060/v1/models 2>/dev/null || echo "not responding"; echo
-	@printf "  Sentry    (E2B):            "; curl -s -o /dev/null -w "http://localhost:8070 [%{http_code}]" http://localhost:8070/v1/models 2>/dev/null || echo "not responding"; echo
+	@printf "  Architect (Gemma 31B NVFP4, TP=2, GPUs 0+1): "; curl -s -o /dev/null -w "http://localhost:8050 [%{http_code}]" http://localhost:8050/v1/models 2>/dev/null || echo "not responding"; echo
+	@printf "  Auditor   (Nemotron 30B NVFP4, PP=2, GPUs 2+3): "; curl -s -o /dev/null -w "http://localhost:8060 [%{http_code}]" http://localhost:8060/v1/models 2>/dev/null || echo "not responding"; echo
 
 demo-logs:  ## Tail logs from all 3 inference services
 	@echo "Tailing logs (Ctrl+C to stop)..."
@@ -105,7 +104,7 @@ demo-logs:  ## Tail logs from all 3 inference services
 
 demo-test:  ## Verify all 3 inference endpoints are responding
 	@PASS=0; FAIL=0; \
-	for endpoint in "Architect:8050" "Auditor:8060" "Sentry:8070"; do \
+	for endpoint in "Architect:8050" "Auditor:8060"; do \
 		NAME=$${endpoint%%:*}; PORT=$${endpoint##*:}; \
 		printf "  %-12s " "$$NAME:"; \
 		if curl -s "http://localhost:$$PORT/v1/models" 2>/dev/null | grep -q '"object"'; then \
@@ -115,7 +114,7 @@ demo-test:  ## Verify all 3 inference endpoints are responding
 		fi; \
 	done; \
 	echo ""; \
-	echo "$$PASS/3 endpoints responding."; \
+	echo "$$PASS/2 endpoints responding."; \
 	if [ $$FAIL -gt 0 ]; then echo "Run 'make demo-logs' to diagnose failures."; exit 1; fi
 
 # ---------------------------------------------------------------------------

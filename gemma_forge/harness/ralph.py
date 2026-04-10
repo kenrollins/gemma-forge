@@ -37,7 +37,8 @@ from gemma_forge.harness.agents import (
     WORKER_INSTRUCTION,
 )
 from gemma_forge.harness.tools.healthcheck import mission_healthcheck
-from gemma_forge.harness.tools.openscap import stig_scan
+from gemma_forge.harness.tools.journal import read_recent_journal
+from gemma_forge.harness.tools.openscap import stig_check_rule, stig_scan
 from gemma_forge.harness.tools.ssh import SSHConfig, ssh_apply, ssh_revert
 from gemma_forge.models.vllm_llm import VllmLlm
 from gemma_forge.skills.base import Skill
@@ -90,11 +91,31 @@ async def revert_last_fix() -> str:
     return await ssh_revert(_ssh_config)
 
 
+async def verify_stig_rule(rule_id: str) -> str:
+    """Re-check a specific STIG rule to verify a fix actually worked.
+
+    Args:
+        rule_id: The XCCDF rule ID to check (e.g., xccdf_org.ssgproject.content_rule_package_aide_installed).
+    """
+    assert _ssh_config is not None
+    return await stig_check_rule(_ssh_config, rule_id, _stig_profile, _stig_datastream)
+
+
+async def check_system_journal() -> str:
+    """Read recent system journal entries for errors or warnings.
+    Catches side effects the healthcheck might miss: service failures,
+    SELinux denials, disk pressure, unexpected restarts."""
+    assert _ssh_config is not None
+    return await read_recent_journal(_ssh_config)
+
+
 TOOL_REGISTRY = {
     "run_stig_scan": run_stig_scan,
     "apply_fix": apply_fix,
     "check_health": check_health,
     "revert_last_fix": revert_last_fix,
+    "verify_stig_rule": verify_stig_rule,
+    "check_system_journal": check_system_journal,
 }
 
 
@@ -265,7 +286,7 @@ async def run_ralph(
             model=role,
             base_url=cfg.get("endpoint", "http://localhost:8050/v1"),
             served_model_name=cfg.get("model", ""),
-            max_tokens=1024,
+            max_tokens=cfg.get("max_tokens", 1024),
         )
 
     arch_prompt = skill.get_prompt("architect") if skill else ARCHITECT_INSTRUCTION
@@ -277,7 +298,8 @@ async def run_ralph(
     worker = Agent(name="worker", model=_make_llm("worker"),
                    instruction=work_prompt, tools=[apply_fix])
     auditor = Agent(name="auditor", model=_make_llm("auditor"),
-                    instruction=aud_prompt, tools=[check_health, revert_last_fix])
+                    instruction=aud_prompt,
+                    tools=[check_health, verify_stig_rule, check_system_journal, revert_last_fix])
 
     session_service = InMemorySessionService()
     max_iters = loop_cfg.get("max_iterations", 10)

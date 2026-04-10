@@ -1,24 +1,26 @@
 # GemmaForge model configuration
 #
-# Maps agent roles to vLLM endpoints. Each role gets:
-#   - endpoint: the vLLM OpenAI-compatible base URL
-#   - model: the model name as served by vLLM (matches --model arg)
+# Two model families, two parallelism strategies:
+#   - Gemma 4 31B NVFP4 (Google) — Architect + Worker — TP=2 on GPUs 0+1
+#   - Nemotron-3-Nano-30B NVFP4 (NVIDIA) — Auditor — PP=2 on GPUs 2+3
 #
-# Architect and Worker share the same engine (ADR-0015: they execute
-# sequentially in the Ralph loop, so sharing is correct).
+# The Auditor runs a DIFFERENT model family from the Architect/Worker
+# for cross-model evaluation — the "red team / blue team" principle.
+# See ADR-0015 (revised).
 
 architect:
   endpoint: "http://localhost:8050/v1"
   model: "/weights/Gemma-4-31B-IT-NVFP4"
+  max_tokens: 1024
 
 worker:
   endpoint: "http://localhost:8050/v1"
   model: "/weights/Gemma-4-31B-IT-NVFP4"
+  max_tokens: 1024
 
 auditor:
   endpoint: "http://localhost:8060/v1"
-  model: "/weights/gemma-4-E4B-it"
+  model: "/weights/Nemotron-3-Nano-30B-A3B-NVFP4"
+  max_tokens: 4096  # Nemotron PP=2 has 1.2M token KV cache — no reason to limit
 
-sentry:
-  endpoint: "http://localhost:8070/v1"
-  model: "/weights/gemma-4-E2B-it"
+# GPU 3: available for future skills (no sentry assigned)

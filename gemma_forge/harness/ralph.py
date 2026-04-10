@@ -1,33 +1,31 @@
-"""Ralph loop — ADK LoopAgent implementation with real tool calling.
-
-This is the agent-driven Ralph loop where Gemma 4 models make the
-decisions: which rule to fix, how to fix it, whether to revert. The
-conversation history carries between iterations, so the Architect
-can learn from the Auditor's revert explanations.
-
-The loop uses ADK's LoopAgent with three sub-agents:
-  - Architect (31B NVFP4): calls stig_scan, picks a rule, plans the fix
-  - Worker (31B NVFP4): calls ssh_apply with fix + revert scripts
-  - Auditor (E4B): calls healthcheck, decides whether to revert
-
-Usage:
-    python -m gemma_forge.harness.ralph
-"""
-
 # NOTE: Do NOT add `from __future__ import annotations` to this module.
 # ADK's FunctionTool parser inspects parameter annotations as type objects
 # (e.g., `str`, `int`). The __future__ import makes them lazy strings
-# (e.g., `'str'`), which ADK cannot parse. This was the root cause of the
-# "Failed to parse the parameter fix_script: 'str'" error during Phase 3.
+# (e.g., `'str'`), which ADK cannot parse.
+
+"""Ralph loop — stateful agent-driven STIG remediation.
+
+Architecture:
+  - Python loop owns iteration control and STATE management
+  - ADK Agent + Runner owns each individual agent turn (tool calling)
+  - Each iteration starts with a FRESH conversation + compact state summary
+  - State persists across iterations as a structured dict, NOT as conversation
+
+This is the correct Ralph loop design: working memory (conversation) is
+per-iteration; persistent state (what's been tried, what worked) survives
+across iterations in a compact form.
+"""
 
 import asyncio
+import json
 import logging
 import sys
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Optional
 
 import yaml
-from google.adk.agents import LoopAgent
 from google.adk.agents.llm_agent import Agent
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
@@ -53,9 +51,8 @@ logging.basicConfig(
 )
 
 
-# Module-level SSH config — set by build_ralph_loop() before tools are used.
-# This avoids closures which confuse ADK's function parameter parser.
-from typing import Optional
+# -- Module-level SSH config (avoids closures that break ADK parsing) ---------
+
 _ssh_config: Optional[SSHConfig] = None
 _stig_profile: str = ""
 _stig_datastream: str = ""
@@ -63,8 +60,7 @@ _stig_datastream: str = ""
 
 async def run_stig_scan() -> str:
     """Scan the target VM for STIG compliance violations.
-    Returns a list of failing rules with their IDs and titles.
-    Run this at the start and after fixes to see what remains."""
+    Returns a list of failing rules with their IDs and titles."""
     assert _ssh_config is not None
     return await stig_scan(_ssh_config, _stig_profile, _stig_datastream)
 
@@ -73,8 +69,8 @@ async def apply_fix(fix_script: str, revert_script: str, description: str) -> st
     """Apply a STIG fix to the target VM via SSH.
 
     Args:
-        fix_script: The bash commands to apply the fix. Always back up files first.
-        revert_script: The bash commands to undo the fix. Must restore exact original state.
+        fix_script: The bash commands to apply the fix.
+        revert_script: The bash commands to undo the fix.
         description: One-line description of what this fix does.
     """
     assert _ssh_config is not None
@@ -83,21 +79,17 @@ async def apply_fix(fix_script: str, revert_script: str, description: str) -> st
 
 async def check_health() -> str:
     """Check if the mission app (nginx + postgres + sshd) is still healthy.
-    Returns HEALTHY or UNHEALTHY with details. Call this after every fix."""
+    Returns HEALTHY or UNHEALTHY with details."""
     assert _ssh_config is not None
     return await mission_healthcheck(_ssh_config)
 
 
 async def revert_last_fix() -> str:
-    """Revert the most recently applied fix. Call this if the mission app
-    is UNHEALTHY after a fix was applied. The revert script from the
-    last apply_fix call will be executed."""
+    """Revert the most recently applied fix."""
     assert _ssh_config is not None
     return await ssh_revert(_ssh_config)
 
 
-# Map from tool names (in skill.yaml) to actual tool functions.
-# Skills reference tools by name; this registry resolves them.
 TOOL_REGISTRY = {
     "run_stig_scan": run_stig_scan,
     "apply_fix": apply_fix,
@@ -106,90 +98,125 @@ TOOL_REGISTRY = {
 }
 
 
-def build_ralph_loop(
-    ssh_config: SSHConfig,
-    stig_profile: str,
-    stig_datastream: str,
-    architect_llm: VllmLlm,
-    worker_llm: VllmLlm,
-    auditor_llm: VllmLlm,
-    max_iterations: int = 10,
-    skill: Optional[Skill] = None,
-) -> LoopAgent:
-    """Build the Ralph loop as an ADK LoopAgent with three sub-agents.
+# -- Persistent state ---------------------------------------------------------
 
-    If a skill is provided, prompts and tool assignments come from the
-    skill manifest. Otherwise falls back to the hardcoded defaults in
-    agents.py (for backwards compatibility during development).
+@dataclass
+class RunState:
+    """Persistent state that survives across iterations.
+
+    This is the 'checklist' — NOT conversation history. Each iteration
+    starts with a fresh conversation but reads from this state.
     """
+    failing_rules: list = field(default_factory=list)
+    remediated: list = field(default_factory=list)
+    reverted: list = field(default_factory=list)
+    current_iteration: int = 0
 
-    # Set module-level config so the tool functions can access it
-    global _ssh_config, _stig_profile, _stig_datastream
-    _ssh_config = ssh_config
-    _stig_profile = stig_profile
-    _stig_datastream = stig_datastream
+    def summary_for_architect(self) -> str:
+        """Compact state summary injected into the Architect's fresh context."""
+        lines = [f"ITERATION {self.current_iteration} STATE:"]
 
-    # Resolve prompts — from skill or hardcoded fallback
-    if skill:
-        arch_prompt = skill.get_prompt("architect")
-        work_prompt = skill.get_prompt("worker")
-        aud_prompt = skill.get_prompt("auditor")
-        arch_tools = [TOOL_REGISTRY[t] for t in skill.get_tools("architect")]
-        work_tools = [TOOL_REGISTRY[t] for t in skill.get_tools("worker")]
-        aud_tools = [TOOL_REGISTRY[t] for t in skill.get_tools("auditor")]
-        logger.info("Using skill: %s", skill.name)
-    else:
-        arch_prompt = ARCHITECT_INSTRUCTION
-        work_prompt = WORKER_INSTRUCTION
-        aud_prompt = AUDITOR_INSTRUCTION
-        arch_tools = [run_stig_scan]
-        work_tools = [apply_fix]
-        aud_tools = [check_health, revert_last_fix]
-        logger.info("Using hardcoded prompts (no skill loaded)")
+        if self.remediated:
+            lines.append(f"\nFixed ({len(self.remediated)}):")
+            for r in self.remediated:
+                lines.append(f"  ✓ {r['rule_id']}: {r['title']}")
 
-    architect = Agent(
-        name="architect",
-        model=architect_llm,
-        instruction=arch_prompt,
-        tools=arch_tools,
+        if self.reverted:
+            lines.append(f"\nFailed — DO NOT retry these approaches:")
+            for r in self.reverted:
+                lines.append(f"  ✗ {r['rule_id']}: {r['title']} — {r['reason']}")
+
+        if self.failing_rules:
+            lines.append(f"\nRemaining ({len(self.failing_rules)}, first 15):")
+            for r in self.failing_rules[:15]:
+                lines.append(f"  - {r['rule_id']}: {r['title']}")
+            if len(self.failing_rules) > 15:
+                lines.append(f"  ... and {len(self.failing_rules) - 15} more")
+
+        return "\n".join(lines)
+
+
+# -- Single-agent turn --------------------------------------------------------
+
+async def _run_agent_turn(
+    agent: Agent,
+    session_service: InMemorySessionService,
+    message: str,
+    run_log=None,
+) -> str:
+    """Run ONE agent turn with a FRESH session. Returns text response."""
+    runner = Runner(
+        app_name="gemma-forge",
+        agent=agent,
+        session_service=session_service,
+    )
+    session = session_service.create_session(
+        app_name="gemma-forge",
+        user_id="operator",
     )
 
-    worker = Agent(
-        name="worker",
-        model=worker_llm,
-        instruction=work_prompt,
-        tools=work_tools,
-    )
+    response_parts = []
 
-    auditor = Agent(
-        name="auditor",
-        model=auditor_llm,
-        instruction=aud_prompt,
-        tools=aud_tools,
-    )
+    async for event in runner.run_async(
+        user_id="operator",
+        session_id=session.id,
+        new_message=types.Content(
+            role="user",
+            parts=[types.Part(text=message)],
+        ),
+    ):
+        if event.content and event.content.parts:
+            for part in event.content.parts:
+                if part.text:
+                    logger.info("[%s] %s", event.author, part.text[:300])
+                    response_parts.append(part.text)
+                    if run_log:
+                        run_log.log_agent_response(event.author, part.text)
 
-    loop = LoopAgent(
-        name="ralph_loop",
-        sub_agents=[architect, worker, auditor],
-        max_iterations=max_iterations,
-    )
+                if part.function_call:
+                    logger.info("[%s] → TOOL: %s(%s)", event.author,
+                                part.function_call.name,
+                                str(part.function_call.args)[:200])
+                    if run_log:
+                        run_log.log_tool_call(
+                            event.author, part.function_call.name,
+                            dict(part.function_call.args) if part.function_call.args else {},
+                        )
 
-    return loop
+                if part.function_response:
+                    resp = str(part.function_response.response)[:500]
+                    logger.info("[%s] ← RESULT: %s", event.author, resp[:200])
+                    if run_log:
+                        run_log.log_tool_result(
+                            event.author,
+                            part.function_response.name or "unknown",
+                            resp,
+                        )
 
+        if event.error_message:
+            logger.error("[%s] ERROR: %s", event.author, event.error_message)
+            if run_log:
+                run_log.log_error(event.author, event.error_message)
+
+    return "\n".join(response_parts).strip()
+
+
+# -- Main loop ----------------------------------------------------------------
 
 async def run_ralph(
     config_path: str = "config/harness.yaml",
     skill_name: Optional[str] = None,
 ) -> None:
-    """Run the Ralph loop end-to-end.
+    """Run the Ralph loop with proper state management.
 
-    Args:
-        config_path: Path to harness config YAML.
-        skill_name: Name of the skill directory under skills/
-                    (e.g., "stig-rhel9"). If None, uses hardcoded defaults.
+    Each iteration:
+      1. Architect gets FRESH session + compact state summary → picks a rule
+      2. Worker gets FRESH session + Architect's plan → calls apply_fix
+      3. Auditor gets FRESH session + apply result → calls check_health
+      4. State updated; conversation discarded
     """
+    global _ssh_config, _stig_profile, _stig_datastream
 
-    # Load configs
     harness_cfg = {}
     if Path(config_path).exists():
         with open(config_path) as f:
@@ -204,25 +231,25 @@ async def run_ralph(
     loop_cfg = harness_cfg.get("loop", {})
     stig_cfg = harness_cfg.get("stig", {})
 
-    ssh_config = SSHConfig(
+    _ssh_config = SSHConfig(
         host=vm_cfg.get("ip", "192.168.122.43"),
         user=vm_cfg.get("user", "adm-forge"),
         key_path=vm_cfg.get("ssh_key", "/data/vm/gemma-forge/keys/adm-forge"),
     )
 
-    # Load skill if specified
     skill = None
     if skill_name:
         skill = load_skill(skill_name)
-        logger.info("Loaded skill: %s — %s", skill.name, skill.description)
-        # Override STIG config from skill manifest if available
+        logger.info("Loaded skill: %s", skill.name)
         if skill.manifest.stig:
             stig_cfg = {
                 "profile": skill.manifest.stig.profile,
                 "datastream": skill.manifest.stig.datastream,
             }
 
-    # Create LLM instances for each role
+    _stig_profile = stig_cfg.get("profile", "xccdf_org.ssgproject.content_profile_stig")
+    _stig_datastream = stig_cfg.get("datastream", "/usr/share/xml/scap/ssg/content/ssg-rl9-ds.xml")
+
     def _make_llm(role: str) -> VllmLlm:
         cfg = models_cfg.get(role, {})
         return VllmLlm(
@@ -232,162 +259,168 @@ async def run_ralph(
             max_tokens=1024,
         )
 
-    architect_llm = _make_llm("architect")
-    worker_llm = _make_llm("worker")
-    auditor_llm = _make_llm("auditor")
+    arch_prompt = skill.get_prompt("architect") if skill else ARCHITECT_INSTRUCTION
+    work_prompt = skill.get_prompt("worker") if skill else WORKER_INSTRUCTION
+    aud_prompt = skill.get_prompt("auditor") if skill else AUDITOR_INSTRUCTION
 
+    architect = Agent(name="architect", model=_make_llm("architect"),
+                      instruction=arch_prompt, tools=[run_stig_scan])
+    worker = Agent(name="worker", model=_make_llm("worker"),
+                   instruction=work_prompt, tools=[apply_fix])
+    auditor = Agent(name="auditor", model=_make_llm("auditor"),
+                    instruction=aud_prompt, tools=[check_health, revert_last_fix])
+
+    session_service = InMemorySessionService()
     max_iters = loop_cfg.get("max_iterations", 10)
+    max_rules = loop_cfg.get("max_rules_per_run", 5)
 
-    ralph_loop = build_ralph_loop(
-        ssh_config=ssh_config,
-        stig_profile=stig_cfg.get("profile", "xccdf_org.ssgproject.content_profile_stig"),
-        stig_datastream=stig_cfg.get("datastream", "/usr/share/xml/scap/ssg/content/ssg-rl9-ds.xml"),
-        architect_llm=architect_llm,
-        worker_llm=worker_llm,
-        auditor_llm=auditor_llm,
-        max_iterations=max_iters,
-        skill=skill,
-    )
-
-    # Initialize OpenTelemetry if the collector is reachable
     try:
         from gemma_forge.observability.otel import init_telemetry
         init_telemetry()
-    except Exception as e:
-        logger.warning("OTel initialization failed (traces disabled): %s", e)
+    except Exception:
+        pass
 
-    # Set up ADK runner
-    session_service = InMemorySessionService()
-    runner = Runner(
-        app_name="gemma-forge",
-        agent=ralph_loop,
-        session_service=session_service,
-    )
-
-    session = session_service.create_session(
-        app_name="gemma-forge",
-        user_id="operator",
-    )
-
-    logger.info("=" * 60)
-    logger.info("RALPH LOOP — Agent-driven STIG remediation")
-    logger.info("=" * 60)
-    logger.info("Architect: %s", architect_llm.base_url)
-    logger.info("Worker:    %s", worker_llm.base_url)
-    logger.info("Auditor:   %s", auditor_llm.base_url)
-    logger.info("Target VM: %s@%s", ssh_config.user, ssh_config.host)
-    logger.info("Max iterations: %d", max_iters)
-    logger.info("")
-
-    # The initial message kicks off the loop. The Architect will call
-    # stig_scan on its first turn to discover failing rules.
-    initial_message = types.Content(
-        role="user",
-        parts=[types.Part(text=(
-            "Begin STIG remediation of the target Rocky Linux 9 system. "
-            "Start by running a STIG scan to identify failing rules. "
-            "Then fix them one at a time, verifying the mission app health "
-            "after each fix. If a fix breaks the mission app, revert it "
-            "immediately and try a different approach. "
-            "Focus on safe, low-risk rules first (package installations, "
-            "configuration changes). Avoid FIPS mode and kernel changes."
-        ))],
-    )
-
-    # Structured run logger for post-analysis and frontend history replay
     from gemma_forge.harness.run_logger import RunLogger
     run_log = RunLogger()
+
+    logger.info("=" * 60)
+    logger.info("RALPH LOOP — Stateful remediation")
+    logger.info("=" * 60)
+    logger.info("Skill: %s", skill.name if skill else "hardcoded")
+    logger.info("Max iterations: %d | Max rules: %d", max_iters, max_rules)
     logger.info("Run log: %s", run_log.log_path)
 
-    iteration = 0
-    successes = 0
-    reverts = 0
+    state = RunState()
 
-    async for event in runner.run_async(
-        user_id="operator",
-        session_id=session.id,
-        new_message=initial_message,
-    ):
-        if event.content and event.content.parts:
-            for part in event.content.parts:
-                if part.text:
-                    logger.info("[%s] %s", event.author, part.text[:300])
-                    run_log.log_agent_response(
-                        event.author, part.text,
-                        tokens=event.custom_metadata.get("usage") if event.custom_metadata else None,
-                    )
+    # -- Initial scan --
+    logger.info("\nRunning initial STIG scan...")
+    raw_scan = await run_stig_scan()
+    for line in raw_scan.split("\n"):
+        if line.startswith("- "):
+            parts = line[2:].split(": ", 1)
+            if len(parts) == 2:
+                state.failing_rules.append({
+                    "rule_id": parts[0].strip(),
+                    "title": parts[1].strip(),
+                })
+    logger.info("Found %d failing rules", len(state.failing_rules))
+    run_log.log("scan_complete", "system", {
+        "failing_count": len(state.failing_rules),
+    }, include_gpu=True)
 
-                    # Track outcomes
-                    if "AUDIT_PASS" in part.text:
-                        successes += 1
-                    if "AUDIT_FAIL" in part.text or "REVERT" in part.text.upper():
-                        reverts += 1
+    # -- Remediation loop --
+    for iteration in range(1, max_iters + 1):
+        if len(state.remediated) >= max_rules:
+            logger.info("Reached max_rules (%d)", max_rules)
+            break
+        if not state.failing_rules:
+            logger.info("All rules remediated!")
+            break
 
-                if part.function_call:
-                    logger.info(
-                        "[%s] → TOOL: %s(%s)",
-                        event.author,
-                        part.function_call.name,
-                        str(part.function_call.args)[:200],
-                    )
-                    run_log.log_tool_call(
-                        event.author,
-                        part.function_call.name,
-                        dict(part.function_call.args) if part.function_call.args else {},
-                    )
+        state.current_iteration = iteration
+        run_log.set_iteration(iteration)
+        run_log.log("iteration_start", "system", {
+            "iteration": iteration,
+            "failing": len(state.failing_rules),
+            "remediated": len(state.remediated),
+            "reverted": len(state.reverted),
+        }, include_gpu=True)
 
-                if part.function_response:
-                    resp = str(part.function_response.response)[:500]
-                    logger.info("[%s] ← RESULT: %s", event.author, resp[:200])
-                    run_log.log_tool_result(
-                        event.author,
-                        part.function_response.name or "unknown",
-                        resp,
-                    )
+        logger.info("\n" + "-" * 60)
+        logger.info("ITERATION %d | fixed:%d reverted:%d remaining:%d",
+                     iteration, len(state.remediated), len(state.reverted),
+                     len(state.failing_rules))
+        logger.info("-" * 60)
 
-        # Track iterations by watching for the architect's turn
-        if event.author == "architect" and event.content:
-            iteration += 1
-            run_log.set_iteration(iteration)
-            # Snapshot GPU state at each iteration boundary
-            run_log.log("iteration_start", "system", {
+        # -- ARCHITECT (fresh session) --
+        arch_msg = (
+            f"{state.summary_for_architect()}\n\n"
+            f"Select ONE rule to remediate. Explain your plan briefly."
+        )
+        arch_resp = await _run_agent_turn(architect, session_service, arch_msg, run_log)
+
+        selected = None
+        for rule in state.failing_rules:
+            if rule["rule_id"] in arch_resp or rule["title"].lower() in arch_resp.lower():
+                selected = rule
+                break
+        if not selected:
+            selected = state.failing_rules[0]
+        logger.info("Selected: %s", selected["rule_id"])
+
+        # -- WORKER (fresh session) --
+        work_msg = (
+            f"Fix this STIG rule:\n"
+            f"  Rule: {selected['rule_id']}\n"
+            f"  Title: {selected['title']}\n\n"
+            f"Architect's plan:\n{arch_resp[:400]}\n\n"
+            f"Call apply_fix now."
+        )
+        work_resp = await _run_agent_turn(worker, session_service, work_msg, run_log)
+
+        # -- AUDITOR (fresh session) --
+        aud_msg = (
+            f"A fix was applied for: {selected['rule_id']} ({selected['title']})\n\n"
+            f"Worker's report:\n{work_resp[:300]}\n\n"
+            f"Call check_health now. If unhealthy or fix failed, call revert_last_fix."
+        )
+        aud_resp = await _run_agent_turn(auditor, session_service, aud_msg, run_log)
+
+        # -- Update state --
+        if "AUDIT_PASS" in aud_resp:
+            logger.info(">>> FIX ACCEPTED <<<")
+            state.remediated.append({
+                "rule_id": selected["rule_id"],
+                "title": selected["title"],
+                "approach": work_resp[:100],
                 "iteration": iteration,
-            }, include_gpu=True)
-            logger.info("--- iteration %d ---", iteration)
+            })
+            state.failing_rules = [
+                r for r in state.failing_rules if r["rule_id"] != selected["rule_id"]
+            ]
+        else:
+            logger.warning(">>> FIX REJECTED / REVERTED <<<")
+            state.reverted.append({
+                "rule_id": selected["rule_id"],
+                "title": selected["title"],
+                "approach": work_resp[:100],
+                "reason": aud_resp[:150],
+                "iteration": iteration,
+            })
+            run_log.log_revert("auditor", aud_resp[:150], "state updated")
 
-        # Log errors
-        if event.error_message:
-            run_log.log_error(event.author, event.error_message)
+    # -- Summary --
+    logger.info("\n" + "=" * 60)
+    logger.info("RALPH LOOP — COMPLETE")
+    logger.info("=" * 60)
+    logger.info("Iterations: %d", state.current_iteration)
+    logger.info("Remediated: %d", len(state.remediated))
+    logger.info("Reverted:   %d", len(state.reverted))
+    logger.info("Remaining:  %d", len(state.failing_rules))
+
+    for r in state.remediated:
+        logger.info("  ✓ %s: %s", r["rule_id"], r["title"])
+    for r in state.reverted:
+        logger.info("  ✗ %s: %s", r["rule_id"], r["title"])
 
     run_log.log_summary({
-        "total_iterations": iteration,
-        "successes": successes,
-        "reverts": reverts,
+        "iterations": state.current_iteration,
+        "remediated": len(state.remediated),
+        "reverted": len(state.reverted),
+        "remaining": len(state.failing_rules),
         "elapsed_s": round(time.time() - run_log.start_time, 2),
-        "skill": skill_name or "hardcoded",
+        "remediated_rules": state.remediated,
+        "reverted_rules": state.reverted,
     })
-
-    logger.info("")
-    logger.info("=" * 60)
-    logger.info("RALPH LOOP — COMPLETE (%d iterations)", iteration)
-    logger.info("Successes: %d | Reverts: %d", successes, reverts)
     logger.info("Run log: %s", run_log.log_path)
-    logger.info("=" * 60)
 
 
 def main() -> int:
-    """CLI entry point."""
     import argparse
-
-    parser = argparse.ArgumentParser(description="GemmaForge Ralph Loop (ADK)")
+    parser = argparse.ArgumentParser(description="GemmaForge Ralph Loop")
     parser.add_argument("--config", default="config/harness.yaml")
-    parser.add_argument(
-        "--skill",
-        default="stig-rhel9",
-        help="Skill directory name under skills/ (default: stig-rhel9)",
-    )
+    parser.add_argument("--skill", default="stig-rhel9")
     args = parser.parse_args()
-
     asyncio.run(run_ralph(args.config, skill_name=args.skill))
     return 0
 

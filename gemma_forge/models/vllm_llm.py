@@ -23,10 +23,17 @@ The adapter handles:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 from collections.abc import AsyncGenerator
 from typing import Any
+
+
+@contextlib.contextmanager
+def _nullcontext():
+    """Null context manager for when OTel isn't available."""
+    yield None
 
 from google.adk.models.base_llm import BaseLlm
 from google.adk.models.llm_request import LlmRequest
@@ -263,25 +270,59 @@ class VllmLlm(BaseLlm):
 
         client = self._get_client()
 
+        # OTel tracing — emit a span for each LLM call with GenAI conventions
         try:
-            response = await client.chat.completions.create(**kwargs)
-            choice = response.choices[0]
-            content = self._response_to_content(choice)
+            from gemma_forge.observability.otel import get_tracer, record_token_usage
+            tracer = get_tracer("gemma_forge.models")
+        except Exception:
+            tracer = None
 
-            yield LlmResponse(
-                content=content,
-                turn_complete=choice.finish_reason in ("stop", "length"),
-                custom_metadata={
-                    "usage": {
-                        "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
-                        "completion_tokens": response.usage.completion_tokens if response.usage else 0,
-                    },
-                    "finish_reason": choice.finish_reason,
+        span_ctx = (
+            tracer.start_as_current_span(
+                f"llm.{self.model}",
+                attributes={
+                    "gen_ai.system": "vllm",
+                    "gen_ai.request.model": model_name,
+                    "gen_ai.request.max_tokens": kwargs.get("max_tokens", 0),
+                    "gen_ai.request.temperature": kwargs.get("temperature", 0),
                 },
             )
-        except Exception as e:
-            logger.error("vLLM request failed: %s", e)
-            yield LlmResponse(
-                error_code="VLLM_ERROR",
-                error_message=str(e),
-            )
+            if tracer
+            else _nullcontext()
+        )
+
+        with span_ctx as span:
+            try:
+                response = await client.chat.completions.create(**kwargs)
+                choice = response.choices[0]
+                content = self._response_to_content(choice)
+
+                prompt_tokens = response.usage.prompt_tokens if response.usage else 0
+                completion_tokens = response.usage.completion_tokens if response.usage else 0
+
+                if span:
+                    record_token_usage(span, prompt_tokens, completion_tokens)
+                    span.set_attribute("gen_ai.response.finish_reasons", [choice.finish_reason or ""])
+                    if choice.message.tool_calls:
+                        span.set_attribute("gen_ai.response.tool_calls", len(choice.message.tool_calls))
+
+                yield LlmResponse(
+                    content=content,
+                    turn_complete=choice.finish_reason in ("stop", "length"),
+                    custom_metadata={
+                        "usage": {
+                            "prompt_tokens": prompt_tokens,
+                            "completion_tokens": completion_tokens,
+                        },
+                        "finish_reason": choice.finish_reason,
+                    },
+                )
+            except Exception as e:
+                logger.error("vLLM request failed: %s", e)
+                if span:
+                    span.set_attribute("error", True)
+                    span.set_attribute("error.message", str(e))
+                yield LlmResponse(
+                    error_code="VLLM_ERROR",
+                    error_message=str(e),
+                )

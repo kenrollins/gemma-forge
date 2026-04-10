@@ -5,7 +5,8 @@
 
 .PHONY: help install lint format test compose-config clean \
        vllm-build vllm-install demo-up demo-down demo-status demo-logs demo-test \
-       vm-up vm-down vm-reset vm-ssh vm-health
+       vm-up vm-down vm-reset vm-ssh vm-health \
+       obs-up obs-down obs-status
 
 help:  ## Show this help
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z_-]+:.*## / {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -32,6 +33,25 @@ compose-config:  ## Validate the docker-compose.yml file
 clean:  ## Remove build artifacts and caches
 	rm -rf build dist *.egg-info .pytest_cache .mypy_cache .ruff_cache htmlcov .coverage
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+
+# ---------------------------------------------------------------------------
+# Observability — OTel collector + Jaeger + Prometheus + Grafana
+# ---------------------------------------------------------------------------
+
+obs-up:  ## Start the observability stack (Jaeger, Prometheus, Grafana, OTel collector)
+	docker compose --profile observability up -d
+	@echo ""
+	@echo "Observability stack running:"
+	@echo "  Jaeger UI:      http://localhost:16686"
+	@echo "  Prometheus:     http://localhost:9092"
+	@echo "  Grafana:        http://localhost:3002  (admin/admin)"
+	@echo "  OTel Collector: localhost:4317 (gRPC) / localhost:4318 (HTTP)"
+
+obs-down:  ## Stop the observability stack
+	docker compose --profile observability down
+
+obs-status:  ## Show observability stack status
+	@docker compose --profile observability ps
 
 # ---------------------------------------------------------------------------
 # Inference plane — vLLM serving layer

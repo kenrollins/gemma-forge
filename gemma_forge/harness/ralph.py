@@ -248,6 +248,13 @@ async def run_ralph(
         skill=skill,
     )
 
+    # Initialize OpenTelemetry if the collector is reachable
+    try:
+        from gemma_forge.observability.otel import init_telemetry
+        init_telemetry()
+    except Exception as e:
+        logger.warning("OTel initialization failed (traces disabled): %s", e)
+
     # Set up ADK runner
     session_service = InMemorySessionService()
     runner = Runner(

@@ -91,7 +91,7 @@ services:
       - ./infra/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
     ports:
-      - "9090:9090"
+      - "9092:9090"  # 9090 is taken by MinIO on this host
 
   grafana:
     image: grafana/grafana:11.4.0
@@ -107,7 +107,7 @@ services:
       - ./infra/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana-data:/var/lib/grafana
     ports:
-      - "3001:3000"
+      - "3002:3000"  # 3001 is taken by Langfuse on this host
     depends_on:
       - prometheus
       - jaeger

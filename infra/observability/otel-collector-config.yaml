@@ -1,0 +1,54 @@
+# OpenTelemetry Collector configuration for GemmaForge.
+#
+# Receives OTLP from the Ralph loop harness, fans out to:
+#   - Jaeger (traces) — the trace browser for debugging agent behavior
+#   - Prometheus (metrics) — token accounting via gen_ai.* attributes
+#
+# See ADR-0007 (OTel + Jaeger + Prometheus + Grafana, no Langfuse).
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: "0.0.0.0:4317"
+      http:
+        endpoint: "0.0.0.0:4318"
+
+processors:
+  batch:
+    timeout: 5s
+    send_batch_size: 512
+
+connectors:
+  # Convert spans to metrics — this is how token accounting works.
+  # The spanmetrics connector extracts span attributes into Prometheus metrics.
+  spanmetrics:
+    namespace: gemma_forge
+    dimensions:
+      - name: gen_ai.request.model
+      - name: gen_ai.system
+      - name: forge.role
+      - name: forge.skill
+
+exporters:
+  # Jaeger for trace storage — uses OTLP natively (Jaeger v2)
+  otlp/jaeger:
+    endpoint: "jaeger:4317"
+    tls:
+      insecure: true
+
+  # Prometheus exporter — scraped by the Prometheus container
+  prometheus:
+    endpoint: "0.0.0.0:8889"
+    namespace: "gemma_forge"
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/jaeger, spanmetrics]
+
+    metrics:
+      receivers: [spanmetrics]
+      exporters: [prometheus]

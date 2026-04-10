@@ -174,7 +174,12 @@ async def _run_agent_turn(
     message: str,
     run_log=None,
 ) -> str:
-    """Run ONE agent turn with a FRESH session. Returns text response."""
+    """Run ONE agent turn with a FRESH session. Returns text response.
+
+    Captures timing data for TTFT and tokens/sec calculation.
+    """
+    turn_start = time.time()
+
     runner = Runner(
         app_name="gemma-forge",
         agent=agent,
@@ -186,6 +191,8 @@ async def _run_agent_turn(
     )
 
     response_parts = []
+    first_token_time = None
+    total_tokens = {"prompt": 0, "completion": 0}
 
     async for event in runner.run_async(
         user_id="operator",
@@ -198,12 +205,14 @@ async def _run_agent_turn(
         if event.content and event.content.parts:
             for part in event.content.parts:
                 if part.text:
+                    if first_token_time is None:
+                        first_token_time = time.time()
                     logger.info("[%s] %s", event.author, part.text[:300])
                     response_parts.append(part.text)
-                    if run_log:
-                        run_log.log_agent_response(event.author, part.text)
 
                 if part.function_call:
+                    if first_token_time is None:
+                        first_token_time = time.time()
                     logger.info("[%s] → TOOL: %s(%s)", event.author,
                                 part.function_call.name,
                                 str(part.function_call.args)[:200])
@@ -223,10 +232,35 @@ async def _run_agent_turn(
                             resp,
                         )
 
+        # Extract token usage from custom_metadata (set by VllmLlm adapter)
+        if event.custom_metadata and "usage" in event.custom_metadata:
+            usage = event.custom_metadata["usage"]
+            total_tokens["prompt"] += usage.get("prompt_tokens", 0)
+            total_tokens["completion"] += usage.get("completion_tokens", 0)
+
         if event.error_message:
             logger.error("[%s] ERROR: %s", event.author, event.error_message)
             if run_log:
                 run_log.log_error(event.author, event.error_message)
+
+    # Calculate timing metrics
+    turn_end = time.time()
+    turn_elapsed = turn_end - turn_start
+    ttft = (first_token_time - turn_start) if first_token_time else turn_elapsed
+    tok_per_sec = (total_tokens["completion"] / turn_elapsed) if turn_elapsed > 0 and total_tokens["completion"] > 0 else 0
+
+    # Log the agent response with token metrics
+    if run_log and response_parts:
+        run_log.log("agent_response", agent.name, {
+            "text": "\n".join(response_parts)[:1000],
+            "tokens": total_tokens if total_tokens["completion"] > 0 else None,
+            "timing": {
+                "turn_elapsed_s": round(turn_elapsed, 2),
+                "ttft_s": round(ttft, 2),
+                "tok_per_sec": round(tok_per_sec, 1),
+            },
+            "model": agent.model.served_model_name if hasattr(agent.model, 'served_model_name') else "unknown",
+        }, include_gpu=True)
 
     return "\n".join(response_parts).strip()
 

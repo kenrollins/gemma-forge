@@ -23,6 +23,7 @@ Usage:
 import asyncio
 import logging
 import sys
+import time
 from pathlib import Path
 
 import yaml
@@ -293,7 +294,15 @@ async def run_ralph(
         ))],
     )
 
+    # Structured run logger for post-analysis and frontend history replay
+    from gemma_forge.harness.run_logger import RunLogger
+    run_log = RunLogger()
+    logger.info("Run log: %s", run_log.log_path)
+
     iteration = 0
+    successes = 0
+    reverts = 0
+
     async for event in runner.run_async(
         user_id="operator",
         session_id=session.id,
@@ -303,6 +312,17 @@ async def run_ralph(
             for part in event.content.parts:
                 if part.text:
                     logger.info("[%s] %s", event.author, part.text[:300])
+                    run_log.log_agent_response(
+                        event.author, part.text,
+                        tokens=event.custom_metadata.get("usage") if event.custom_metadata else None,
+                    )
+
+                    # Track outcomes
+                    if "AUDIT_PASS" in part.text:
+                        successes += 1
+                    if "AUDIT_FAIL" in part.text or "REVERT" in part.text.upper():
+                        reverts += 1
+
                 if part.function_call:
                     logger.info(
                         "[%s] → TOOL: %s(%s)",
@@ -310,18 +330,48 @@ async def run_ralph(
                         part.function_call.name,
                         str(part.function_call.args)[:200],
                     )
+                    run_log.log_tool_call(
+                        event.author,
+                        part.function_call.name,
+                        dict(part.function_call.args) if part.function_call.args else {},
+                    )
+
                 if part.function_response:
-                    resp = str(part.function_response.response)[:200]
-                    logger.info("[%s] ← RESULT: %s", event.author, resp)
+                    resp = str(part.function_response.response)[:500]
+                    logger.info("[%s] ← RESULT: %s", event.author, resp[:200])
+                    run_log.log_tool_result(
+                        event.author,
+                        part.function_response.name or "unknown",
+                        resp,
+                    )
 
         # Track iterations by watching for the architect's turn
         if event.author == "architect" and event.content:
             iteration += 1
+            run_log.set_iteration(iteration)
+            # Snapshot GPU state at each iteration boundary
+            run_log.log("iteration_start", "system", {
+                "iteration": iteration,
+            }, include_gpu=True)
             logger.info("--- iteration %d ---", iteration)
+
+        # Log errors
+        if event.error_message:
+            run_log.log_error(event.author, event.error_message)
+
+    run_log.log_summary({
+        "total_iterations": iteration,
+        "successes": successes,
+        "reverts": reverts,
+        "elapsed_s": round(time.time() - run_log.start_time, 2),
+        "skill": skill_name or "hardcoded",
+    })
 
     logger.info("")
     logger.info("=" * 60)
     logger.info("RALPH LOOP — COMPLETE (%d iterations)", iteration)
+    logger.info("Successes: %d | Reverts: %d", successes, reverts)
+    logger.info("Run log: %s", run_log.log_path)
     logger.info("=" * 60)
 
 

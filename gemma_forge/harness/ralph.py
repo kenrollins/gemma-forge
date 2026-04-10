@@ -62,9 +62,18 @@ _stig_datastream: str = ""
 
 async def run_stig_scan() -> str:
     """Scan the target VM for STIG compliance violations.
-    Returns a list of failing rules with their IDs and titles."""
+    Returns a summary with the top failing rules."""
     assert _ssh_config is not None
-    return await stig_scan(_ssh_config, _stig_profile, _stig_datastream)
+    full_result = await stig_scan(_ssh_config, _stig_profile, _stig_datastream)
+    # Truncate for agent context safety (8192 token budget).
+    # The full list is in RunState.failing_rules from the initial scan.
+    lines = full_result.split("\n")
+    header = lines[0] if lines else ""
+    rules = [l for l in lines if l.startswith("- ")]
+    truncated = header + "\n\nTop 15 failing rules:\n" + "\n".join(rules[:15])
+    if len(rules) > 15:
+        truncated += f"\n... and {len(rules) - 15} more. See state summary for the full list."
+    return truncated
 
 
 async def apply_fix(fix_script: str, revert_script: str, description: str) -> str:
@@ -369,9 +378,12 @@ async def run_ralph(
 
     state = RunState()
 
-    # -- Initial scan --
+    # -- Initial scan (full, not truncated) --
+    # Call stig_scan() directly to get ALL failing rules for state.
+    # The run_stig_scan tool function returns a truncated version
+    # for agent context safety, but we need the full list for state.
     logger.info("\nRunning initial STIG scan...")
-    raw_scan = await run_stig_scan()
+    raw_scan = await stig_scan(_ssh_config, _stig_profile, _stig_datastream)
     for line in raw_scan.split("\n"):
         if line.startswith("- "):
             parts = line[2:].split(": ", 1)

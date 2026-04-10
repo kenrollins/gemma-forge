@@ -1,0 +1,57 @@
+@import "tailwindcss";
+
+/*
+ * GemmaForge — Sovereign Dark Theme
+ * SpaceX mission control meets Bloomberg terminal.
+ */
+
+:root {
+  --bg-void: #0B0D11;
+  --bg-surface: #12141A;
+  --bg-elevated: #1A1D24;
+  --bg-hover: #22252E;
+  --border-subtle: #1C1F26;
+  --border-active: #2A2E38;
+  --text-primary: #E8EAED;
+  --text-secondary: #9CA3AF;
+  --text-muted: #6B7280;
+  --status-nominal: #22C55E;
+  --status-active: #F59E0B;
+  --status-failed: #EF4444;
+  --role-architect: #3B82F6;
+  --role-worker: #F59E0B;
+  --role-auditor: #22C55E;
+  --role-sentry: #EF4444;
+
+  --background: var(--bg-void);
+  --foreground: var(--text-primary);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  background: var(--bg-void);
+  color: var(--text-primary);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+code, pre, .mono {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-void); }
+::-webkit-scrollbar-thumb { background: var(--border-active); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }

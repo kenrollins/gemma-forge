@@ -65,8 +65,9 @@ echo "notselected"
         i += 1
 
     summary = f"STIG SCAN: {len(failing)} failing rules found.\n\n"
-    # Return ALL failing rules so the harness state captures the full list.
-    # The Architect's per-iteration view is limited by RunState.summary_for_architect().
+    # Return ALL rules. ralph.py calls this directly for the initial
+    # state population. The agent-facing tool wrapper (run_stig_scan
+    # in ralph.py) truncates the output to fit context limits.
     if failing:
         summary += "Failing rules:\n"
         summary += "\n".join(failing)

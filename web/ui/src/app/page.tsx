@@ -295,20 +295,17 @@ export default function Dashboard() {
         onConnect={connect}
       />
 
-      {/* Scoreboard + GPU Strip */}
+      {/* Compact scoreboard + pipeline on one line */}
       <Scoreboard events={events} gpus={gpus} connected={connected} elapsed={elapsed} skillUI={skillUI} />
 
-      {/* Unified mission header: current rule + pipeline + metrics on one line */}
-      <MissionHeader events={events} skillUI={skillUI} />
-
-      {/* Main content: Task Graph + Mission + Events */}
+      {/* Main content area */}
       {graphExpanded ? (
         /* Full-screen interactive DAG */
         <div className="flex-1 flex flex-col overflow-hidden min-h-0 relative">
           <div className="absolute top-3 right-3 z-20">
             <button
               onClick={() => setGraphExpanded(false)}
-              className="px-2 py-1 text-[10px] font-mono bg-[#12141A] border border-[#1C1F26] text-[#9CA3AF] hover:text-[#E8EAED] rounded-sm transition-colors"
+              className="px-3 py-1.5 text-[10px] font-mono bg-[#12141A] border border-[#1C1F26] text-[#9CA3AF] hover:text-[#E8EAED] rounded-sm transition-colors"
             >
               ✕ Close Graph
             </button>
@@ -316,33 +313,38 @@ export default function Dashboard() {
           <TaskGraphFlow events={events} skillUI={skillUI} />
         </div>
       ) : (
-        <div className="flex-1 flex overflow-hidden min-h-0">
-          {/* Left: Compact Task Graph */}
-          <div className="w-[420px] shrink-0 border-r border-[#1C1F26] flex flex-col">
+        <div className="flex-1 flex flex-col overflow-hidden min-h-0">
+          {/* Top: Task Graph — the hero visual */}
+          <div className="flex-1 min-h-[280px] border-b border-[#1C1F26] flex">
             <div className="flex-1 overflow-hidden">
               <TaskGraph events={events} skillUI={skillUI} />
             </div>
-            {/* Expand button */}
             <button
               onClick={() => setGraphExpanded(true)}
-              className="px-4 py-1.5 border-t border-[#1C1F26] text-[10px] font-semibold uppercase tracking-wider text-[#4B5563] hover:text-[#9CA3AF] bg-[#0D0F14] transition-colors text-center"
+              className="w-8 shrink-0 border-l border-[#1C1F26] text-[9px] font-semibold uppercase tracking-wider text-[#4B5563] hover:text-[#9CA3AF] hover:bg-[#12141A] bg-[#0D0F14] transition-colors flex items-center justify-center"
+              title="Expand interactive graph"
+              style={{ writingMode: "vertical-rl" }}
             >
-              Expand Interactive Graph
+              Expand Graph
             </button>
           </div>
 
-          {/* Right: Mission + Events */}
-          <div className="flex-1 flex flex-col overflow-hidden min-h-0">
-            <div className="h-64 shrink-0 border-b border-[#1C1F26]">
+          {/* Bottom: Mission activity + Event log side by side */}
+          <div className="h-[280px] shrink-0 flex overflow-hidden">
+            {/* Left: Mission (current action + reflection) */}
+            <div className="flex-1 border-r border-[#1C1F26] overflow-hidden">
+              <MissionHeader events={events} skillUI={skillUI} />
               <Mission events={events} skillUI={skillUI} />
             </div>
 
-            <div className="flex-1 overflow-hidden flex flex-col min-h-0">
-              <div className="px-4 py-1.5 border-b border-[#1C1F26] text-[10px] font-semibold uppercase tracking-wider text-[#6B7280] bg-[#0D0F14] flex justify-between">
-                <span>Event History ({events.length})</span>
-                <span>Click to expand</span>
+            {/* Right: Event log (compact) */}
+            <div className="w-[480px] shrink-0 flex flex-col overflow-hidden">
+              <div className="px-3 py-1 border-b border-[#1C1F26] text-[9px] font-semibold uppercase tracking-wider text-[#6B7280] bg-[#0D0F14]">
+                Events ({events.length})
               </div>
-              <EventLog events={events} />
+              <div className="flex-1 overflow-hidden">
+                <EventLog events={events} />
+              </div>
             </div>
           </div>
         </div>

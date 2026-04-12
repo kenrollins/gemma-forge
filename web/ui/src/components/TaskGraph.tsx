@@ -38,27 +38,27 @@ const STATE_COLORS: Record<string, string> = {
 };
 
 const STATE_BG: Record<string, string> = {
-  queued: "bg-[#1F2937]",
-  blocked: "bg-[#451A03]",
-  active: "bg-[#1E3A5F]",
-  completed: "bg-[#052E16]",
-  escalated: "bg-[#450A0A]",
-  skipped: "bg-[#1F2937]",
+  queued: "bg-[#1a1d24]",
+  blocked: "bg-[#3d2800]",
+  active: "bg-[#1a3a6b]",
+  completed: "bg-[#0a3d1a]",
+  escalated: "bg-[#3d0a0a]",
+  skipped: "bg-[#1a1d24]",
 };
 
 const STATE_BORDER: Record<string, string> = {
-  queued: "border-[#374151]",
-  blocked: "border-[#92400E]",
-  active: "border-[#2563EB] animate-pulse",
-  completed: "border-[#16A34A]",
-  escalated: "border-[#DC2626]",
-  skipped: "border-[#4B5563]",
+  queued: "border-[#2a2e38]",
+  blocked: "border-[#b45309]",
+  active: "border-[#3B82F6] animate-pulse",
+  completed: "border-[#22C55E]",
+  escalated: "border-[#EF4444]",
+  skipped: "border-[#374151]",
 };
 
 const STATE_GLOW: Record<string, string> = {
-  active: "shadow-[0_0_8px_rgba(37,99,235,0.4)]",
-  completed: "",
-  escalated: "",
+  active: "shadow-[0_0_10px_rgba(59,130,246,0.5)]",
+  completed: "shadow-[0_0_4px_rgba(34,197,94,0.2)]",
+  escalated: "shadow-[0_0_4px_rgba(239,68,68,0.2)]",
   queued: "",
   blocked: "",
   skipped: "",
@@ -83,16 +83,9 @@ export default function TaskGraph({
     return null;
   }, [events]);
 
-  if (!graphState || graphState.nodes.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-full text-[#4B5563] text-xs">
-        Awaiting task graph data...
-      </div>
-    );
-  }
-
-  // Group nodes by category
+  // Group nodes by category — must be called unconditionally (Rules of Hooks)
   const categories = useMemo(() => {
+    if (!graphState) return [];
     const groups: Record<string, GraphNode[]> = {};
     for (const node of graphState.nodes) {
       const cat = node.category || "uncategorized";
@@ -106,6 +99,14 @@ export default function TaskGraph({
       return rateB - rateA;
     });
   }, [graphState]);
+
+  if (!graphState || graphState.nodes.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-full text-[#4B5563] text-xs">
+        Awaiting task graph data...
+      </div>
+    );
+  }
 
   const counts = graphState.counts;
   const total = graphState.nodes.length;
@@ -237,8 +238,8 @@ export default function TaskGraph({
                   <div
                     key={node.id}
                     className={`
-                      group relative px-1.5 py-0.5 rounded-sm border text-[8px] font-mono
-                      transition-all duration-300 cursor-default
+                      group relative px-2 py-1 rounded border text-[9px] font-mono font-medium
+                      transition-all duration-500 cursor-default
                       ${STATE_BG[node.state]} ${STATE_BORDER[node.state]} ${STATE_GLOW[node.state]}
                     `}
                     title={`${stripId(node.id)}: ${node.title}\nState: ${node.state}${

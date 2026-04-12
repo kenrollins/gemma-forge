@@ -131,6 +131,7 @@ nav:
       - 19 - Research and v4 Architecture: journal/journey/19-research-and-v4-architecture.md
       - 20 - The Interface Extraction: journal/journey/20-the-interface-extraction.md
       - 21 - Task Graph and React Flow: journal/journey/21-task-graph-and-react-flow.md
+      - 22 - Context Graphs and the Memory Question: journal/journey/22-context-graphs-and-the-memory-question.md
   - Improvements:
       - 01 - Architect Re-engagement: journal/improvements/01-architect-reengagement.md
       - 02 - Worker Single-Action: journal/improvements/02-worker-single-action-enforcement.md

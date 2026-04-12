@@ -70,6 +70,7 @@ is meant to be readable on its own.
 - [**19. Standing on Whose Shoulders?**](19-research-and-v4-architecture.md) — research validation of our choices, the literature landscape, and the v4 interface extraction decision.
 - [**20. The Interface Extraction**](20-the-interface-extraction.md) — ripping the engine apart mid-flight: five interfaces, a STIG runtime, and 75 tests that still passed.
 - [**21. The Task Graph**](21-task-graph-and-react-flow.md) — from flat queue to live DAG: dependency awareness, conflict detection, and a React Flow visualization.
+- [**22. Context Graphs and the Memory Question**](22-context-graphs-and-the-memory-question.md) — the research spiral from decision provenance to NIST requirements to "do we even need a database?" — and how the clutch mechanism answered the question.
 
 ## Related
 

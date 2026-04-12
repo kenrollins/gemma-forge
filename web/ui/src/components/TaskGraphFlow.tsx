@@ -134,56 +134,90 @@ function layoutGraph(
   graphEdges: GraphEdge[],
   stripId: (id: string) => string,
 ): { nodes: Node[]; edges: Edge[] } {
-  const g = new dagre.graphlib.Graph();
-  g.setDefaultEdgeLabel(() => ({}));
-  g.setGraph({
-    rankdir: "TB",
-    ranksep: 60,
-    nodesep: 20,
-    marginx: 20,
-    marginy: 20,
-  });
-
-  // Group by category for rank assignment
+  // Group by category for cluster layout
   const categories: Record<string, GraphNode[]> = {};
+  const catOrder: string[] = [];
   for (const node of graphNodes) {
     const cat = node.category || "uncategorized";
-    if (!categories[cat]) categories[cat] = [];
+    if (!categories[cat]) {
+      categories[cat] = [];
+      catOrder.push(cat);
+    }
     categories[cat].push(node);
   }
 
-  // Add nodes
-  for (const node of graphNodes) {
-    g.setNode(node.id, { width: 180, height: 60 });
+  // Sort categories: most items first (creates visual weight)
+  catOrder.sort((a, b) => categories[b].length - categories[a].length);
+
+  const NODE_W = 190;
+  const NODE_H = 68;
+  const GAP_X = 12;
+  const GAP_Y = 12;
+  const COLS = 6; // items per row within a category cluster
+  const CLUSTER_GAP = 50; // vertical gap between category clusters
+  const LABEL_H = 30; // space for category label
+
+  const nodes: Node[] = [];
+  let clusterY = 20;
+
+  for (const cat of catOrder) {
+    const items = categories[cat];
+    const catColor = CATEGORY_COLORS[cat] || "#6B7280";
+
+    // Category label node (non-interactive)
+    nodes.push({
+      id: `__label_${cat}`,
+      type: "default",
+      position: { x: 0, y: clusterY },
+      data: { label: `${cat.toUpperCase()} (${items.length})` },
+      style: {
+        background: "transparent",
+        border: "none",
+        color: catColor,
+        fontSize: 11,
+        fontWeight: 700,
+        fontFamily: "monospace",
+        letterSpacing: "0.05em",
+        textTransform: "uppercase" as const,
+        width: COLS * (NODE_W + GAP_X),
+        pointerEvents: "none" as const,
+      },
+      selectable: false,
+      draggable: false,
+    });
+
+    clusterY += LABEL_H;
+
+    // Layout items in a grid within this cluster
+    items.forEach((gn, idx) => {
+      const col = idx % COLS;
+      const row = Math.floor(idx / COLS);
+      nodes.push({
+        id: gn.id,
+        type: "workItem",
+        position: {
+          x: col * (NODE_W + GAP_X),
+          y: clusterY + row * (NODE_H + GAP_Y),
+        },
+        data: { ...gn, stripped: stripId(gn.id), selected: false },
+      });
+    });
+
+    const rows = Math.ceil(items.length / COLS);
+    clusterY += rows * (NODE_H + GAP_Y) + CLUSTER_GAP;
   }
 
-  // Add edges
-  for (const edge of graphEdges) {
-    if (g.hasNode(edge.from) && g.hasNode(edge.to)) {
-      g.setEdge(edge.from, edge.to);
-    }
-  }
-
-  dagre.layout(g);
-
-  const nodes: Node[] = graphNodes.map((gn) => {
-    const pos = g.node(gn.id);
-    return {
-      id: gn.id,
-      type: "workItem",
-      position: { x: pos.x - 90, y: pos.y - 30 },
-      data: { ...gn, stripped: stripId(gn.id), selected: false },
-    };
-  });
-
+  // Edges for any dependencies
+  const nodeIds = new Set(graphNodes.map(n => n.id));
   const edges: Edge[] = graphEdges
-    .filter((e) => g.hasNode(e.from) && g.hasNode(e.to))
+    .filter((e) => nodeIds.has(e.from) && nodeIds.has(e.to))
     .map((e, i) => ({
       id: `e-${i}`,
       source: e.from,
       target: e.to,
       animated: true,
-      style: { stroke: "#4B5563", strokeWidth: 1.5 },
+      style: { stroke: "#F59E0B", strokeWidth: 2 },
+      type: "smoothstep",
     }));
 
   return { nodes, edges };

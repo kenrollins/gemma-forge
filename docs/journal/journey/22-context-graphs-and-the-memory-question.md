@@ -228,21 +228,18 @@ swap SQLite for PostgreSQL. The harness never knows.
 
 ---
 
-## The presales narrative
+## Looking back at the arc
 
-The story arc now has five chapters:
+It's worth stepping back and noticing what happened over the past
+week. The harness started as a retry loop. Then it learned to
+reflect. Then it learned to remember within a run. Then we made it
+skill-agnostic. And now it learns across runs — each execution
+leaving the next one smarter, with every decision traceable.
 
-1. **v1**: A loop that retried (the basic Ralph pattern)
-2. **v2**: A loop that reflected (Reflexion architecture)
-3. **v3**: A loop that learned *within* a run (episodic + semantic memory)
-4. **v4**: A loop with a skill-agnostic harness (interfaces + task graph)
-5. **v5**: A loop that learns *across* runs (context graph + adaptive
-   concurrency) — with decision provenance that satisfies emerging
-   NIST requirements
-
-Each chapter builds on the last. Each one is documented in this
-journal. And the whole thing runs on four L4 GPUs in a server you
-can carry under one arm.
+None of this was planned from the start. Each version emerged from
+running the previous one, honestly analyzing the failures, and
+asking "what would make this better?" That's the Ralph loop applied
+to itself.
 
 ---
 

@@ -70,15 +70,6 @@ release cadences** rather than pinning to a single vendor's stack.
 - Model weights are stored in a host-level catalog (`/data/triton/weights/`)
   that outlives any single container version
 
-## The whitepaper angle
-
-This is a strong section for the whitepaper because:
-1. It's based on measured experience, not theory
-2. It's actionable (Federal customers can plan for it)
-3. It's non-obvious (most demo builders don't hit it because they use
-   pre-validated stacks from a single vendor)
-4. It positions GemmaForge as serious engineering, not a marketing demo
-
 ## Key artifacts
 
 - `docs/whitepaper/notes.md` → "The infrastructure gap" section

@@ -98,24 +98,6 @@ On non-NVLink L4s, PP should be better (less PCIe traffic). But:
 The 15.1 tok/s throughput is 3× faster than human reading speed —
 suitable for interactive agent workflows and live demos.
 
-## The whitepaper story
-
-This journey produces three valuable narratives:
-
-1. **"Quantization is the enabling technology on edge hardware."**
-   Without NVFP4, the 31B needs all 4 GPUs (tp=4) and there's no room
-   for the edge models. With NVFP4, it fits on 2 GPUs with generous
-   headroom. The quantization makes multi-agent inference POSSIBLE.
-
-2. **"On future hardware (GB10/Blackwell), the same model gets native
-   FP4 tensor-core acceleration with zero code changes."** Two-generation
-   hardware story.
-
-3. **"We measured, we tested, we chose based on data."** The
-   Federal-credibility argument. Not "we picked what's popular" but
-   "we tested four configurations on the actual hardware and selected
-   the one that works."
-
 ## Measured results
 
 - **31B NVFP4, tp=2**: 15.1 tok/s, 21.9 GB/GPU, 180s cold load

@@ -133,7 +133,7 @@ The harness implementation is the proof. The tests are the executable
 specification. All four are the same activity, written in different
 genres.
 
-## What I want to remember from this
+## What we want to remember from this
 
 1. **Test the abstractions, not the bugs.** Every test name should be a
    property statement, not an action description. If you can't write the

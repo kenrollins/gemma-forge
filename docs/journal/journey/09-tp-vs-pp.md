@@ -73,15 +73,6 @@ matrix dimensions don't align with the Marlin NVFP4 kernel's tile
 size. This is a quantization + MoE + TP interaction — PP avoids it
 because it doesn't split weight matrices.
 
-## The demo narrative
-
-"Two models, two parallelism strategies, matched to their architectures.
-Gemma's dense 31B uses tensor parallelism because every layer needs
-both GPUs. Nemotron's 30B MoE uses pipeline parallelism because its
-expert layers can be stacked. The result: Gemma gets maximum compute
-throughput, Nemotron gets maximum context depth. Both optimized for
-L4 hardware without NVLink."
-
 ## Measured data
 
 | Metric | Gemma 4 31B (TP=2) | Nemotron 30B (PP=2) |

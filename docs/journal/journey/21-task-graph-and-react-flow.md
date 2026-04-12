@@ -115,30 +115,24 @@ whatever it receives, agnostic to the skill.
 
 ---
 
-## The demo moment
+## What it looks like in practice
 
-During the run, the audience sees:
+The first time we connected the live stream, the grid started all
+gray — 270 queued items. Then a cell lit up cyan and pulsed. A few
+seconds later, it turned green. Then another went cyan. Then green.
+Then a third went cyan... and stayed cyan for a long time. Then
+amber. Escalated.
 
-1. The compact grid starts all gray (queued)
-2. A node turns blue and pulses (active)
-3. It turns green (completed) — the category progress bar advances
-4. Another turns blue... then red (escalated)
-5. A cluster of AIDE nodes turn amber (blocked) — they're waiting on
-   a prerequisite
-6. The prerequisite completes → the cluster unblocks → they start
-   processing in sequence
+Within a minute we could see the pattern forming without reading a
+single number: authentication was a wall of green. Kernel was mixed.
+Integrity-monitoring was almost entirely amber. The categories told
+the story through color alone.
 
-That's the architecture *working*. No narration needed — the visual
-tells the story. Persistence, dependency awareness, failure handling,
-and progress, all in one animated grid.
-
-Click "Expand Interactive Graph" and the full DAG fills the screen.
-Zoom into the AIDE cluster to show the dependency edges. Click a red
-node to see its escalation history: 15 attempts, scanner-gap
-detected, architect escalated preemptively.
-
-That's when you say: "This runs on four L4 GPUs in a server you
-can carry under one arm. Everything you see is open source."
+The expanded React Flow view lets you zoom into a cluster and click
+individual nodes. Each one shows its attempt count, wall time, and
+escalation reason. The dependency edges (when they exist) animate
+to show which items are blocking which. The minimap in the corner
+gives you the full picture while you're zoomed into a detail.
 
 ---
 

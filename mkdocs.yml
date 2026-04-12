@@ -12,18 +12,19 @@ copyright: |
 theme:
   name: material
   palette:
-    - scheme: default
-      primary: indigo
-      accent: indigo
+    - scheme: slate
+      primary: cyan
+      accent: amber
       toggle:
         icon: material/weather-sunny
-        name: Switch to dark mode
-    - scheme: slate
-      primary: indigo
-      accent: indigo
+        name: Switch to light mode
+    - scheme: default
+      primary: blue grey
+      accent: cyan
       toggle:
         icon: material/weather-night
-        name: Switch to light mode
+        name: Switch to dark mode
+  custom_dir: docs/overrides
   features:
     - navigation.instant
     - navigation.tracking
@@ -171,6 +172,9 @@ nav:
           - 0014 - Triton + vLLM Director as Shared Host Service: adr/0014-triton-vllm-director-shared-host-service.md
           - 0015 - Gemma 4 Model Lineup: adr/0015-gemma-4-model-lineup.md
           - Template: adr/template.md
+
+extra_css:
+  - overrides/assets/stylesheets/extra.css
 
 extra:
   social:

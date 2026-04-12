@@ -1,28 +1,32 @@
 # NOTE: Do NOT add `from __future__ import annotations` to this module.
 # ADK's FunctionTool parser requires real type objects, not lazy strings.
 
-"""Ralph loop — proper reflexion architecture.
+"""Ralph loop — skill-agnostic reflexion harness.
 
 Architecture (based on Shinn et al. NeurIPS 2023 + Anthropic harness patterns):
 
-  OUTER LOOP: Architect picks a rule from remaining list
-  INNER LOOP (max 3 retries per rule):
-    1. Architect plans approach (informed by episodic memory for this rule)
-    2. Worker generates fix script
-    3. HARNESS validates script against banned approaches
-    4. HARNESS executes fix via SSH
-    5. HARNESS evaluates deterministically (health + rule check + journal)
-    6. If PASS → record success, break inner loop
-    7. If FAIL → revert, Reflector analyzes, update memories, retry
-  After 3 failures → ESCALATE (not skip — distinct category)
+  OUTER LOOP: Architect picks a work item from remaining list
+  INNER LOOP (time-budgeted per item):
+    1. Architect plans approach (informed by episodic memory)
+    2. Worker generates fix/change
+    3. HARNESS validates against banned approaches
+    4. HARNESS executes via skill's Executor
+    5. HARNESS evaluates via skill's Evaluator → EvalResult with FailureMode
+    6. If PASS → checkpoint progress, break inner loop
+    7. If FAIL → triage failure mode, revert via Checkpoint, reflect, retry
+  Escalation: time_budget | retry_ceiling | architect_preemptive
+
+The harness operates on five abstract interfaces (WorkQueue, Executor,
+Evaluator, Checkpoint, WorkItem) — see interfaces.py. Skills implement
+these for their domain. The harness never imports skill-specific modules.
 
 Memory tiers:
   - Working: per-attempt conversation (cleared each try via fresh ADK session)
-  - Episodic: per-rule attempts + reflections (cleared when rule resolved)
+  - Episodic: per-item attempts + reflections (cleared when item resolved)
   - Semantic: cross-task banned approaches + preferred tools (persists entire run)
 
-Model decisions: which rule, which approach, what script, why it failed
-Harness decisions: retry policy, script validation, revert, evaluation, termination
+Model decisions: which item, which approach, what fix, why it failed
+Harness decisions: retry policy, validation, revert, evaluation triage, termination
 """
 
 import asyncio
@@ -46,17 +50,13 @@ from gemma_forge.harness.agents import (
     REFLECTOR_INSTRUCTION,
     WORKER_INSTRUCTION,
 )
-from gemma_forge.harness.tools.healthcheck import mission_healthcheck
-from gemma_forge.harness.tools.journal import read_recent_journal
-from gemma_forge.harness.tools.openscap import stig_check_rule, stig_scan
-from gemma_forge.harness.tools.ssh import (
-    SSHConfig, ssh_apply,
-    check_sudo_healthy,
-    gather_environment_diagnostics,
-    snapshot_save_progress,
-    snapshot_restore_progress,
-    snapshot_exists,
+from gemma_forge.harness.interfaces import (
+    EvalResult,
+    FailureMode,
+    SkillRuntime,
+    WorkItem,
 )
+from gemma_forge.harness.task_graph import TaskGraph, NodeState
 from gemma_forge.models.vllm_llm import VllmLlm
 from gemma_forge.skills.base import Skill
 from gemma_forge.skills.loader import load_skill
@@ -67,36 +67,6 @@ logging.basicConfig(
     format="%(asctime)s [%(name)s] %(levelname)s %(message)s",
     datefmt="%H:%M:%S",
 )
-
-# -- Module-level config (avoids closures that break ADK parsing) -------------
-
-_ssh_config: Optional[SSHConfig] = None
-_stig_profile: str = ""
-_stig_datastream: str = ""
-
-
-async def run_stig_scan() -> str:
-    """Scan the target VM for STIG compliance violations."""
-    assert _ssh_config is not None
-    full = await stig_scan(_ssh_config, _stig_profile, _stig_datastream)
-    lines = full.split("\n")
-    rules = [l for l in lines if l.startswith("- ")]
-    header = lines[0] if lines else ""
-    return header + "\n\nTop 15:\n" + "\n".join(rules[:15]) + (
-        f"\n... and {len(rules)-15} more" if len(rules) > 15 else ""
-    )
-
-
-async def apply_fix(fix_script: str, revert_script: str, description: str) -> str:
-    """Apply a STIG fix to the target VM via SSH.
-
-    Args:
-        fix_script: The bash commands to apply the fix.
-        revert_script: The bash commands to undo the fix.
-        description: One-line description of what this fix does.
-    """
-    assert _ssh_config is not None
-    return await ssh_apply(_ssh_config, fix_script, revert_script, description)
 
 
 # -- Context budget helpers ---------------------------------------------------
@@ -192,8 +162,12 @@ class EpisodicMemory:
     rule_id: str
     attempts: list = field(default_factory=list)
 
-    def summary(self, max_attempts: int = 5) -> str:
-        """Compact summary using distilled lessons, capped at last N attempts."""
+    def summary(self, max_attempts: int = 5, max_chars: int = 1200) -> str:
+        """Compact summary using distilled lessons, capped at last N attempts.
+
+        Also hard-caps total output to max_chars to prevent context overflow
+        on high-attempt items where even 5 distilled lessons can be long.
+        """
         if not self.attempts:
             return "No prior attempts."
         recent = self.attempts[-max_attempts:]
@@ -211,7 +185,10 @@ class EpisodicMemory:
                 ref = a.get("reflection", "")
                 if ref:
                     lines.append(f"    Reflection: {ref[:120]}")
-        return "\n".join(lines)
+        result = "\n".join(lines)
+        if len(result) > max_chars:
+            result = result[:max_chars] + "\n[...episodic memory truncated for context budget...]"
+        return result
 
     def full_summary(self) -> str:
         """Uncapped summary — used only for the Reflector's context when analyzing failures."""
@@ -272,24 +249,28 @@ class SemanticMemory:
 
 
 def categorize_rule(rule_id: str) -> str:
-    """Classify a STIG rule into a coarse family for dashboards / analysis."""
+    """Classify a STIG rule into a coarse family for dashboards / analysis.
+
+    DEPRECATED: Kept for backward compatibility with existing test imports.
+    New code should use the skill runtime's categorization.
+    """
     rid = rule_id.lower()
     if "aide" in rid: return "integrity-monitoring"
-    if "fips" in rid or "crypto" in rid or "hash" in rid or "cipher" in rid or "ssl" in rid or "tls" in rid:
+    if any(k in rid for k in ("fips", "crypto", "hash", "cipher", "ssl", "tls")):
         return "cryptography"
     if "sudo" in rid or "nopasswd" in rid: return "privileged-access"
     if "partition" in rid or "mount" in rid: return "filesystem"
     if "selinux" in rid: return "mac"
     if "audit" in rid: return "audit"
-    if "kernel" in rid or "sysctl" in rid or "grub" in rid or "boot" in rid: return "kernel"
-    if "firewall" in rid or "firewalld" in rid or "iptables" in rid: return "network-firewall"
+    if any(k in rid for k in ("kernel", "sysctl", "grub", "boot")): return "kernel"
+    if any(k in rid for k in ("firewall", "firewalld", "iptables")): return "network-firewall"
     if "ssh" in rid: return "ssh"
-    if "password" in rid or "pam" in rid or "faillock" in rid: return "authentication"
-    if "banner" in rid or "motd" in rid or "issue" in rid: return "banner"
-    if "package" in rid or "rpm" in rid or "dnf" in rid or "gpg" in rid: return "package-management"
-    if "log" in rid or "rsyslog" in rid or "journald" in rid: return "logging"
+    if any(k in rid for k in ("password", "pam", "faillock")): return "authentication"
+    if any(k in rid for k in ("banner", "motd", "issue")): return "banner"
+    if any(k in rid for k in ("package", "rpm", "dnf", "gpg")): return "package-management"
+    if any(k in rid for k in ("log", "rsyslog", "journald")): return "logging"
     if "service" in rid or "systemd" in rid: return "service-config"
-    if "user" in rid or "account" in rid or "umask" in rid: return "user-account"
+    if any(k in rid for k in ("user", "account", "umask")): return "user-account"
     return "other"
 
 
@@ -574,7 +555,9 @@ async def _run_agent_turn(
                         run_log.log_tool_call(event.author, part.function_call.name,
                             dict(part.function_call.args) if part.function_call.args else {})
                 if part.function_response:
-                    resp = str(part.function_response.response)[:500]
+                    # Cap tool response logging. The actual response seen by the model
+                    # within the ADK turn can be larger, but we truncate what we log.
+                    resp = str(part.function_response.response)[:1500]
                     logger.info("[%s] \u2190 RESULT: %s", event.author, resp[:200])
                     if run_log:
                         run_log.log_tool_result(event.author,
@@ -620,41 +603,77 @@ async def _run_agent_turn(
     return "\n".join(response_parts).strip()
 
 
-# -- Deterministic evaluator --------------------------------------------------
+# -- Evaluation triage --------------------------------------------------------
+#
+# The harness classifies failure modes and routes responses:
+#   HEALTH_FAILURE → immediate revert (target is broken)
+#   EVALUATOR_GAP  → revert, count toward scanner-gap early escalation
+#   FALSE_NEGATIVE → accept the change (evaluator passed but noise triggered)
+#   CLEAN_FAILURE  → normal revert + reflect cycle
 
-async def evaluate_fix(ssh_config: SSHConfig, rule_id: str, profile: str, datastream: str) -> dict:
-    """Deterministic evaluation — no LLM. Returns structured result."""
-    health = await mission_healthcheck(ssh_config)
-    health_ok = "HEALTHY" in health
+@dataclass
+class TriageState:
+    """Tracks per-item evaluation patterns for triage decisions."""
+    evaluator_gap_count: int = 0  # consecutive health-ok but evaluator-fail
+    distinct_approaches_in_gap: list = field(default_factory=list)
 
-    rule_result = await stig_check_rule(ssh_config, rule_id, profile, datastream)
-    rule_ok = "PASS" in rule_result.upper()
+    def record_gap(self, approach_summary: str) -> None:
+        self.evaluator_gap_count += 1
+        # Track distinct approaches (by first 80 chars)
+        key = approach_summary[:80]
+        if key not in self.distinct_approaches_in_gap:
+            self.distinct_approaches_in_gap.append(key)
 
-    journal = await read_recent_journal(ssh_config)
-    journal_clean = "JOURNAL_CLEAN" in journal or "no entries" in journal.lower()
-
-    passed = health_ok and rule_ok and journal_clean
-
-    return {
-        "passed": passed,
-        "health": health,
-        "health_ok": health_ok,
-        "rule_check": rule_result,
-        "rule_ok": rule_ok,
-        "journal": journal[:300],
-        "journal_clean": journal_clean,
-        "summary": f"health={health_ok} rule={rule_ok} journal={journal_clean}",
-    }
+    def is_scanner_gap(self, threshold: int = 3) -> bool:
+        """True if we've seen enough distinct approaches fail the evaluator
+        while the target stays healthy — indicates a knowledge gap, not a logic gap."""
+        return (self.evaluator_gap_count >= threshold
+                and len(self.distinct_approaches_in_gap) >= threshold)
 
 
 # -- Main loop ----------------------------------------------------------------
+
+def _build_skill_runtime(skill: Skill, harness_cfg: dict) -> SkillRuntime:
+    """Instantiate the skill's runtime from its plugin or built-in runtimes."""
+    vm_cfg = harness_cfg.get("vm", {})
+    stig_cfg = harness_cfg.get("stig", {})
+
+    if skill.manifest.stig:
+        stig_cfg = {
+            "profile": skill.manifest.stig.profile,
+            "datastream": skill.manifest.stig.datastream,
+        }
+
+    # Import skill runtime dynamically
+    from gemma_forge.harness.tools.ssh import SSHConfig
+    ssh_config = SSHConfig(
+        host=vm_cfg.get("ip", "192.168.122.43"),
+        user=vm_cfg.get("user", "adm-forge"),
+        key_path=vm_cfg.get("ssh_key", "/data/vm/gemma-forge/keys/adm-forge"),
+    )
+
+    # For now, detect runtime by skill name. In the future, skills will
+    # declare their runtime class in skill.yaml.
+    if skill.name == "stig-rhel9" or skill.manifest.stig:
+        # Dynamic import of the skill's runtime module
+        import importlib.util
+        runtime_path = Path("skills/stig-rhel9/runtime.py")
+        spec = importlib.util.spec_from_file_location("stig_runtime", runtime_path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        StigSkillRuntime = mod.StigSkillRuntime
+        profile = stig_cfg.get("profile", "xccdf_org.ssgproject.content_profile_stig")
+        datastream = stig_cfg.get("datastream", "/usr/share/xml/scap/ssg/content/ssg-rl9-ds.xml")
+        return StigSkillRuntime(ssh_config, profile, datastream)
+
+    raise ValueError(f"No runtime implementation for skill '{skill.name}'")
+
 
 async def run_ralph(
     config_path: str = "config/harness.yaml",
     skill_name: Optional[str] = None,
 ) -> None:
-    """Run the Ralph loop with proper reflexion architecture."""
-    global _ssh_config, _stig_profile, _stig_datastream
+    """Run the Ralph loop — skill-agnostic reflexion harness."""
 
     harness_cfg = {}
     if Path(config_path).exists():
@@ -666,28 +685,18 @@ async def run_ralph(
         with open("config/models.yaml") as f:
             models_cfg = yaml.safe_load(f) or {}
 
-    vm_cfg = harness_cfg.get("vm", {})
     loop_cfg = harness_cfg.get("loop", {})
-    stig_cfg = harness_cfg.get("stig", {})
 
-    _ssh_config = SSHConfig(
-        host=vm_cfg.get("ip", "192.168.122.43"),
-        user=vm_cfg.get("user", "adm-forge"),
-        key_path=vm_cfg.get("ssh_key", "/data/vm/gemma-forge/keys/adm-forge"),
-    )
-
+    # Load skill and its runtime
     skill = None
+    runtime: Optional[SkillRuntime] = None
     if skill_name:
         skill = load_skill(skill_name)
         logger.info("Loaded skill: %s", skill.name)
-        if skill.manifest.stig:
-            stig_cfg = {
-                "profile": skill.manifest.stig.profile,
-                "datastream": skill.manifest.stig.datastream,
-            }
+        runtime = _build_skill_runtime(skill, harness_cfg)
 
-    _stig_profile = stig_cfg.get("profile", "xccdf_org.ssgproject.content_profile_stig")
-    _stig_datastream = stig_cfg.get("datastream", "/usr/share/xml/scap/ssg/content/ssg-rl9-ds.xml")
+    if runtime is None:
+        raise RuntimeError("No skill specified — the harness requires a skill to run.")
 
     # Single model config — all roles share Gemma bf16 tp=4
     gemma_cfg = models_cfg.get("gemma", {})
@@ -703,10 +712,14 @@ async def run_ralph(
     work_prompt = skill.get_prompt("worker") if skill else WORKER_INSTRUCTION
     ref_prompt = skill.get_prompt("reflector") if skill else REFLECTOR_INSTRUCTION
 
+    # Wire agents to skill-provided tools via the interfaces
+    scan_tool = runtime.get_scan_tool()
+    agent_tools = runtime.executor.get_agent_tools()
+
     architect = Agent(name="architect", model=_make_llm(),
-                      instruction=arch_prompt, tools=[run_stig_scan])
+                      instruction=arch_prompt, tools=[scan_tool])
     worker = Agent(name="worker", model=_make_llm(),
-                   instruction=work_prompt, tools=[apply_fix])
+                   instruction=work_prompt, tools=agent_tools)
     reflector = Agent(name="reflector", model=_make_llm(),
                       instruction=ref_prompt, tools=[])
 
@@ -717,6 +730,7 @@ async def run_ralph(
     max_wall_time_per_rule_s = loop_cfg.get("max_wall_time_per_rule_s", 1200)
     arch_reengage_every_n = loop_cfg.get("architect_reengage_every_n_attempts", 3)
     arch_reengage_on_plateau = loop_cfg.get("architect_reengage_on_plateau", True)
+    scanner_gap_threshold = loop_cfg.get("scanner_gap_threshold", 3)
     run_start_wall = time.time()
 
     try:
@@ -729,19 +743,19 @@ async def run_ralph(
     run_log = RunLogger()
 
     logger.info("=" * 60)
-    logger.info("RALPH LOOP — Proper reflexion architecture")
+    logger.info("RALPH LOOP — Skill-agnostic reflexion harness (v4)")
     logger.info("=" * 60)
     logger.info("Model: Gemma 4 31B bf16 full precision, TP=4, all 4 GPUs")
     logger.info("Max outer iterations: %d | Retry ceiling/rule: %d | Time budget/rule: %ds",
                 max_outer, max_retries, max_wall_time_per_rule_s)
     logger.info("Escalation trigger: WALL-CLOCK TIME (not attempt count)")
+    logger.info("Scanner-gap early escalation threshold: %d distinct approaches", scanner_gap_threshold)
     logger.info("Run log: %s", run_log.log_path)
     logger.info("")
 
     state = RunState()
 
-    # Emit skill manifest for the UI — lets the frontend render any skill
-    # without hardcoding STIG-specific labels.
+    # Emit skill manifest for the UI
     if skill:
         ui = skill.manifest.ui
         run_log.log("skill_manifest", "system", {
@@ -760,34 +774,32 @@ async def run_ralph(
             },
         })
 
-    # -- Snapshot preflight: verify baseline exists, clear any stale progress snapshot --
-    if not await snapshot_exists("baseline"):
+    # -- Checkpoint preflight: verify baseline exists, clear stale progress --
+    if not await runtime.checkpoint.exists("baseline"):
         raise RuntimeError(
-            "Libvirt 'baseline' snapshot does not exist. The Ralph loop relies on "
-            "baseline/progress snapshots for authoritative revert. Create it with "
-            "`infra/vm/scripts/vm-snapshot.sh create baseline` before starting a run."
+            "Baseline checkpoint does not exist. The Ralph loop relies on "
+            "baseline/progress checkpoints for authoritative revert. Create a "
+            "baseline checkpoint before starting a run."
         )
-    logger.info("Baseline snapshot OK")
-    # Any leftover 'progress' snapshot from a prior run should be cleared so this
-    # run starts with a clean revert target == baseline. Failures to delete are
-    # non-fatal (means there was no progress snapshot, which is the desired state).
-    from gemma_forge.harness.tools.ssh import _run_snapshot_cmd as _snap_cmd
-    await _snap_cmd("delete", "progress", timeout=30)
+    logger.info("Baseline checkpoint OK")
+    await runtime.checkpoint.delete("progress")
     run_log.log("snapshot_preflight", "system", {
         "baseline_ok": True,
         "progress_cleared": True,
     })
 
-    # -- Initial scan (full, for state population) --
-    logger.info("Running initial STIG scan...")
-    raw = await stig_scan(_ssh_config, _stig_profile, _stig_datastream)
-    for line in raw.split("\n"):
-        if line.startswith("- "):
-            parts = line[2:].split(": ", 1)
-            if len(parts) == 2:
-                state.failing_rules.append({"rule_id": parts[0].strip(), "title": parts[1].strip()})
-    logger.info("Found %d failing rules", len(state.failing_rules))
+    # -- Initial scan via skill's WorkQueue --
+    logger.info("Running initial scan...")
+    work_items = await runtime.work_queue.scan()
+    graph = TaskGraph()
+    graph.add_items(work_items)
+    for item in work_items:
+        state.failing_rules.append({"rule_id": item.id, "title": item.title,
+                                     "category": item.category, "_item": item})
+    logger.info("Found %d work items", len(state.failing_rules))
     run_log.log("scan_complete", "system", {"failing_count": len(state.failing_rules)}, include_gpu=True)
+    # Emit initial graph state for dashboard
+    run_log.log("graph_state", "system", graph.snapshot())
 
     # -- Outer loop: pick rules --
     rules_processed = 0
@@ -836,6 +848,7 @@ async def run_ralph(
                     logger.info(">>> SKIPPED: %s <<<", rule["rule_id"])
                     state.skipped.append({**rule, "reason": arch_resp[:150], "iteration": outer_iter})
                     state.failing_rules = [r for r in state.failing_rules if r["rule_id"] != rule["rule_id"]]
+                    graph.mark_skipped(rule["rule_id"])
                     run_log.log("skip", "architect", {"rule_id": rule["rule_id"], "reason": arch_resp[:150]})
                     break
             continue
@@ -850,8 +863,11 @@ async def run_ralph(
             selected = state.failing_rules[0]
 
         state.current_rule = selected
-        rule_category = categorize_rule(selected["rule_id"])
+        rule_category = selected.get("category", categorize_rule(selected["rule_id"]))
+        work_item: WorkItem = selected.get("_item", WorkItem(id=selected["rule_id"], title=selected["title"], category=rule_category))
         episodic = state.get_episodic(selected["rule_id"])
+        triage = TriageState()
+        graph.mark_active(selected["rule_id"])
         rule_start_wall = time.time()
         rule_total_tokens = 0
         approaches_tried: list = []
@@ -903,11 +919,18 @@ async def run_ralph(
             attempt_start_wall = time.time()
 
             # Worker prompt — assembled under token budget.
-            # Budget reasoning: we want total request < 10K tokens to leave headroom
-            # for system prompt (~1.5K), tool schema (~500), one in-turn tool
-            # round-trip (~500 each side), and a ~2K safety margin against the
-            # 16K vLLM context. That leaves ~8K for the user message.
-            WORKER_USER_BUDGET = 7000
+            # Full context budget: 16K max_model_len
+            #   - System instruction: ~1500 tokens
+            #   - Tool schema (apply_fix): ~300 tokens
+            #   - Tool call (SSH command): ~200 tokens
+            #   - Tool response (SSH output): up to ~1500 tokens
+            #   - Model response: up to 2048 tokens
+            #   - Safety margin: ~450 tokens
+            # That leaves ~10K for the user message. But on high-attempt items,
+            # episodic + semantic memory can grow large. We cap at 5500 to ensure
+            # the full round-trip never exceeds 16K even with large tool responses.
+            # This is the fix for the 8 context overflow errors from the v3 run.
+            WORKER_USER_BUDGET = 5500
 
             work_sections: list[tuple[int, str, str]] = []
 
@@ -947,28 +970,50 @@ async def run_ralph(
             work_resp = await _run_agent_turn(worker, session_service, work_context, run_log)
             attempt_phase_timing["worker_llm_s"] = round(time.time() - t0, 2)
 
-            # HARNESS: deterministic evaluation (wrapped so SSH/OpenSCAP hiccups become structured errors)
+            # HARNESS: deterministic evaluation via skill's Evaluator interface
             logger.info("  EVALUATING (deterministic)...")
             t0 = time.time()
             try:
-                eval_result = await evaluate_fix(_ssh_config, selected["rule_id"], _stig_profile, _stig_datastream)
+                eval_result_obj: EvalResult = await runtime.evaluator.evaluate(work_item)
             except Exception as exc:  # noqa: BLE001
                 logger.exception("  EVAL tool error: %s", exc)
                 run_log.log("tool_error", "harness", {
                     "rule_id": selected["rule_id"],
-                    "phase": "evaluate_fix",
+                    "phase": "evaluate",
                     "error": str(exc)[:400],
                     "attempt": attempt,
                 })
-                eval_result = {
-                    "passed": False, "health_ok": False, "rule_ok": False, "journal_clean": False,
-                    "summary": f"eval tool error: {exc}",
-                }
+                eval_result_obj = EvalResult(
+                    passed=False,
+                    failure_mode=FailureMode.HEALTH_FAILURE,
+                    summary=f"eval tool error: {exc}",
+                )
             attempt_phase_timing["eval_s"] = round(time.time() - t0, 2)
-            logger.info("  EVAL: %s", eval_result["summary"])
+
+            # Convert EvalResult to dict for logging compatibility
+            eval_result = {
+                "passed": eval_result_obj.passed,
+                "failure_mode": eval_result_obj.failure_mode.value,
+                "summary": eval_result_obj.summary,
+                **eval_result_obj.signals,
+            }
+            logger.info("  EVAL: %s (mode=%s)", eval_result_obj.summary, eval_result_obj.failure_mode.value)
             run_log.log("evaluation", "harness", eval_result)
 
-            if eval_result["passed"]:
+            # --- Evaluation triage ---
+            if eval_result_obj.failure_mode == FailureMode.EVALUATOR_GAP:
+                triage.record_gap(work_resp[:80])
+                if triage.is_scanner_gap(threshold=scanner_gap_threshold):
+                    logger.warning("  >>> SCANNER-GAP DETECTED: %d distinct approaches failed evaluator with healthy target <<<",
+                                   len(triage.distinct_approaches_in_gap))
+                    run_log.log("scanner_gap_detected", "harness", {
+                        "rule_id": selected["rule_id"],
+                        "gap_count": triage.evaluator_gap_count,
+                        "distinct_approaches": len(triage.distinct_approaches_in_gap),
+                        "threshold": scanner_gap_threshold,
+                    })
+
+            if eval_result_obj.passed:
                 # SUCCESS
                 logger.info("  >>> RULE REMEDIATED: %s <<<", selected["rule_id"])
                 approaches_tried.append(work_resp[:200])
@@ -983,22 +1028,24 @@ async def run_ralph(
                 state.failing_rules = [r for r in state.failing_rules if r["rule_id"] != selected["rule_id"]]
                 rule_succeeded = True
                 rules_processed += 1
+                graph.mark_completed(selected["rule_id"], attempts=attempt,
+                                     wall_time_s=time.time() - rule_start_wall)
 
-                # Advance the progress snapshot so future failures revert to a state
+                # Advance the progress checkpoint so future failures revert to a state
                 # that includes this fix. Non-fatal if it fails — we log and continue.
                 t0 = time.time()
                 try:
-                    snap_ok, snap_detail = await snapshot_save_progress()
+                    snap_ok, snap_detail = await runtime.checkpoint.save("progress")
                 except Exception as exc:  # noqa: BLE001
-                    snap_ok, snap_detail = False, f"snapshot save exception: {exc}"
+                    snap_ok, snap_detail = False, f"checkpoint save exception: {exc}"
                 snap_save_s = round(time.time() - t0, 2)
                 if snap_ok:
-                    logger.info("  Progress snapshot advanced (%.1fs)", snap_save_s)
+                    logger.info("  Progress checkpoint advanced (%.1fs)", snap_save_s)
                 else:
-                    logger.warning("  Progress snapshot save FAILED: %s", snap_detail[:200])
+                    logger.warning("  Progress checkpoint save FAILED: %s", snap_detail[:200])
                     run_log.log("tool_error", "harness", {
                         "rule_id": selected["rule_id"],
-                        "phase": "snapshot_save_progress",
+                        "phase": "checkpoint_save",
                         "error": snap_detail[:400],
                         "attempt": attempt,
                     })
@@ -1014,20 +1061,18 @@ async def run_ralph(
                 })
                 break
 
-            # FAIL — diagnose, then snapshot-restore.
+            # FAIL — diagnose, then checkpoint-restore.
             #
-            # The old script-based revert assumed the fix hadn't broken sudo
-            # or the revert script was correct or the filesystem was still
-            # writable. None of those assumptions held in the overnight run.
-            # New path: capture forensics (for learning), then nuke the VM
-            # back to the last-known-good snapshot. See
-            # docs/whitepaper/improvements/04-snapshot-based-revert.md.
-            logger.warning("  >>> EVAL FAILED — gathering diagnostics before revert <<<")
+            # Capture forensics (for learning), then restore to the last-known-good
+            # checkpoint. The checkpoint mechanism is authoritative — it cannot be
+            # defeated by a target-level state change.
+            logger.warning("  >>> EVAL FAILED (mode=%s) — gathering diagnostics before revert <<<",
+                           eval_result_obj.failure_mode.value)
 
             # Step 1: Gather environment forensics before we touch anything.
             t0 = time.time()
             try:
-                diagnostics = await gather_environment_diagnostics(_ssh_config)
+                diagnostics = await runtime.gather_diagnostics()
             except Exception as exc:  # noqa: BLE001
                 logger.warning("  Diagnostic gather failed: %s", exc)
                 diagnostics = {"_error": str(exc)[:300], "sudo_ok": False,
@@ -1040,6 +1085,7 @@ async def run_ralph(
                 "rule_id": selected["rule_id"],
                 "category": rule_category,
                 "attempt": attempt,
+                "failure_mode": eval_result_obj.failure_mode.value,
                 "eval_summary": eval_result.get("summary", ""),
                 "sudo_ok": diagnostics.get("sudo_ok", False),
                 "services_ok": diagnostics.get("services_ok", False),
@@ -1054,36 +1100,33 @@ async def run_ralph(
                 "recent_journal_errors": diagnostics.get("recent_journal_errors", "")[:500],
             })
 
-            # Step 2: Snapshot-restore to the last known-good state. This is
-            # authoritative — it cannot be defeated by a guest-level config change.
+            # Step 2: Checkpoint-restore to the last known-good state.
             t0 = time.time()
             try:
-                ok, restore_detail = await snapshot_restore_progress()
+                ok, restore_detail = await runtime.checkpoint.restore("progress")
             except Exception as exc:  # noqa: BLE001
-                logger.exception("  SNAPSHOT restore error: %s", exc)
+                logger.exception("  Checkpoint restore error: %s", exc)
                 run_log.log("tool_error", "harness", {
                     "rule_id": selected["rule_id"],
-                    "phase": "snapshot_restore",
+                    "phase": "checkpoint_restore",
                     "error": str(exc)[:400],
                     "attempt": attempt,
                 })
-                ok, restore_detail = False, f"snapshot exception: {exc}"
-            attempt_phase_timing["snapshot_restore_s"] = round(time.time() - t0, 2)
+                ok, restore_detail = False, f"checkpoint exception: {exc}"
+            attempt_phase_timing["checkpoint_restore_s"] = round(time.time() - t0, 2)
             if ok:
-                logger.info("  Snapshot restore OK (%s)", restore_detail[:120])
+                logger.info("  Checkpoint restore OK (%s)", restore_detail[:120])
             else:
-                logger.error("  Snapshot restore FAILED: %s", restore_detail[:200])
+                logger.error("  Checkpoint restore FAILED: %s", restore_detail[:200])
                 run_log.log("tool_error", "harness", {
                     "rule_id": selected["rule_id"],
-                    "phase": "snapshot_restore",
+                    "phase": "checkpoint_restore",
                     "error": restore_detail[:400],
                     "attempt": attempt,
                 })
 
-            # Step 3: Verify the VM is actually reachable and healthy post-restore.
-            # If it isn't, the loop should halt — something is wrong with libvirt
-            # or the snapshot chain itself.
-            post_restore_ok, post_sudo_detail = await check_sudo_healthy(_ssh_config)
+            # Step 3: Verify the target is actually reachable post-restore.
+            post_restore_ok, post_sudo_detail = await runtime.check_sudo_healthy()
             if not post_restore_ok:
                 logger.error("  Post-restore sudo probe FAILED: %s", post_sudo_detail)
                 run_log.log("environment_unrecoverable", "harness", {
@@ -1098,10 +1141,13 @@ async def run_ralph(
                 "rule_id": selected["rule_id"],
                 "category": rule_category,
                 "reason": eval_result["summary"],
-                "method": "snapshot_restore",
+                "failure_mode": eval_result_obj.failure_mode.value,
+                "method": "checkpoint_restore",
                 "restore_ok": ok,
                 "restore_detail": restore_detail[:200],
                 "post_restore_healthy": post_restore_ok,
+                "scanner_gap": triage.is_scanner_gap(threshold=scanner_gap_threshold),
+                "evaluator_gap_count": triage.evaluator_gap_count,
                 "attempt": attempt,
                 "phase_timing": attempt_phase_timing,
             }, include_gpu=True)
@@ -1210,20 +1256,35 @@ async def run_ralph(
                 # and the loop kept grinding because no one had authority to act on it.
                 # See docs/whitepaper/improvements/01-architect-reengagement.md
                 attempts_since_touch = attempt - last_architect_touch
+                scanner_gap_flag = triage.is_scanner_gap(threshold=scanner_gap_threshold)
                 should_reengage = (
                     (attempts_since_touch >= arch_reengage_every_n
-                     or (arch_reengage_on_plateau and plateau))
+                     or (arch_reengage_on_plateau and plateau)
+                     or scanner_gap_flag)
                     and (max_wall_time_per_rule_s - (time.time() - rule_start_wall)) > 120
                 )
 
                 if should_reengage:
                     reengagements_count += 1
-                    trigger = "plateau" if plateau and attempts_since_touch < arch_reengage_every_n else "attempt_threshold"
+                    if scanner_gap_flag:
+                        trigger = "scanner_gap"
+                    elif plateau and attempts_since_touch < arch_reengage_every_n:
+                        trigger = "plateau"
+                    else:
+                        trigger = "attempt_threshold"
                     logger.info("  \u26A1 ARCHITECT RE-ENGAGEMENT #%d (trigger=%s, attempts since touch=%d, plateau=%s)",
                                 reengagements_count, trigger, attempts_since_touch, plateau)
 
                     # Build re-engagement prompt — architect sees the full rule journey
                     reeng_sections: list[tuple[int, str, str]] = []
+                    scanner_gap_note = ""
+                    if scanner_gap_flag:
+                        scanner_gap_note = (
+                            f"\n⚠ SCANNER GAP DETECTED: {triage.evaluator_gap_count} attempts passed "
+                            f"health checks but failed the evaluator with {len(triage.distinct_approaches_in_gap)} "
+                            f"distinct approaches. This suggests a knowledge gap — the model may not know what "
+                            f"the evaluator expects. Consider ESCALATE."
+                        )
                     reeng_sections.append((0, "header",
                         "=== ARCHITECT RE-ENGAGEMENT ===\n"
                         f"Rule: {selected['rule_id']} ({selected['title']})\n"
@@ -1231,7 +1292,8 @@ async def run_ralph(
                         f"Attempts so far: {attempt}\n"
                         f"Reflector plateau: {plateau}\n"
                         f"Re-engagement trigger: {trigger}\n"
-                        f"Wall time used on this rule: {int(time.time() - rule_start_wall)}s of {max_wall_time_per_rule_s}s"))
+                        f"Wall time used on this rule: {int(time.time() - rule_start_wall)}s of {max_wall_time_per_rule_s}s"
+                        f"{scanner_gap_note}"))
                     reeng_sections.append((1, "episodic_full", episodic.full_summary()))
                     # Show the reflector's latest guidance verbatim so the architect
                     # can't miss a clear "stop trying" signal.
@@ -1311,6 +1373,9 @@ async def run_ralph(
             })
             state.failing_rules = [r for r in state.failing_rules if r["rule_id"] != selected["rule_id"]]
             rules_processed += 1
+            graph.mark_escalated(selected["rule_id"], reason=reason,
+                                 attempts=attempt - 1,
+                                 wall_time_s=rule_wall_time)
             run_log.log("escalated", "harness", {
                 "rule_id": selected["rule_id"],
                 "category": rule_category,
@@ -1318,6 +1383,9 @@ async def run_ralph(
                 "wall_time_s": round(rule_wall_time, 1),
                 "reason": reason,
             })
+
+        # Emit graph state for dashboard DAG visualization
+        run_log.log("graph_state", "system", graph.snapshot())
 
         # Emit rich rule_complete summary — the key event for per-rule timeline views
         reflections_for_rule = [a.get("reflection", "") for a in episodic.attempts]

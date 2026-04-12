@@ -52,11 +52,11 @@ def vm_config() -> SSHConfig:
 
 class TestRunStartPreconditions:
     async def test_property_fails_cleanly_when_baseline_snapshot_missing(self, tmp_path):
-        """If the baseline libvirt snapshot doesn't exist, run_ralph should
+        """If the baseline checkpoint doesn't exist, run_ralph should
         raise a clear RuntimeError without burning LLM tokens."""
-        # Patch snapshot_exists to return False for 'baseline'
-        from gemma_forge.harness import ralph as ralph_mod
-        original_snapshot_exists = ralph_mod.snapshot_exists
+        # Patch snapshot_exists at the tools level — the STIG runtime calls this
+        from gemma_forge.harness.tools import ssh as ssh_mod
+        original_snapshot_exists = ssh_mod.snapshot_exists
 
         async def fake_snapshot_exists(name: str) -> bool:
             if name == "baseline":
@@ -72,7 +72,7 @@ class TestRunStartPreconditions:
         with open(test_cfg_path, "w") as f:
             yaml.safe_dump(cfg, f)
 
-        with patch.object(ralph_mod, "snapshot_exists", fake_snapshot_exists):
+        with patch.object(ssh_mod, "snapshot_exists", fake_snapshot_exists):
             with pytest.raises(RuntimeError) as exc_info:
                 await run_ralph(
                     config_path=str(test_cfg_path),
@@ -81,8 +81,7 @@ class TestRunStartPreconditions:
             # Error message must mention baseline + tell the user how to fix
             msg = str(exc_info.value)
             assert "baseline" in msg.lower()
-            assert "snapshot" in msg.lower()
-            assert "create" in msg.lower() or "vm-snapshot.sh" in msg
+            assert "checkpoint" in msg.lower() or "snapshot" in msg.lower()
 
 
 # =============================================================================

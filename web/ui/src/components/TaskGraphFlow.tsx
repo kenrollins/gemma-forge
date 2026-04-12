@@ -41,12 +41,12 @@ interface GraphSnapshot {
 // -- Styling ----------------------------------------------------------------
 
 const STATE_STYLES: Record<string, { bg: string; border: string; text: string; glow?: string }> = {
-  queued:    { bg: "#1F2937", border: "#374151", text: "#6B7280" },
-  blocked:   { bg: "#451A03", border: "#92400E", text: "#FCD34D" },
-  active:    { bg: "#1E3A5F", border: "#2563EB", text: "#93C5FD", glow: "0 0 12px rgba(37,99,235,0.5)" },
-  completed: { bg: "#052E16", border: "#16A34A", text: "#4ADE80" },
-  escalated: { bg: "#450A0A", border: "#DC2626", text: "#FCA5A5" },
-  skipped:   { bg: "#1F2937", border: "#4B5563", text: "#6B7280" },
+  queued:    { bg: "#1A1E26", border: "#3B4252", text: "#6B7280" },
+  blocked:   { bg: "#351A00", border: "#92400E", text: "#FCD34D" },
+  active:    { bg: "#0C2D4A", border: "#22D3EE", text: "#22D3EE", glow: "0 0 12px rgba(34,211,238,0.3)" },
+  completed: { bg: "#052E16", border: "#10B981", text: "#10B981" },
+  escalated: { bg: "#3D2000", border: "#F59E0B", text: "#F59E0B" },
+  skipped:   { bg: "#1A1E26", border: "#4B5563", text: "#6B7280" },
 };
 
 const CATEGORY_COLORS: Record<string, string> = {

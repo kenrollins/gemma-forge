@@ -94,3 +94,8 @@ scratch/
 # MkDocs build output (the rendered site is published via GitHub Actions,
 # not committed to the repo).
 site/
+
+# Cross-run memory (SQLite DB — runtime state, not source)
+memory/*.db
+memory/*.db-wal
+memory/*.db-shm

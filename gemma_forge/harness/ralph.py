@@ -740,10 +740,14 @@ async def run_ralph(
         pass
 
     from gemma_forge.harness.run_logger import RunLogger
+    from gemma_forge.harness.memory_store import SQLiteMemoryStore
     run_log = RunLogger()
+    mem_store = SQLiteMemoryStore()
+    mem_store.initialize()
+    mem_run_id = mem_store.start_run(skill_name or "unknown", harness_cfg)
 
     logger.info("=" * 60)
-    logger.info("RALPH LOOP — Skill-agnostic reflexion harness (v4)")
+    logger.info("RALPH LOOP — Skill-agnostic reflexion harness (v5)")
     logger.info("=" * 60)
     logger.info("Model: Gemma 4 31B bf16 full precision, TP=4, all 4 GPUs")
     logger.info("Max outer iterations: %d | Retry ceiling/rule: %d | Time budget/rule: %ds",
@@ -800,6 +804,58 @@ async def run_ralph(
     run_log.log("scan_complete", "system", {"failing_count": len(state.failing_rules)}, include_gpu=True)
     # Emit initial graph state for dashboard
     run_log.log("graph_state", "system", graph.snapshot())
+
+    # -- Cross-run retrieval: hydrate from prior runs --------------------------
+    prior_run_count = mem_store.get_run_count() - 1  # exclude current run
+    if prior_run_count > 0:
+        logger.info("Cross-run memory: %d prior runs found", prior_run_count)
+
+        # Load globally banned patterns from prior runs
+        prior_bans = mem_store.load_global_bans()
+        for ban in prior_bans:
+            if ban not in state.semantic.banned_patterns:
+                state.semantic.banned_patterns.append(ban)
+        if prior_bans:
+            logger.info("  Loaded %d banned patterns from prior runs", len(prior_bans))
+
+        # Load top strategic lessons across all categories
+        prior_lessons = mem_store.load_all_lessons(min_weight=0.3, limit=20)
+        for pl in prior_lessons:
+            state.semantic.lessons.append(f"[prior run] {pl.lesson}")
+        if prior_lessons:
+            logger.info("  Loaded %d strategic lessons (weight >= 0.3)", len(prior_lessons))
+
+        # Log the category difficulty model for the clutch
+        cat_stats = mem_store.get_category_stats()
+        if cat_stats:
+            logger.info("  Category difficulty model:")
+            for cs in cat_stats:
+                logger.info("    %s: %.0f%% success, %.1f avg attempts, %.0fs avg time",
+                            cs.category, cs.success_rate * 100, cs.avg_attempts, cs.avg_wall_time_s)
+
+        run_log.log("cross_run_hydration", "system", {
+            "prior_runs": prior_run_count,
+            "loaded_bans": len(prior_bans),
+            "loaded_lessons": len(prior_lessons),
+            "category_stats": [
+                {"category": cs.category, "success_rate": round(cs.success_rate, 2),
+                 "avg_attempts": round(cs.avg_attempts, 1), "total_items": cs.total_items}
+                for cs in cat_stats
+            ] if cat_stats else [],
+        })
+    else:
+        logger.info("Cross-run memory: first run — no prior knowledge")
+        run_log.log("cross_run_hydration", "system", {"prior_runs": 0})
+
+    # -- Adaptive concurrency (the clutch) ------------------------------------
+    from gemma_forge.harness.clutch import Clutch, ClutchConfig
+    clutch_cfg = ClutchConfig(
+        max_workers=loop_cfg.get("max_parallel_workers", 3),
+    )
+    clutch = Clutch(config=clutch_cfg, mem_store=mem_store)
+    clutch.initialize()
+    logger.info("Clutch: %s", clutch.state.reason)
+    run_log.log("clutch_initialized", "system", clutch.snapshot())
 
     # -- Outer loop: pick rules --
     rules_processed = 0
@@ -1059,6 +1115,20 @@ async def run_ralph(
                     "snapshot_saved": snap_ok,
                     "snapshot_save_s": snap_save_s,
                 })
+
+                # Persist to cross-run memory
+                mem_store.save_item_outcome(
+                    mem_run_id, selected["rule_id"], selected["title"],
+                    rule_category, "completed", attempt,
+                    round(time.time() - rule_start_wall, 1))
+                # Save the successful approach as a lesson
+                if episodic.attempts:
+                    last = episodic.attempts[-1]
+                    lesson_text = last.get("lesson", "") or f"succeeded with: {work_resp[:100]}"
+                    if lesson_text:
+                        mem_store.save_lesson(rule_category, lesson_text,
+                                              mem_run_id, selected["rule_id"])
+
                 break
 
             # FAIL — diagnose, then checkpoint-restore.
@@ -1384,6 +1454,31 @@ async def run_ralph(
                 "reason": reason,
             })
 
+            # Persist to cross-run memory
+            mem_store.save_item_outcome(
+                mem_run_id, selected["rule_id"], selected["title"],
+                rule_category, "escalated", attempt - 1,
+                round(rule_wall_time, 1))
+
+        # Persist attempt traces to cross-run memory (all attempts, success or failure)
+        for i, att in enumerate(episodic.attempts):
+            mem_store.save_attempt(
+                mem_run_id, selected["rule_id"], i + 1,
+                att.get("approach", "")[:500],
+                False,  # individual attempts within a rule are always pre-resolution
+                att.get("result", ""),
+                att.get("reflection", "")[:500],
+                att.get("lesson", "")[:200],
+                "",  # banned patterns are in semantic memory, not per-attempt
+                0.0,
+            )
+        # Save distilled lessons from failed approaches
+        for att in episodic.attempts:
+            lesson = att.get("lesson", "").strip()
+            if lesson and not rule_succeeded:
+                mem_store.save_lesson(rule_category, lesson,
+                                     mem_run_id, selected["rule_id"])
+
         # Emit graph state for dashboard DAG visualization
         run_log.log("graph_state", "system", graph.snapshot())
 
@@ -1425,7 +1520,7 @@ async def run_ralph(
     for r in state.skipped:
         logger.info("  ⊘ %s: %s", r["rule_id"], r.get("reason", "")[:60])
 
-    run_log.log_summary({
+    summary_data = {
         "iterations": state.current_iteration,
         "remediated": len(state.remediated),
         "escalated": len(state.escalated),
@@ -1436,7 +1531,19 @@ async def run_ralph(
         "elapsed_s": round(time.time() - run_log.start_time, 2),
         "remediated_rules": state.remediated,
         "escalated_rules": state.escalated,
-    })
+    }
+    run_log.log_summary(summary_data)
+
+    # Persist run summary and close memory store
+    mem_store.end_run(mem_run_id, summary_data)
+    # Persist all banned patterns discovered in this run
+    for ban in state.semantic.banned_patterns:
+        # Save as attempt-level bans so they're queryable across runs
+        mem_store.save_attempt(
+            mem_run_id, "_global_ban", 0, "", False, "", "", "", ban, 0.0)
+    logger.info("Memory store: %s", mem_store.summary())
+    mem_store.close()
+
     logger.info("Run log: %s", run_log.log_path)
 
 

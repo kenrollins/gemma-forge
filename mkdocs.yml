@@ -96,6 +96,7 @@ validation:
 
 nav:
   - Home: index.md
+  - Architecture Brief: brief.md
   - About: about.md
   - Architecture:
       - Overview: journal/architecture/00-system-architecture.md

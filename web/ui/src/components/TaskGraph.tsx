@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { RunEvent, SkillUI } from "./types";
 
-// -- Types for graph state --------------------------------------------------
+// -- Types ------------------------------------------------------------------
 
 interface GraphNode {
   id: string;
@@ -15,10 +15,7 @@ interface GraphNode {
   escalation_reason: string | null;
 }
 
-interface GraphEdge {
-  from: string;
-  to: string;
-}
+interface GraphEdge { from: string; to: string; }
 
 interface GraphSnapshot {
   nodes: GraphNode[];
@@ -26,43 +23,24 @@ interface GraphSnapshot {
   counts: Record<string, number>;
 }
 
-// -- State colors -----------------------------------------------------------
+// -- SpaceX-style semantic colors (4 + grayscale) ---------------------------
 
-const STATE_COLORS: Record<string, string> = {
-  queued: "#374151",     // gray-700
-  blocked: "#92400E",    // amber-900
-  active: "#2563EB",     // blue-600
-  completed: "#16A34A",  // green-600
-  escalated: "#DC2626",  // red-600
-  skipped: "#4B5563",    // gray-600
+const STATE_COLOR: Record<string, string> = {
+  queued:    "#3B4252",   // dim gray — waiting
+  blocked:   "#92400E",   // deep amber — dependency blocked
+  active:    "#22D3EE",   // cyan — the SpaceX telemetry blue
+  completed: "#10B981",   // emerald — confirmed good
+  escalated: "#F59E0B",   // amber — attention/warning (NOT red)
+  skipped:   "#4B5563",   // medium gray
 };
 
-const STATE_BG: Record<string, string> = {
-  queued: "bg-[#1a1d24]",
-  blocked: "bg-[#3d2800]",
-  active: "bg-[#1a3a6b]",
-  completed: "bg-[#0a3d1a]",
-  escalated: "bg-[#3d0a0a]",
-  skipped: "bg-[#1a1d24]",
+const STATE_LABEL: Record<string, string> = {
+  queued: "Queued", blocked: "Blocked", active: "Active",
+  completed: "Done", escalated: "Escalated", skipped: "Skipped",
 };
 
-const STATE_BORDER: Record<string, string> = {
-  queued: "border-[#2a2e38]",
-  blocked: "border-[#b45309]",
-  active: "border-[#3B82F6] animate-pulse",
-  completed: "border-[#22C55E]",
-  escalated: "border-[#EF4444]",
-  skipped: "border-[#374151]",
-};
-
-const STATE_GLOW: Record<string, string> = {
-  active: "shadow-[0_0_10px_rgba(59,130,246,0.5)]",
-  completed: "shadow-[0_0_4px_rgba(34,197,94,0.2)]",
-  escalated: "shadow-[0_0_4px_rgba(239,68,68,0.2)]",
-  queued: "",
-  blocked: "",
-  skipped: "",
-};
+const CELL_SIZE = 18;  // px — each task is one square
+const CELL_GAP = 2;    // px
 
 // -- Component --------------------------------------------------------------
 
@@ -73,7 +51,8 @@ export default function TaskGraph({
   events: RunEvent[];
   skillUI: SkillUI;
 }) {
-  // Find the latest graph_state event
+  const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null);
+
   const graphState: GraphSnapshot | null = useMemo(() => {
     for (let i = events.length - 1; i >= 0; i--) {
       if (events[i].event_type === "graph_state" && events[i].data?.nodes) {
@@ -83,7 +62,6 @@ export default function TaskGraph({
     return null;
   }, [events]);
 
-  // Group nodes by category — must be called unconditionally (Rules of Hooks)
   const categories = useMemo(() => {
     if (!graphState) return [];
     const groups: Record<string, GraphNode[]> = {};
@@ -92,7 +70,6 @@ export default function TaskGraph({
       if (!groups[cat]) groups[cat] = [];
       groups[cat].push(node);
     }
-    // Sort categories by completion rate (most complete first)
     return Object.entries(groups).sort((a, b) => {
       const rateA = a[1].filter(n => n.state === "completed").length / a[1].length;
       const rateB = b[1].filter(n => n.state === "completed").length / b[1].length;
@@ -102,8 +79,8 @@ export default function TaskGraph({
 
   if (!graphState || graphState.nodes.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full text-[#4B5563] text-xs">
-        Awaiting task graph data...
+      <div className="flex items-center justify-center h-full text-[#4B5563] text-xs font-mono">
+        Awaiting task graph...
       </div>
     );
   }
@@ -112,85 +89,49 @@ export default function TaskGraph({
   const total = graphState.nodes.length;
   const completedPct = total > 0 ? Math.round((counts.completed / total) * 100) : 0;
 
-  // Strip ID prefix for display
   const stripId = (id: string) => {
-    if (skillUI.id_prefix_strip && id.startsWith(skillUI.id_prefix_strip)) {
+    if (skillUI.id_prefix_strip && id.startsWith(skillUI.id_prefix_strip))
       return id.slice(skillUI.id_prefix_strip.length);
-    }
     return id;
   };
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Progress bar */}
-      <div className="px-4 py-2 border-b border-[#1C1F26] bg-[#0D0F14]">
-        <div className="flex items-center gap-3 mb-1.5">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-[#6B7280]">
-            Task Graph
+      {/* Header with hero metric + state legend */}
+      <div className="px-4 py-2.5 border-b border-[#2A2F3A] bg-[#12151A]">
+        <div className="flex items-center gap-4 mb-2">
+          {/* Hero completion metric */}
+          <div className="flex items-baseline gap-1">
+            <span className="text-2xl font-light tabular-nums tracking-tight text-[#E2E8F0]">
+              {counts.completed}
+            </span>
+            <span className="text-[10px] text-[#4B5563]">/{total}</span>
+          </div>
+          <span className="text-[10px] uppercase tracking-[0.15em] text-[#8B95A5]">
+            {completedPct}% complete
           </span>
-          <button
-            onClick={() => {
-              // Open task graph in a new window with full detail
-              const w = window.open("", "taskgraph", "width=1200,height=800");
-              if (w) {
-                w.document.title = "GemmaForge — Task Graph";
-                w.document.body.style.cssText = "margin:0;background:#0B0D11;color:#E8EAED;font-family:monospace;";
-                const pre = w.document.createElement("pre");
-                pre.style.cssText = "padding:24px;font-size:11px;line-height:1.6;overflow:auto;height:100vh;";
-                const lines: string[] = [];
-                lines.push(`TASK GRAPH — ${graphState.nodes.length} items\n`);
-                lines.push(`${"=".repeat(60)}\n`);
-                for (const [cat, nodes] of categories) {
-                  const done = nodes.filter(n => n.state === "completed").length;
-                  lines.push(`\n▸ ${cat.toUpperCase()} (${done}/${nodes.length})\n`);
-                  for (const n of nodes) {
-                    const icon = n.state === "completed" ? "✓" : n.state === "escalated" ? "✗" : n.state === "active" ? "⟳" : n.state === "blocked" ? "⊘" : "·";
-                    const detail = [
-                      n.attempts > 0 ? `${n.attempts} attempts` : "",
-                      n.wall_time_s > 0 ? `${Math.round(n.wall_time_s)}s` : "",
-                      n.escalation_reason || "",
-                    ].filter(Boolean).join(", ");
-                    lines.push(`  ${icon} ${stripId(n.id)} — ${n.title}${detail ? ` (${detail})` : ""}\n`);
-                  }
-                }
-                // Edges
-                if (graphState.edges.length > 0) {
-                  lines.push(`\n${"=".repeat(60)}\nDEPENDENCIES (${graphState.edges.length})\n`);
-                  for (const e of graphState.edges) {
-                    lines.push(`  ${stripId(e.from)} → ${stripId(e.to)}\n`);
-                  }
-                }
-                pre.textContent = lines.join("");
-                w.document.body.appendChild(pre);
-              }
-            }}
-            className="text-[9px] text-[#4B5563] hover:text-[#9CA3AF] transition-colors"
-            title="Open full detail in new window"
-          >
-            ↗ Detail
-          </button>
-          <span className="text-[10px] font-mono text-[#9CA3AF]">
-            {counts.completed}/{total} complete ({completedPct}%)
-          </span>
-          <div className="flex gap-3 ml-auto">
-            {Object.entries(counts)
-              .filter(([, v]) => v > 0)
-              .map(([state, count]) => (
+
+          {/* State legend */}
+          <div className="flex gap-2.5 ml-auto">
+            {(["completed", "active", "escalated", "queued"] as const)
+              .filter(s => (counts[s] || 0) > 0)
+              .map(state => (
                 <span key={state} className="flex items-center gap-1">
                   <span
-                    className="w-2 h-2 rounded-sm"
-                    style={{ backgroundColor: STATE_COLORS[state] || "#4B5563" }}
+                    className="w-2.5 h-2.5 rounded-[3px]"
+                    style={{ backgroundColor: STATE_COLOR[state] }}
                   />
-                  <span className="text-[9px] font-mono text-[#6B7280]">
-                    {count} {state}
+                  <span className="text-[9px] font-mono tabular-nums text-[#8B95A5]">
+                    {counts[state]} {STATE_LABEL[state]}
                   </span>
                 </span>
               ))}
           </div>
         </div>
+
         {/* Segmented progress bar */}
         <div className="h-1.5 rounded-full bg-[#1F2937] overflow-hidden flex">
-          {["completed", "active", "escalated", "skipped", "blocked", "queued"].map((state) => {
+          {["completed", "active", "escalated", "skipped", "blocked", "queued"].map(state => {
             const pct = total > 0 ? (counts[state] / total) * 100 : 0;
             if (pct === 0) return null;
             return (
@@ -199,76 +140,122 @@ export default function TaskGraph({
                 className={`h-full transition-all duration-700 ease-out ${
                   state === "active" ? "animate-pulse" : ""
                 }`}
-                style={{
-                  width: `${pct}%`,
-                  backgroundColor: STATE_COLORS[state],
-                }}
+                style={{ width: `${pct}%`, backgroundColor: STATE_COLOR[state] }}
               />
             );
           })}
         </div>
       </div>
 
-      {/* Category grid */}
-      <div className="flex-1 overflow-y-auto px-3 py-2 space-y-2">
-        {categories.map(([category, nodes]) => {
-          const catCompleted = nodes.filter(n => n.state === "completed").length;
-          const catPct = Math.round((catCompleted / nodes.length) * 100);
-          return (
-            <div key={category}>
-              {/* Category header */}
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wide">
-                  {category}
-                </span>
-                <span className="text-[9px] font-mono text-[#4B5563]">
-                  {catCompleted}/{nodes.length} ({catPct}%)
-                </span>
-                {/* Mini progress for category */}
-                <div className="flex-1 h-0.5 rounded-full bg-[#1F2937] overflow-hidden">
-                  <div
-                    className="h-full bg-[#16A34A] transition-all duration-500"
-                    style={{ width: `${catPct}%` }}
-                  />
+      {/* Heatmap grid + hover detail */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Grid area */}
+        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+          {categories.map(([category, nodes]) => {
+            const done = nodes.filter(n => n.state === "completed").length;
+            const esc = nodes.filter(n => n.state === "escalated").length;
+            const cols = Math.max(6, Math.ceil(Math.sqrt(nodes.length * 1.5)));
+            return (
+              <div key={category}>
+                {/* Category label */}
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="text-[10px] uppercase tracking-[0.12em] font-semibold text-[#8B95A5]">
+                    {category}
+                  </span>
+                  <span className="text-[9px] font-mono tabular-nums text-[#4B5563]">
+                    {done}/{nodes.length}
+                    {esc > 0 && <span className="text-[#F59E0B] ml-1">{esc} esc</span>}
+                  </span>
+                  <div className="flex-1 h-px bg-[#2A2F3A]" />
+                </div>
+                {/* Waffle grid */}
+                <div
+                  className="grid"
+                  style={{
+                    gridTemplateColumns: `repeat(${cols}, ${CELL_SIZE}px)`,
+                    gap: `${CELL_GAP}px`,
+                  }}
+                >
+                  {nodes.map(node => (
+                    <div
+                      key={node.id}
+                      className={`rounded-[3px] cursor-pointer transition-all duration-200
+                        hover:scale-[1.6] hover:z-10 hover:ring-1 hover:ring-white/30
+                        ${node.state === "active" ? "animate-pulse" : ""}
+                      `}
+                      style={{
+                        width: CELL_SIZE,
+                        height: CELL_SIZE,
+                        backgroundColor: STATE_COLOR[node.state],
+                        opacity: node.state === "queued" ? 0.4 : 1,
+                        boxShadow: node.state === "active"
+                          ? `0 0 8px ${STATE_COLOR.active}40`
+                          : node.state === "completed"
+                          ? `0 0 3px ${STATE_COLOR.completed}30`
+                          : "none",
+                      }}
+                      onMouseEnter={() => setHoveredNode(node)}
+                      onMouseLeave={() => setHoveredNode(null)}
+                    />
+                  ))}
                 </div>
               </div>
-              {/* Item cells */}
-              <div className="flex flex-wrap gap-1">
-                {nodes.map((node) => (
-                  <div
-                    key={node.id}
-                    className={`
-                      group relative px-2 py-1 rounded border text-[9px] font-mono font-medium
-                      transition-all duration-500 cursor-default
-                      ${STATE_BG[node.state]} ${STATE_BORDER[node.state]} ${STATE_GLOW[node.state]}
-                    `}
-                    title={`${stripId(node.id)}: ${node.title}\nState: ${node.state}${
-                      node.attempts > 0 ? `\nAttempts: ${node.attempts}` : ""
-                    }${
-                      node.wall_time_s > 0 ? `\nTime: ${Math.round(node.wall_time_s)}s` : ""
-                    }${
-                      node.escalation_reason ? `\nReason: ${node.escalation_reason}` : ""
-                    }`}
-                  >
-                    <span className={`
-                      ${node.state === "completed" ? "text-[#4ADE80]" : ""}
-                      ${node.state === "escalated" ? "text-[#FCA5A5]" : ""}
-                      ${node.state === "active" ? "text-[#93C5FD]" : ""}
-                      ${node.state === "queued" ? "text-[#6B7280]" : ""}
-                      ${node.state === "blocked" ? "text-[#FCD34D]" : ""}
-                      ${node.state === "skipped" ? "text-[#6B7280]" : ""}
-                    `}>
-                      {stripId(node.id).slice(0, 24)}
-                    </span>
-                    {node.state === "active" && (
-                      <span className="ml-1 inline-block w-1 h-1 rounded-full bg-[#3B82F6] animate-ping" />
-                    )}
-                  </div>
-                ))}
+            );
+          })}
+        </div>
+
+        {/* Hover detail panel (right side) */}
+        <div className="w-52 shrink-0 border-l border-[#2A2F3A] bg-[#12151A] p-3 overflow-y-auto">
+          {hoveredNode ? (
+            <div className="space-y-2">
+              <div
+                className="w-full h-1 rounded-full"
+                style={{ backgroundColor: STATE_COLOR[hoveredNode.state] }}
+              />
+              <div className="text-[10px] font-mono font-bold text-[#E2E8F0] break-all">
+                {stripId(hoveredNode.id)}
               </div>
+              <div className="text-[9px] text-[#8B95A5] leading-snug">
+                {hoveredNode.title}
+              </div>
+              <div className="flex items-center gap-1.5 mt-1">
+                <span
+                  className="text-[8px] font-mono px-1.5 py-0.5 rounded"
+                  style={{
+                    backgroundColor: STATE_COLOR[hoveredNode.state] + "22",
+                    color: STATE_COLOR[hoveredNode.state],
+                  }}
+                >
+                  {hoveredNode.state.toUpperCase()}
+                </span>
+                <span className="text-[9px] font-mono text-[#4B5563]">
+                  {hoveredNode.category}
+                </span>
+              </div>
+              {hoveredNode.attempts > 0 && (
+                <div className="flex justify-between text-[9px]">
+                  <span className="text-[#4B5563]">Attempts</span>
+                  <span className="font-mono text-[#E2E8F0]">{hoveredNode.attempts}</span>
+                </div>
+              )}
+              {hoveredNode.wall_time_s > 0 && (
+                <div className="flex justify-between text-[9px]">
+                  <span className="text-[#4B5563]">Time</span>
+                  <span className="font-mono text-[#E2E8F0]">{Math.round(hoveredNode.wall_time_s)}s</span>
+                </div>
+              )}
+              {hoveredNode.escalation_reason && (
+                <div className="text-[9px] text-[#F59E0B] mt-1">
+                  {hoveredNode.escalation_reason}
+                </div>
+              )}
             </div>
-          );
-        })}
+          ) : (
+            <div className="text-[10px] text-[#4B5563] italic">
+              Hover a cell for details
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

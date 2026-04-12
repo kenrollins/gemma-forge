@@ -4,12 +4,12 @@ import { GpuState, RunEvent, SkillUI, DEFAULT_SKILL_UI } from "./types";
 
 function StatCard({ label, value, unit, color }: { label: string; value: string | number; unit?: string; color: string }) {
   return (
-    <div className="bg-[#12141A] border border-[#1C1F26] rounded-sm px-3 py-2 flex flex-col items-center justify-center min-w-[90px]">
+    <div className="bg-[#12141A] border border-[#2A2F3A] rounded px-3 py-1.5 flex flex-col items-center justify-center min-w-[72px]">
       <div className="flex items-baseline gap-0.5">
-        <span className="font-mono text-2xl font-bold leading-none" style={{ color }}>{value}</span>
-        {unit && <span className="text-[9px] text-[#6B7280]">{unit}</span>}
+        <span className="font-mono text-xl font-light leading-none tabular-nums" style={{ color }}>{value}</span>
+        {unit && <span className="text-[8px] text-[#4B5563]">{unit}</span>}
       </div>
-      <div className="text-[9px] font-semibold uppercase tracking-wider text-[#6B7280] mt-1">{label}</div>
+      <div className="text-[8px] uppercase tracking-[0.12em] text-[#4B5563] mt-0.5">{label}</div>
     </div>
   );
 }

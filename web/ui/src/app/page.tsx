@@ -131,6 +131,72 @@ function ModeBar({
   );
 }
 
+// --- Activity Ticker (mission control heartbeat) ---
+function ActivityTicker({ events, skillUI, connected }: {
+  events: RunEvent[];
+  skillUI: SkillUI;
+  connected: boolean;
+}) {
+  const stripId = (id: string) => {
+    if (skillUI.id_prefix_strip && id.startsWith(skillUI.id_prefix_strip))
+      return id.slice(skillUI.id_prefix_strip.length);
+    return id;
+  };
+
+  // Find the most recent meaningful event for the ticker
+  const tickerText = (() => {
+    if (!connected || events.length === 0) return null;
+    for (let i = events.length - 1; i >= Math.max(0, events.length - 20); i--) {
+      const e = events[i];
+      const d = e.data || {};
+      const rid = d.rule_id ? stripId(d.rule_id as string) : "";
+      switch (e.event_type) {
+        case "remediated":
+          return { color: "#10B981", text: `Remediated ${rid} in ${d.attempt || "?"} attempt${(d.attempt as number) > 1 ? "s" : ""} (${Math.round(d.wall_time_s as number || 0)}s)` };
+        case "escalated":
+          return { color: "#F59E0B", text: `Escalated ${rid} after ${d.attempts || "?"} attempts — ${d.reason || "budget exhausted"}` };
+        case "rule_selected":
+          return { color: "#22D3EE", text: `Architect selected ${rid}: ${d.title || ""}` };
+        case "evaluation":
+          return { color: d.failure_mode === "health_failure" ? "#EF4444" : "#8B95A5", text: `Eval: ${d.summary || "checking..."}` };
+        case "scanner_gap_detected":
+          return { color: "#F59E0B", text: `Scanner gap on ${rid}: ${d.distinct_approaches || "?"} approaches tried, evaluator keeps rejecting` };
+        case "architect_reengaged":
+          return { color: "#A855F7", text: `Architect re-engaged on ${rid} — verdict: ${d.verdict || "?"}` };
+        case "cross_run_hydration":
+          return { color: "#22D3EE", text: `Cross-run memory: loaded ${d.loaded_lessons || 0} lessons, ${d.loaded_bans || 0} bans from ${d.prior_runs || 0} prior runs` };
+        case "clutch_initialized":
+          return { color: "#22D3EE", text: `Clutch: ${d.reason || "initialized"}` };
+        default:
+          continue;
+      }
+    }
+    return null;
+  })();
+
+  return (
+    <div className="h-7 shrink-0 overflow-hidden border-t border-[#2A2F3A] bg-[#12151A] px-4 flex items-center gap-3">
+      <span className="text-[9px] uppercase tracking-[0.15em] text-[#4B5563] shrink-0">
+        LIVE
+      </span>
+      {connected ? (
+        <span className="w-1.5 h-1.5 rounded-full bg-[#22D3EE] animate-pulse shrink-0" />
+      ) : (
+        <span className="w-1.5 h-1.5 rounded-full bg-[#4B5563] shrink-0" />
+      )}
+      {tickerText ? (
+        <span className="text-[11px] font-mono truncate" style={{ color: tickerText.color }}>
+          {tickerText.text}
+        </span>
+      ) : (
+        <span className="text-[11px] font-mono text-[#4B5563] italic">
+          {connected ? "Waiting for activity..." : "Disconnected"}
+        </span>
+      )}
+    </div>
+  );
+}
+
 // --- Main Dashboard ---
 export default function Dashboard() {
   const [events, setEvents] = useState<RunEvent[]>([]);
@@ -330,7 +396,7 @@ export default function Dashboard() {
           </div>
 
           {/* Bottom: Mission activity + Event log side by side */}
-          <div className="h-[280px] shrink-0 flex overflow-hidden">
+          <div className="h-[260px] shrink-0 flex overflow-hidden">
             {/* Left: Mission (current action + reflection) */}
             <div className="flex-1 border-r border-[#1C1F26] overflow-hidden">
               <MissionHeader events={events} skillUI={skillUI} />
@@ -339,7 +405,7 @@ export default function Dashboard() {
 
             {/* Right: Event log (compact) */}
             <div className="w-[480px] shrink-0 flex flex-col overflow-hidden">
-              <div className="px-3 py-1 border-b border-[#1C1F26] text-[9px] font-semibold uppercase tracking-wider text-[#6B7280] bg-[#0D0F14]">
+              <div className="px-3 py-1 border-b border-[#1C1F26] text-[9px] font-semibold uppercase tracking-wider text-[#4B5563] bg-[#0D0F14]">
                 Events ({events.length})
               </div>
               <div className="flex-1 overflow-hidden">
@@ -347,6 +413,9 @@ export default function Dashboard() {
               </div>
             </div>
           </div>
+
+          {/* Activity ticker — mission control heartbeat */}
+          <ActivityTicker events={events} skillUI={skillUI} connected={connected} />
         </div>
       )}
     </div>

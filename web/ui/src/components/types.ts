@@ -32,21 +32,49 @@ export interface AgentMetrics {
 export const AGENT_COLORS: Record<string, string> = {
   architect: "#3B82F6",
   worker: "#F59E0B",
-  auditor: "#22C55E",
   reflector: "#A855F7",
+  harness: "#6B7280",
   system: "#6B7280",
 };
 
 export const AGENT_MODELS: Record<string, string> = {
-  architect: "Gemma 4 31B · TP=2",
-  worker: "Gemma 4 31B · TP=2",
-  reflector: "Gemma 4 31B · TP=2",
-  auditor: "Nemotron 30B · PP=2",
+  architect: "Gemma 4 31B bf16 · TP=4",
+  worker: "Gemma 4 31B bf16 · TP=4",
+  reflector: "Gemma 4 31B bf16 · TP=4",
+  harness: "Deterministic · Python",
 };
 
 export const AGENT_GPUS: Record<string, string> = {
-  architect: "GPUs 0+1",
-  worker: "GPUs 0+1",
-  reflector: "GPUs 0+1",
-  auditor: "GPUs 2+3",
+  architect: "All 4 GPUs",
+  worker: "All 4 GPUs",
+  reflector: "All 4 GPUs",
+  harness: "CPU",
+};
+
+export interface OutcomeDef {
+  type: string;  // "fixed" | "escalated" | "skipped"
+  label: string;
+  color: string;
+}
+
+export interface SkillUI {
+  title: string;
+  work_item: string;
+  work_item_plural: string;
+  id_prefix_strip: string;
+  fixed_label: string;
+  outcomes: OutcomeDef[];
+}
+
+export const DEFAULT_SKILL_UI: SkillUI = {
+  title: "Awaiting Mission",
+  work_item: "work item",
+  work_item_plural: "work items",
+  id_prefix_strip: "",
+  fixed_label: "Fixed",
+  outcomes: [
+    { type: "fixed", label: "Fixed", color: "#22C55E" },
+    { type: "escalated", label: "Escalated", color: "#EF4444" },
+    { type: "skipped", label: "Skipped", color: "#6B7280" },
+  ],
 };

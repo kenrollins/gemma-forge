@@ -98,17 +98,17 @@ export default function ActiveAgent({ events }: { events: RunEvent[] }) {
             </div>
           </div>
           
-          {/* TP vs PP comparison */}
+          {/* Run averages */}
           <div className="border-t border-[#1C1F26] pt-2">
-            <div className="text-[9px] text-[#4B5563] uppercase tracking-wider mb-1.5">TP vs PP Comparison</div>
+            <div className="text-[9px] text-[#4B5563] uppercase tracking-wider mb-1.5">Run Average (bf16 TP=4)</div>
             <div className="flex gap-2">
               <div className="flex-1 bg-[#0D0F14] rounded-sm p-1.5 text-center">
                 <div className="text-[10px] font-mono font-bold text-[#3B82F6]">{avgGemmaTps}</div>
-                <div className="text-[8px] text-[#4B5563]">Gemma TP</div>
+                <div className="text-[8px] text-[#4B5563]">avg tok/s</div>
               </div>
               <div className="flex-1 bg-[#0D0F14] rounded-sm p-1.5 text-center">
-                <div className="text-[10px] font-mono font-bold text-[#22C55E]">{avgNemotronTps}</div>
-                <div className="text-[8px] text-[#4B5563]">Nemotron PP</div>
+                <div className="text-[10px] font-mono font-bold text-[#9CA3AF]">{agentResponses.length}</div>
+                <div className="text-[8px] text-[#4B5563]">LLM calls</div>
               </div>
             </div>
           </div>

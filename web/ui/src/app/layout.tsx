@@ -39,11 +39,21 @@ export default function RootLayout({
                 <a href="/" className="hover:text-[#E8EAED] transition-colors">
                   Dashboard
                 </a>
-                <a href="/journal" className="hover:text-[#E8EAED] transition-colors">
-                  Journal
+                <a
+                  href="https://kenrollins.github.io/gemma-forge/journal/journey/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:text-[#E8EAED] transition-colors"
+                >
+                  Journal ↗
                 </a>
-                <a href="/about" className="hover:text-[#E8EAED] transition-colors">
-                  About
+                <a
+                  href="https://kenrollins.github.io/gemma-forge/about/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:text-[#E8EAED] transition-colors"
+                >
+                  About ↗
                 </a>
               </nav>
             </div>

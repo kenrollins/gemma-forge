@@ -65,6 +65,12 @@ is meant to be readable on its own.
 - [**16. Agentic Coding as a Method**](16-agentic-coding-as-a-method.md) — how this project got built at this velocity, without mystification.
 - [**17. The v3 Fix Pass**](17-v3-fix-pass.md) — the narrative of the five architectural changes, in the order we made them.
 
+### Phase 8 — The second overnight run and v4
+- [**18. The Second Overnight Run**](18-second-overnight-run.md) — 93 rules remediated (78%), the time-waste ratio in the other 26, and three architectural findings for v4.
+- [**19. Standing on Whose Shoulders?**](19-research-and-v4-architecture.md) — research validation of our choices, the literature landscape, and the v4 interface extraction decision.
+- [**20. The Interface Extraction**](20-the-interface-extraction.md) — ripping the engine apart mid-flight: five interfaces, a STIG runtime, and 75 tests that still passed.
+- [**21. The Task Graph**](21-task-graph-and-react-flow.md) — from flat queue to live DAG: dependency awareness, conflict detection, and a React Flow visualization.
+
 ## Related
 
 - [Architecture overview](../architecture/00-system-architecture.md) — the same content organized by layer instead of by time.

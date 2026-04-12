@@ -6,6 +6,8 @@ import Scoreboard from "../components/Scoreboard";
 import EventLog from "../components/EventLog";
 import Mission from "../components/Mission";
 import MissionHeader from "../components/MissionHeader";
+import TaskGraph from "../components/TaskGraph";
+import TaskGraphFlow from "../components/TaskGraphFlow";
 
 function getApiBase(): string {
   if (typeof window === "undefined") return "http://localhost:8080";
@@ -138,6 +140,7 @@ export default function Dashboard() {
   const [runs, setRuns] = useState<RunInfo[]>([]);
   const [selectedRun, setSelectedRun] = useState("");
   const [replaySpeed, setReplaySpeed] = useState(20);
+  const [graphExpanded, setGraphExpanded] = useState(false);
   const evtSourceRef = useRef<EventSource | null>(null);
 
   const defaultGpus: GpuState[] = [
@@ -298,20 +301,52 @@ export default function Dashboard() {
       {/* Unified mission header: current rule + pipeline + metrics on one line */}
       <MissionHeader events={events} skillUI={skillUI} />
 
-      {/* Mission area (current action + reflection + outcomes) — prominently bigger than outcomes */}
-      <div className="flex-1 flex flex-col overflow-hidden min-h-0">
-        <div className="h-72 shrink-0 border-b border-[#1C1F26]">
-          <Mission events={events} skillUI={skillUI} />
-        </div>
-
-        <div className="flex-1 overflow-hidden flex flex-col min-h-0">
-          <div className="px-4 py-1.5 border-b border-[#1C1F26] text-[10px] font-semibold uppercase tracking-wider text-[#6B7280] bg-[#0D0F14] flex justify-between">
-            <span>Event History ({events.length})</span>
-            <span>Click to expand</span>
+      {/* Main content: Task Graph + Mission + Events */}
+      {graphExpanded ? (
+        /* Full-screen interactive DAG */
+        <div className="flex-1 flex flex-col overflow-hidden min-h-0 relative">
+          <div className="absolute top-3 right-3 z-20">
+            <button
+              onClick={() => setGraphExpanded(false)}
+              className="px-2 py-1 text-[10px] font-mono bg-[#12141A] border border-[#1C1F26] text-[#9CA3AF] hover:text-[#E8EAED] rounded-sm transition-colors"
+            >
+              ✕ Close Graph
+            </button>
           </div>
-          <EventLog events={events} />
+          <TaskGraphFlow events={events} skillUI={skillUI} />
         </div>
-      </div>
+      ) : (
+        <div className="flex-1 flex overflow-hidden min-h-0">
+          {/* Left: Compact Task Graph */}
+          <div className="w-[420px] shrink-0 border-r border-[#1C1F26] flex flex-col">
+            <div className="flex-1 overflow-hidden">
+              <TaskGraph events={events} skillUI={skillUI} />
+            </div>
+            {/* Expand button */}
+            <button
+              onClick={() => setGraphExpanded(true)}
+              className="px-4 py-1.5 border-t border-[#1C1F26] text-[10px] font-semibold uppercase tracking-wider text-[#4B5563] hover:text-[#9CA3AF] bg-[#0D0F14] transition-colors text-center"
+            >
+              Expand Interactive Graph
+            </button>
+          </div>
+
+          {/* Right: Mission + Events */}
+          <div className="flex-1 flex flex-col overflow-hidden min-h-0">
+            <div className="h-64 shrink-0 border-b border-[#1C1F26]">
+              <Mission events={events} skillUI={skillUI} />
+            </div>
+
+            <div className="flex-1 overflow-hidden flex flex-col min-h-0">
+              <div className="px-4 py-1.5 border-b border-[#1C1F26] text-[10px] font-semibold uppercase tracking-wider text-[#6B7280] bg-[#0D0F14] flex justify-between">
+                <span>Event History ({events.length})</span>
+                <span>Click to expand</span>
+              </div>
+              <EventLog events={events} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

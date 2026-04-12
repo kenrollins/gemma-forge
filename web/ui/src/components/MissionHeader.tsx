@@ -114,7 +114,7 @@ export default function MissionHeader({
   // Pipeline node active states
   const architectActive = activeAgent === "architect";
   const workerActive = activeAgent === "worker";
-  const evalActive = (activeAgent === "harness" || activeAgent === "system") && activeAgent !== "none";
+  const evalActive = activeAgent === "harness" || activeAgent === "system";
   const reflectorActive = activeAgent === "reflector";
   const hasRevert = events.some(e => e.event_type === "revert");
 

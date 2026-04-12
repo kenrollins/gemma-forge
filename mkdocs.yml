@@ -127,11 +127,18 @@ nav:
       - 15.5 - Test Pass in Practice: journal/journey/15.5-test-pass-in-practice.md
       - 16 - Agentic Coding as Method: journal/journey/16-agentic-coding-as-a-method.md
       - 17 - The v3 Fix Pass: journal/journey/17-v3-fix-pass.md
+      - 18 - Second Overnight Run: journal/journey/18-second-overnight-run.md
+      - 19 - Research and v4 Architecture: journal/journey/19-research-and-v4-architecture.md
+      - 20 - The Interface Extraction: journal/journey/20-the-interface-extraction.md
+      - 21 - Task Graph and React Flow: journal/journey/21-task-graph-and-react-flow.md
   - Improvements:
       - 01 - Architect Re-engagement: journal/improvements/01-architect-reengagement.md
       - 02 - Worker Single-Action: journal/improvements/02-worker-single-action-enforcement.md
       - 03 - Context Budget Assembly: journal/improvements/03-context-budget-assembly.md
       - 04 - Snapshot-Based Revert: journal/improvements/04-snapshot-based-revert.md
+      - 05 - Conversation History Management: journal/improvements/05-conversation-history-management.md
+      - 06 - Evaluation Triage: journal/improvements/06-evaluation-triage.md
+      - 07 - Rule Dependency Awareness: journal/improvements/07-rule-dependency-awareness.md
   - Gotchas:
       - Overview: journal/gotchas/index.md
       - ADK Future Annotations: journal/gotchas/adk-future-annotations.md

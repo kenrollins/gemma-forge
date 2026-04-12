@@ -1,0 +1,189 @@
+site_name: GemmaForge
+site_description: "An exploration of Ralph loop architecture and Gemma 4 at the edge — building your own agentic harness, from scratch."
+site_author: Ken Rollins
+site_url: https://kenrollins.github.io/gemma-forge/
+repo_url: https://github.com/kenrollins/gemma-forge
+repo_name: kenrollins/gemma-forge
+edit_uri: edit/main/docs/
+copyright: |
+  &copy; 2026 Ken Rollins. Personal exploration project, not an official Dell
+  product or reference architecture. <a href="about/">Read the full disclaimer.</a>
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - navigation.footer
+    - toc.follow
+    - toc.integrate
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+    - content.tooltips
+  icon:
+    repo: fontawesome/brands/github
+  font:
+    text: Inter
+    code: JetBrains Mono
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.critic
+  - pymdownx.caret
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.tilde
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - attr_list
+  - md_in_html
+  - footnotes
+  - tables
+  - toc:
+      permalink: true
+      toc_depth: 3
+
+plugins:
+  - search
+  - tags
+
+# Exclude private drafts and host-specific documentation from the build
+exclude_docs: |
+  drafts/
+  host-setup.md
+
+validation:
+  nav:
+    omitted_files: ignore
+    not_found: warn
+    absolute_links: ignore
+  links:
+    not_found: warn
+    absolute_links: ignore
+    unrecognized_links: ignore
+
+nav:
+  - Home: index.md
+  - About: about.md
+  - Architecture:
+      - Overview: journal/architecture/00-system-architecture.md
+      - Failure Modes in Reflexive Agent Harnesses: journal/architecture/01-reflexive-agent-harness-failure-modes.md
+  - Journey:
+      - Overview: journal/journey/index.md
+      - 00 - Origin: journal/journey/00-origin.md
+      - 00.5 - Can Gemma 4 Even Run Here?: journal/journey/00.5-can-gemma-4-even-run-here.md
+      - 01 - The Inference Layer: journal/journey/01-inference-layer.md
+      - 02 - Model Strategy: journal/journey/02-model-strategy.md
+      - 03 - Observability: journal/journey/03-observability.md
+      - 03.5 - The LiteLLM Decision: journal/journey/03.5-litellm-observability-decision.md
+      - 04 - VM Provisioning: journal/journey/04-vm-provisioning.md
+      - 05 - The Infrastructure Gap: journal/journey/05-infrastructure-gap.md
+      - 06 - Tool Calling: journal/journey/06-tool-calling.md
+      - 06.5 - Stateful Loop Refactor: journal/journey/06.5-stateful-loop-refactor.md
+      - 07 - Skills System: journal/journey/07-skills-system.md
+      - 07.5 - Virsh Console Fallback: journal/journey/07.5-virsh-console-fallback.md
+      - 08 - Model Architecture Revision: journal/journey/08-model-architecture-revision.md
+      - 08.5 - The Nemotron Experiment: journal/journey/08.5-the-nemotron-experiment.md
+      - 09 - TP vs PP: journal/journey/09-tp-vs-pp.md
+      - 10 - Parallelism Deep Dive: journal/journey/10-parallelism-deep-dive.md
+      - 11 - The Missing Reflector: journal/journey/11-the-missing-reflector.md
+      - 12 - bf16 TP=4 Full Precision: journal/journey/12-bf16-tp4-full-precision.md
+      - 12.5 - Structured Run Logger: journal/journey/12.5-structured-run-logger.md
+      - 13 - Retry Budget: journal/journey/13-ralph-persistence-retry-budget.md
+      - 14 - Overnight Run Findings: journal/journey/14-overnight-run-findings.md
+      - 15 - Test as Architecture Discovery: journal/journey/15-the-test-as-architecture-discovery.md
+      - 15.5 - Test Pass in Practice: journal/journey/15.5-test-pass-in-practice.md
+      - 16 - Agentic Coding as Method: journal/journey/16-agentic-coding-as-a-method.md
+      - 17 - The v3 Fix Pass: journal/journey/17-v3-fix-pass.md
+  - Improvements:
+      - 01 - Architect Re-engagement: journal/improvements/01-architect-reengagement.md
+      - 02 - Worker Single-Action: journal/improvements/02-worker-single-action-enforcement.md
+      - 03 - Context Budget Assembly: journal/improvements/03-context-budget-assembly.md
+      - 04 - Snapshot-Based Revert: journal/improvements/04-snapshot-based-revert.md
+  - Gotchas:
+      - Overview: journal/gotchas/index.md
+      - ADK Future Annotations: journal/gotchas/adk-future-annotations.md
+      - Agent Instructions for Tool Calling: journal/gotchas/agent-instructions-tool-calling.md
+      - AppArmor + Libvirt: journal/gotchas/apparmor-libvirt.md
+      - Context Window Edge: journal/gotchas/context-window-edge.md
+      - GRUB ACPI/APIC: journal/gotchas/grub-acpi-apic.md
+      - Libvirt Provider v0.9 Migration: journal/gotchas/libvirt-provider-v09-migration.md
+      - Nemotron Tool Parser: journal/gotchas/nemotron-tool-parser.md
+      - Nemotron TP Tiling Error: journal/gotchas/nemotron-tp-tiling-error.md
+      - NVFP4 VRAM Math: journal/gotchas/nvfp4-vram-math.md
+      - OTel Spanmetrics Connector: journal/gotchas/otel-spanmetrics-connector.md
+      - Transformers + Gemma 4: journal/gotchas/transformers-gemma4.md
+      - Triton vLLM Version Gap: journal/gotchas/triton-vllm-version.md
+      - vLLM Tool Call Parser: journal/gotchas/vllm-tool-call-parser.md
+  - Reference:
+      - Adding a Skill: adding-a-skill.md
+      - ADRs:
+          - 0001 - vLLM, not NIM or Ollama: adr/0001-vllm-not-nim-or-ollama.md
+          - 0002 - Google ADK LoopAgent: adr/0002-google-adk-loopagent.md
+          - 0003 - Podman-primary, Docker-compatible: adr/0003-podman-primary-docker-compatible.md
+          - 0004 - OpenTofu, not Terraform: adr/0004-opentofu-not-terraform.md
+          - 0005 - Rocky 9 as RHEL stand-in: adr/0005-rocky-9-as-rhel-stand-in.md
+          - 0006 - DISA STIG profile, not CIS: adr/0006-disa-stig-profile-not-cis.md
+          - 0007 - OTel + Jaeger + Prometheus + Grafana: adr/0007-otel-jaeger-prometheus-grafana.md
+          - 0012 - /data Host Layout Convention: adr/0012-data-host-layout-convention.md
+          - 0013 - One Triton per L4 (no NVLink): adr/0013-one-triton-per-l4-no-nvlink.md
+          - 0014 - Triton + vLLM Director as Shared Host Service: adr/0014-triton-vllm-director-shared-host-service.md
+          - 0015 - Gemma 4 Model Lineup: adr/0015-gemma-4-model-lineup.md
+          - Template: adr/template.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/kenrollins/gemma-forge
+      name: GemmaForge on GitHub
+  tags:
+    L5-application: l5
+    L4-orchestration: l4
+    L3-model: l3
+    L2-platform-mlops: l2
+    L1-data-infrastructure: l1
+    reflexion-loop: pattern
+    tool-calling: pattern
+    context-management: pattern
+    snapshot-revert: pattern
+    parallelism: pattern
+    quantization: pattern
+    discovery: moment
+    decision: moment
+    refactor: moment
+    postmortem: moment
+    stig: domain
+    edge-deployment: domain
+    supply-chain: domain

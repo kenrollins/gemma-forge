@@ -1,279 +1,235 @@
 # GemmaForge
 
-> Air-gapped, agentic infrastructure remediation on the Dell PowerEdge XR7620.
-> Gemma 4 + vLLM + Google ADK Ralph loops.
+> An exploration of Ralph loop architecture and Gemma 4 at the edge — building your own agentic harness, from scratch.
+>
+> By **Ken Rollins**, Chief AI Technology Strategist in Dell Federal.
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Status: Phase 0](https://img.shields.io/badge/status-Phase_0_scaffold-orange.svg)](#-current-status)
-[![Compose v2](https://img.shields.io/badge/compose-v2_(podman_%26_docker)-informational.svg)](docs/adr/0003-podman-primary-docker-compatible.md)
+[![Site](https://img.shields.io/badge/site-kenrollins.github.io/gemma--forge-blue.svg)](https://kenrollins.github.io/gemma-forge/)
+[![Built with](https://img.shields.io/badge/built_with-agentic_coding_workflow-indigo.svg)](https://kenrollins.github.io/gemma-forge/journal/journey/16-agentic-coding-as-a-method/)
 
-> ⚠️ **Status: Phase 0 — repository scaffold.** This README documents
-> the **target architecture**. Implementation lands phase by phase.
-> See [Current status](#-current-status) and [Phases / Roadmap](#-phases--roadmap)
-> below for what is actually wired up today versus what is being built
-> toward.
+> [!IMPORTANT]
+> **This is a personal exploration project, not an official Dell product, reference
+> architecture, or supported offering.** Views and technical findings are the author's
+> own. Read the full [disclaimer](https://kenrollins.github.io/gemma-forge/about/)
+> before extracting anything as Dell policy.
 
 ---
 
 ## What this is
 
-**GemmaForge is a Federal-leaning open-source reference build for
-sovereign edge AI on the Dell PowerEdge XR7620** intended to accompany
-an upcoming whitepaper. It combines:
+GemmaForge is a personal exploration into two things in combination:
 
-- **Hardware** — A Dell PowerEdge XR7620 (2× Intel Xeon, 4× NVIDIA L4
-  24GB), the only ruggedized 2U chassis built for this workload at the
-  tactical edge. No NVLink — the inference architecture is designed
-  for per-GPU fault isolation, not assumed connectivity.
-- **Models** — [Gemma 4](https://blog.google/innovation-and-ai/technology/developers-tools/gemma-4/)
-  (released 2026-04-02). Architect/Worker share a Gemma 4 31B-IT
-  engine on `tp=2`; Auditor uses Gemma 4 E4B; Sentry uses Gemma 4 E2B.
-  We follow the official [vLLM Gemma 4 recipe](https://docs.vllm.ai/projects/recipes/en/latest/Google/Gemma4.html)
-  verbatim.
-- **Inference** — [NVIDIA Triton Inference Server](https://github.com/triton-inference-server/server)
-  with the [vLLM backend](https://github.com/triton-inference-server/vllm_backend)
-  in EXPLICIT model control mode. Triton runs as a **shared host
-  service** at `/data/triton/`, not bundled in this demo. Multiple
-  demo projects can be clients of one common model director and the
-  operator can swap mission model sets at runtime — *Ollama-style
-  flexibility on top of vLLM-grade serving.*
-- **Agent harness** — [Google ADK](https://github.com/google/adk-python)
-  `LoopAgent` with four roles (Architect, Worker, Auditor, Sentry).
-  The headline behavior is the **Ralph loop**: Fail → Revert → Retry.
-  The loop terminates only when the mission succeeds *and* the
-  mission app is still healthy.
-- **First skill** — Autonomous DISA STIG remediation against a Rocky
-  Linux 9 target VM running an Nginx + Postgres "mission app." The
-  agent must keep the app alive while it remediates the host —
-  failure to do so triggers an automatic revert.
-- **Frontend** — Polished Next.js 14 dashboard backed by FastAPI +
-  WebSockets, showing live GPU meters, the agent thought stream, and
-  the Fail → Revert → Retry audit trail in real time.
-- **Observability** — OpenTelemetry primary (the Federal observability
-  standard), Langfuse secondary (the LLM-native UI on top). Spans are
-  emitted once from the harness; both backends consume them.
+- **Ralph loop architecture** as a pattern for autonomous-but-accountable agent
+  systems that grind through problems with persistence, learning from each failure.
+- **Running Gemma 4 models at the edge** on commodity Dell hardware, without
+  commercial agentic frameworks sitting between the harness and the infrastructure.
 
-We don't demo *success.* We demo *resilience.*
+**DISA STIG remediation** was chosen as the anchor use case because it exercises
+the interesting parts of the architecture — persistence, revert-on-failure,
+verifiable outcomes, real target-system side effects — but the patterns
+documented here apply to a wide range of problem spaces. STIG is the witness,
+not the point.
+
+**Goal**: share what we learned so other presales engineers, SI partners, and
+technical evaluators can build similar systems faster on their own hardware of
+choice.
+
+## What this is **not**
+
+- **Not a product.** Nothing is for sale. Nothing requires a subscription.
+- **Not a Dell reference architecture.** No official review, no Dell Marketing
+  endorsement, no commercial warranty. The author works at Dell Federal and
+  uses Dell hardware because that is the lab environment; this does not
+  represent a Dell position.
+- **Not a vendor-lock-in framework.** Every component is open source. Every
+  line of code is in this repo. The patterns transfer to whatever hardware,
+  model, and tooling you prefer.
+- **Not a showcase demo.** We don't hide failures. The
+  [failure modes document](docs/journal/architecture/01-reflexive-agent-harness-failure-modes.md)
+  exists specifically to name the things that went wrong and what we did
+  about them.
 
 ---
 
-## 🎯 Why this exists
+## 📖 Read this first
 
-Three things, all at once, on one box:
+The published site is the primary entry point:
 
-1. **Show what the Dell XR7620 actually does** at the tactical edge
-   when fed real models. Most edge AI demos run a single quantized
-   chatbot. We run four roles concurrently across four L4s and put
-   them through real autonomous infrastructure operations.
-2. **Show what Ralph-loop persistence looks like** when an agent has
-   to recover from its own mistakes — not first-try success, but
-   real Fail → Revert → Retry on a target host where the mission app
-   matters more than the mission.
-3. **Show what a sovereign, air-gapped, accountable agentic harness
-   looks like** when every model, every prompt, and every change is
-   logged, reversible, and free of vendor phone-home.
+**→ [kenrollins.github.io/gemma-forge](https://kenrollins.github.io/gemma-forge/)**
 
-This is a Federal-facing reference build. The choices, trade-offs, and
-honest limits are documented as ADRs (see below) and feed an upcoming
-whitepaper.
+It contains:
+
+- **[System Architecture](https://kenrollins.github.io/gemma-forge/journal/architecture/00-system-architecture/)** —
+  the 5-layer enterprise AI stack map with GemmaForge's components at each
+  layer, industry alternatives (open-source and enterprise) for anyone who
+  can't use what we used, and the key architectural patterns at each layer.
+- **[Journey](https://kenrollins.github.io/gemma-forge/journal/journey/)** —
+  26 first-person field notes of how this was built, chronologically.
+  Start with [00 — Origin](https://kenrollins.github.io/gemma-forge/journal/journey/00-origin/)
+  or jump to whatever catches your eye.
+- **[Failure Modes](https://kenrollins.github.io/gemma-forge/journal/architecture/01-reflexive-agent-harness-failure-modes/)** —
+  a project-agnostic taxonomy of six failure modes in reflexive agent
+  harnesses, each with a prescribed harness mechanism. The contribution
+  artifact that came out of this work.
+- **[Gotchas](https://kenrollins.github.io/gemma-forge/journal/gotchas/)** —
+  small atomic "X breaks Y because Z" lessons that cost hours to discover.
+- **[ADRs](https://kenrollins.github.io/gemma-forge/adr/0001-vllm-not-nim-or-ollama/)** —
+  architecture decision records for every non-obvious technical choice.
+
+If you only have 15 minutes, read:
+[14 — The Overnight Run](https://kenrollins.github.io/gemma-forge/journal/journey/14-overnight-run-findings/)
+and the [Failure Modes](https://kenrollins.github.io/gemma-forge/journal/architecture/01-reflexive-agent-harness-failure-modes/)
+document. That's the load-bearing pair.
 
 ---
 
-## 🏛 Key architectural decisions
+## 🏗 What it actually is, technically
 
-The full set lives in [`docs/adr/`](docs/adr/). The decisions a
-Federal evaluator will care about most:
-
-| # | Decision | Why |
+| Layer | Component | Role |
 |---|---|---|
-| [0014](docs/adr/0014-triton-vllm-director-shared-host-service.md) | **Triton-managed vLLM director as a shared host service** at `/data/triton/`, not bundled per demo | The XR7620 is a multi-demo host. Promoting the inference layer to a host-level shared service means one model catalog serves any demo as a client, and operators can swap mission model sets at runtime without redeploying containers. The L4 warm-up becomes part of the show, not a backstage step. (Supersedes ADR-0001.) |
-| [0013](docs/adr/0013-one-triton-per-l4-no-nvlink.md) | **One Triton process per L4** (plus one wide Triton spanning GPUs 0+1 for the `tp=2` Gemma 4 31B-IT engine) | Forced by a real Triton vLLM-backend GPU-selection bug AND endorsed by NVIDIA's own Triton FAQ. Fault isolation by construction: a wedged GPU takes down only its own systemd unit. No NVLink dependency. |
-| [0015](docs/adr/0015-gemma-4-model-lineup.md) | **Gemma 4 lineup follows the official vLLM recipe verbatim** | Architect and Worker share the 31B-IT engine (sequential in the loop), Auditor uses E4B, Sentry uses E2B. "We deploy Gemma 4 the way Google and vLLM ship it" is the strongest possible answer to a Federal evaluator. |
-| [0002](docs/adr/0002-google-adk-loopagent.md) | **Google ADK `LoopAgent`** for orchestration | Native loop primitive matches the Ralph pattern; explicit termination predicates; multi-agent role split maps cleanly onto the four GPU-pinned models. Apache 2.0, self-hostable, no SaaS dependency. |
-| [0004](docs/adr/0004-opentofu-not-terraform.md) | **OpenTofu (not Terraform)** with the libvirt provider for VM provisioning | Apache 2.0, Linux Foundation governance, sidesteps HashiCorp BSL friction with Federal legal teams. Drop-in compatible with Terraform if a customer prefers it. |
-| [0005](docs/adr/0005-rocky-9-as-rhel-stand-in.md) | **Rocky Linux 9** as the target OS | Binary-compatible RHEL 9 stand-in. Free, mirrorable, and the [DISA RHEL 9 STIG](https://public.cyber.mil/stigs/) content applies bit-for-bit. |
-| [0006](docs/adr/0006-disa-stig-profile-not-cis.md) | **DISA STIG profile** (not CIS) for the first remediation skill | The audience is DoD-adjacent. The OpenSCAP scan invocation pins the profile ID `xccdf_org.ssgproject.content_profile_stig` explicitly. |
-| [0003](docs/adr/0003-podman-primary-docker-compatible.md) | **Compose v2 spec** so the same file works on Docker (reference host runtime) and Podman (Federal-recommended for customer hosts) | One file, two runtimes. No migration pain on the reference host; no compose-file duplication for downstream customers. |
+| **5 — Application** | STIG Remediation Skill + GemmaForge Dashboard | What the user sees |
+| **4 — Orchestration** | Ralph Loop Harness + Google ADK | Agents, reflexion loop, memory, tool calling |
+| **3 — Model** | Gemma 4 31B bf16 + vLLM 0.19.0 | Full precision, TP=4 across 4 L4s |
+| **2 — Platform/MLOps** | OpenTelemetry + Jaeger + Prometheus + Grafana | Observability, no commercial LLM proxy |
+| **1 — Infrastructure** | Dell PowerEdge XR7620 + 4× NVIDIA L4 + libvirt + Rocky 9 | The lab. Other Dell edge platforms also apply. |
+
+The harness is about ~3000 lines of Python. It uses Google ADK for the
+per-agent-turn machinery but drives the outer reflexion loop directly.
+Memory is tiered (per-rule episodic, cross-rule semantic, per-attempt
+working). Revert is snapshot-based at the hypervisor layer, not
+script-based. Context is token-budgeted with priority-ordered prompt
+assembly. The architect re-engages on a schedule or on plateau. Every
+event is logged to a structured JSONL stream that doubles as the
+test-harness ground truth.
+
+See the [System Architecture](https://kenrollins.github.io/gemma-forge/journal/architecture/00-system-architecture/)
+page for the full picture with component details and pattern drill-downs.
 
 ---
 
-## 🏗 Architecture (target)
+## 🎯 The Ralph loop in one sentence
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│  Dell PowerEdge XR7620 — 2× Xeon, 4× NVIDIA L4 24GB                     │
-│                                                                          │
-│  ┌────────────────────────────  HOST SERVICES  ────────────────────────┐│
-│  │                                                                     ││
-│  │  /data/triton/   ← shared inference director (NEW)                 ││
-│  │     models/                                                          ││
-│  │       gemma4-31b-it/   gemma4-e4b/   gemma4-e2b/   …more on disk…  ││
-│  │                                                                     ││
-│  │     systemd:                                                        ││
-│  │       triton@wide-01     CUDA_VISIBLE_DEVICES=0,1   tp=2  ──┐      ││
-│  │       triton@2           CUDA_VISIBLE_DEVICES=2     tp=1   │      ││
-│  │       triton@3           CUDA_VISIBLE_DEVICES=3     tp=1   │      ││
-│  │                                          (all EXPLICIT mode)        ││
-│  │                                                                     ││
-│  │  /data/vm/gemma-forge/   ← libvirt state for the target VM(s)      ││
-│  │  /data/docker/           ← existing Docker daemon (untouched)       ││
-│  │  /data/code/gemma-forge/ ← THIS REPO                                ││
-│  └─────────────────────────────────────────────────────────────────────┘│
-│                                                                          │
-│  ┌─────────────────  GEMMAFORGE CLIENT-SIDE STACK  ─────────────────┐  │
-│  │  (docker-compose.yml inside /data/code/gemma-forge/)              │  │
-│  │                                                                   │  │
-│  │  forge-api  (FastAPI + WebSockets)  ─┐                            │  │
-│  │      │                                ├──→ Triton director        │  │
-│  │      │                                └──→ Target VM via SSH      │  │
-│  │      ▼                                                             │  │
-│  │  forge-ui  (Next.js 14 dashboard)                                  │  │
-│  │                                                                   │  │
-│  │  jaeger    (OTel traces, Federal-standard)                         │  │
-│  │  langfuse  (LLM-native trace UI)                                   │  │
-│  └───────────────────────────────────────────────────────────────────┘  │
-│                                                                          │
-│  ┌─────────────────────  TARGET VM (Phase 2)  ───────────────────────┐ │
-│  │  Rocky Linux 9 + DISA STIG content + Nginx/Postgres mission app   │ │
-│  │  Provisioned by OpenTofu + libvirt; snapshot-resettable           │ │
-│  └────────────────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────────────────┘
-```
+**Fail → diagnose → restore → reflect → retry — and keep going until either
+the rule is remediated or the wall-clock budget runs out.** Unlike the
+textbook Reflexion implementations that use a fixed retry count, this loop
+uses time budgets per rule and a semantic plateau detector to know when the
+reflector is genuinely stuck versus when it's still learning. The architect
+re-engages periodically to re-evaluate the strategy with full failure history.
+When the loop gives up, it gives up with a structured reason (`time_budget`,
+`retry_ceiling`, or `architect_preemptive`) that downstream tools can reason
+about.
 
-The key insight: **the inference layer is a host service, not part of
-this demo**. GemmaForge is a *client* of the Triton director. So is
-every future demo on this box.
+The underlying philosophy is in
+[journey/13](https://kenrollins.github.io/gemma-forge/journal/journey/13-ralph-persistence-retry-budget/)
+and the full v3 architecture story is in
+[journey/17](https://kenrollins.github.io/gemma-forge/journal/journey/17-v3-fix-pass/).
 
 ---
 
-## 🚦 Current status
+## 🏃 Running it yourself
 
-**Phase 0 — repository scaffold.** What exists today:
-
-- ✅ Repository structure, license, package layout
-- ✅ Architecture Decision Records 0001–0006, 0013–0015
-- ✅ Compose v2 client-side skeleton (`docker-compose.yml`)
-- ✅ CI workflow stub (lint, type-check, smoke test, compose validation)
-- ✅ Issue / PR templates
-- ✅ Python package skeleton (`gemma_forge.cli` placeholder)
-
-What does **not** exist yet — and is being built phase by phase:
-
-- ⏳ The Triton director under `/data/triton/` (Phase 0.5)
-- ⏳ The four-GPU inference plane with Gemma 4 (Phase 1)
-- ⏳ The target VM provisioned via OpenTofu (Phase 2)
-- ⏳ The Ralph loop harness (Phase 3)
-- ⏳ The skills system (Phase 4)
-- ⏳ Observability backends wired in (Phase 5)
-- ⏳ The web frontend (Phase 6)
-- ⏳ Supply-chain hardening: SBOM, signing, OpenSSF Scorecard (Phase 7)
-- ⏳ Air-gap CI test (Phase 8)
-- ⏳ Demo polish, runbook, dress rehearsal (Phase 9)
-
----
-
-## 🛣 Phases / roadmap
-
-| Phase | Focus | Status |
-|---|---|---|
-| 0 | Repo scaffolding + initial ADRs + initial commit | 🔧 in progress |
-| 0.5 | Host prep (libvirt, OpenTofu, Triton director under `/data/triton/`) | ⏳ pending |
-| 1 | Inference plane: Triton + vLLM-backend + EXPLICIT, Gemma 4 loaded, day-one validation gates passed | ⏳ pending |
-| 2 | Target VM via OpenTofu + libvirt + cloud-init + mission app | ⏳ pending |
-| 3 | Ralph loop core: Architect/Worker/Auditor/Sentry, Fail → Revert → Retry first | ⏳ pending |
-| 4 | Skills system extraction (folder-manifest + optional plugin escape hatch) | ⏳ pending |
-| 5 | Observability: OTel primary, Langfuse secondary | ⏳ pending |
-| 6 | Web frontend: FastAPI + Next.js 14 dashboard | ⏳ pending |
-| 7 | Supply chain: SBOM (Syft), image signing (Cosign), OpenSSF Scorecard | ⏳ pending |
-| 8 | Air-gap CI test (egress firewalled to localhost + libvirt subnet) | ⏳ pending |
-| 9 | Demo polish, runbook, on-stage dress rehearsal | ⏳ pending |
-
----
-
-## 🚀 Quick start
-
-> **Today (Phase 0):** Cloning and exploring works. Nothing actually
-> runs end-to-end yet — that lands in Phase 1+. The commands below
-> are the *target* quick-start, included so contributors and
-> evaluators can see where this is going.
+The short version:
 
 ```bash
-# Clone (you are here)
+# On a host with NVIDIA GPUs and libvirt installed
 git clone https://github.com/kenrollins/gemma-forge.git
 cd gemma-forge
+python -m venv .venv && source .venv/bin/activate
+pip install -e '.[dev]'
 
-# Today: install the Python package and run the smoke test
-make install
-make lint
-make test
+# Bring up vLLM (edit infra/vllm/scripts/ for your GPU layout)
+sudo systemctl start gemma-forge-gemma
 
-# Phase 0.5+ (not yet wired):
-# 1. Stand up the host's Triton director (one-time, host-level)
-make triton-director-up        # systemd units under /data/triton/
+# Bring up the target VM (requires libvirt + OpenTofu)
+./infra/vm/scripts/vm-up.sh
 
-# 2. Provision the target VM (per-demo)
-make vm-up                     # OpenTofu + libvirt + cloud-init
+# Start the services
+./bin/forge up     # vLLM, FastAPI, UI
 
-# 3. Start the GemmaForge client-side stack
-docker compose up -d           # observability + FastAPI + UI
+# Kick off a STIG remediation run
+./bin/forge run stig-rhel9
 
-# 4. Open the dashboard, pick a skill, watch the L4s warm up
-open http://localhost:3000
+# Watch it go
+open http://localhost:3333     # dashboard
+./bin/forge logs               # tail the current run
+```
+
+See [host-setup.md](docs/host-setup.md) for the full setup
+walkthrough and
+[adding-a-skill.md](https://kenrollins.github.io/gemma-forge/adding-a-skill/)
+for how to author a new skill.
+
+---
+
+## 🧪 Running the tests
+
+The test suite is organized as **property tests** across 7 tiers. See
+[journey/15 — The Test as Architecture Discovery](https://kenrollins.github.io/gemma-forge/journal/journey/15-the-test-as-architecture-discovery/)
+for the discipline and
+[journey/15.5 — The Test Pass in Practice](https://kenrollins.github.io/gemma-forge/journal/journey/15.5-test-pass-in-practice/)
+for the narrative of running all 99 of them.
+
+```bash
+# Fast tests (no LLM, no VM): ~10 seconds
+pytest tests/test_harness_helpers.py tests/test_architect_verdict_parsing.py -v
+
+# Target layer tests (needs the VM): ~4 minutes
+pytest tests/test_target_layer.py -v
+
+# Agent behavior tests (needs vLLM): ~1 minute
+pytest tests/test_agent_behavior.py -v
+
+# Fault injection (mostly mocks): ~15 seconds
+pytest tests/test_harness_fault_paths.py -v
+
+# Full integration test (real LLM + VM, ~2 minutes)
+pytest tests/test_loop_integration.py -v -s --run-slow
 ```
 
 ---
 
-## 📚 Documentation
+## 🛠 How this was built
 
-- **Architecture Decision Records** — [`docs/adr/`](docs/adr/) — every
-  non-obvious technical choice with rationale, alternatives, and
-  consequences. Read these before reading code.
-- **Demo runbook** *(Phase 9)* — `docs/demo-runbook.md` — the exact
-  commands run on stage, with timing targets.
-- **Host setup** *(Phase 0.5)* — `docs/host-setup.md` — how to bring
-  up the Triton director, libvirt, and OpenTofu on a fresh XR7620.
-- **Adding a skill** *(Phase 4)* — `docs/adding-a-skill.md` — how to
-  drop a new demo into the `skills/` directory.
+In short: an **agentic coding workflow** — a human operator paired with an
+AI coding assistant, with the human making all architectural and strategic
+decisions and the AI contributing implementation velocity, test coverage,
+and documentation drafting. The pattern is vendor-neutral and described in
+detail in
+[journey/16 — Agentic Coding as a Method](https://kenrollins.github.io/gemma-forge/journal/journey/16-agentic-coding-as-a-method/).
 
----
-
-## 🤝 Contributing
-
-This is an open reference build. Issues and PRs welcome. Two house
-rules:
-
-1. **Document non-obvious decisions as ADRs.** Use
-   [`docs/adr/template.md`](docs/adr/template.md). Federal evaluators
-   read ADRs before code; we want them to see serious engineering.
-2. **Don't commit anything that belongs under `/data/<service>/`** —
-   no qcow2 disks, no model weights, no host-specific paths.
-   Configuration goes through environment variables.
-
-See [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md)
-for the checklist.
+This is worth knowing because the velocity on this project is real (~72
+hours from empty scaffold to v3 with 99 property tests and a complete
+journal) and the pattern that produced it is reproducible by other teams
+that bring the same discipline.
 
 ---
 
 ## ⚖ License
 
-[Apache License 2.0](LICENSE) — matches Gemma 4's license and is the
-Federal-preferred OSS license for shareable reference implementations.
+[Apache License 2.0](LICENSE) — matches Gemma 4's license. Use it,
+fork it, extract patterns from it, build on top of it. Credit where it
+helps, but no obligation.
 
----
+## 📬 Contact
+
+Personal project; discussion through
+[GitHub issues](https://github.com/kenrollins/gemma-forge/issues) on this
+repo. For Dell hardware questions or anything that needs an official
+Dell channel, please work through your existing Dell account team —
+this project does not speak for Dell.
 
 ## 🙏 Acknowledgments
 
-- The [Gemma team at Google](https://blog.google/innovation-and-ai/technology/developers-tools/gemma-4/)
-  for shipping Gemma 4 with Day-0 vLLM support.
-- The [vLLM project](https://github.com/vllm-project/vllm) for the
-  inference engine that makes this entire build possible.
-- The [Triton Inference Server team at NVIDIA](https://github.com/triton-inference-server/server)
-  for the vLLM backend and the EXPLICIT model control pattern.
-- The [Google ADK team](https://github.com/google/adk-python) for
-  the `LoopAgent` primitive that maps so cleanly onto the Ralph
-  loop pattern.
-- The [OpenSCAP](https://www.open-scap.org/) and
-  [ComplianceAsCode](https://github.com/ComplianceAsCode/content)
-  projects for keeping the DISA STIG content open and current.
-- [Dell Federal](https://www.dell.com/en-us/dt/industry/federal/index.htm)
-  for the XR7620 hardware platform.
+- The **Gemma team at Google** for shipping Gemma 4 with native function
+  calling and Day-0 vLLM support.
+- The **vLLM project** for the inference engine that makes edge-AI
+  agent work feasible.
+- The **Google ADK team** for the agent development kit that provides
+  the per-agent-turn abstractions this project builds on.
+- The **OpenSCAP and ComplianceAsCode** projects for keeping DISA STIG
+  content open and current.
+- The **OpenTelemetry** community for a Federal-credible observability
+  standard that doesn't lock anyone into a vendor.
+- **Dell Federal** for the hardware platform that made this exploration
+  possible.

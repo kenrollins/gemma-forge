@@ -35,3 +35,14 @@ stig:
   profile: "xccdf_org.ssgproject.content_profile_stig"
   datastream: "/usr/share/xml/scap/ssg/content/ssg-rl9-ds.xml"
   results_dir: "/tmp/gemma-forge-stig"
+
+ui:
+  title: "STIG Remediation"
+  work_item: "STIG rule"
+  work_item_plural: "STIG rules"
+  id_prefix_strip: "xccdf_org.ssgproject.content_rule_"
+  fixed_label: "Remediated"
+  outcomes:
+    - { type: "fixed", label: "Remediated", color: "#22C55E" }
+    - { type: "escalated", label: "Escalated", color: "#EF4444" }
+    - { type: "skipped", label: "Skipped", color: "#6B7280" }

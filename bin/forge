@@ -1,0 +1,319 @@
+#!/usr/bin/env bash
+# GemmaForge — unified management script
+#
+# Usage:
+#   forge up        — start all services (vLLM, API, UI)
+#   forge down      — stop all services
+#   forge status    — show what's running
+#   forge run       — start a ralph loop run
+#   forge stop-run  — stop the active ralph loop
+#   forge logs      — tail ralph loop output
+#   forge replay    — replay a past run in the UI
+#
+# Services:
+#   vllm    — Gemma 4 31B bf16 TP=4 (systemd: gemma-forge-gemma)
+#   api     — FastAPI server (port 8080)
+#   ui      — Next.js dev server (port 3333)
+
+set -euo pipefail
+
+FORGE_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+RUNS_DIR="${FORGE_ROOT}/runs"
+VENV="${FORGE_ROOT}/.venv/bin"
+API_PID_FILE="/tmp/forge-api.pid"
+UI_PID_FILE="/tmp/forge-ui.pid"
+RUN_PID_FILE="/tmp/forge-run.pid"
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+PURPLE='\033[0;35m'
+NC='\033[0m'
+
+_is_running() {
+    local pidfile="$1"
+    [[ -f "$pidfile" ]] && kill -0 "$(cat "$pidfile")" 2>/dev/null
+}
+
+_pid_of() {
+    local pidfile="$1"
+    [[ -f "$pidfile" ]] && cat "$pidfile" 2>/dev/null || echo ""
+}
+
+cmd_status() {
+    echo -e "${BLUE}=== GemmaForge Status ===${NC}"
+    echo ""
+
+    # vLLM (systemd)
+    if systemctl is-active --quiet gemma-forge-gemma 2>/dev/null; then
+        echo -e "  ${GREEN}[UP]${NC}   vLLM     — Gemma 4 31B bf16 TP=4 (systemd)"
+        local port_check
+        port_check=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8050/v1/models 2>/dev/null || echo "000")
+        if [[ "$port_check" == "200" ]]; then
+            echo -e "                    port 8050 responding"
+        else
+            echo -e "                    ${YELLOW}port 8050 not yet responding (model loading?)${NC}"
+        fi
+    elif docker ps --format '{{.Names}}' 2>/dev/null | grep -q gemma-forge-gemma; then
+        echo -e "  ${GREEN}[UP]${NC}   vLLM     — Gemma 4 31B bf16 TP=4 (docker)"
+    else
+        echo -e "  ${RED}[DOWN]${NC} vLLM     — not running"
+    fi
+
+    # API
+    if _is_running "$API_PID_FILE"; then
+        echo -e "  ${GREEN}[UP]${NC}   API      — FastAPI :8080 (PID $(_pid_of "$API_PID_FILE"))"
+    else
+        echo -e "  ${RED}[DOWN]${NC} API      — not running"
+    fi
+
+    # UI
+    if _is_running "$UI_PID_FILE"; then
+        echo -e "  ${GREEN}[UP]${NC}   UI       — Next.js :3333 (PID $(_pid_of "$UI_PID_FILE"))"
+    else
+        echo -e "  ${RED}[DOWN]${NC} UI       — not running"
+    fi
+
+    # Ralph loop
+    if _is_running "$RUN_PID_FILE"; then
+        echo -e "  ${PURPLE}[RUN]${NC}  Ralph    — active (PID $(_pid_of "$RUN_PID_FILE"))"
+    else
+        echo -e "  ${NC}[IDLE]${NC} Ralph    — no active run"
+    fi
+
+    echo ""
+
+    # GPU summary
+    if command -v nvidia-smi &>/dev/null; then
+        echo -e "${BLUE}=== GPU ===${NC}"
+        nvidia-smi --query-gpu=index,memory.used,memory.total,utilization.gpu,temperature.gpu \
+            --format=csv,noheader,nounits 2>/dev/null | while IFS=, read -r idx used total util temp; do
+            used=$(echo "$used" | tr -d ' ')
+            total=$(echo "$total" | tr -d ' ')
+            util=$(echo "$util" | tr -d ' ')
+            temp=$(echo "$temp" | tr -d ' ')
+            pct=$((used * 100 / total))
+            echo -e "  GPU $idx: ${used}/${total} MiB (${pct}%) · ${util}% util · ${temp}°C"
+        done
+        echo ""
+    fi
+
+    # Recent runs
+    echo -e "${BLUE}=== Recent Runs ===${NC}"
+    ls -1t "${RUNS_DIR}"/run-*.jsonl 2>/dev/null | head -5 | while read -r f; do
+        local name=$(basename "$f")
+        local lines=$(wc -l < "$f")
+        local size=$(du -h "$f" | cut -f1)
+        echo "  $name  ($lines events, $size)"
+    done
+    echo ""
+}
+
+cmd_up() {
+    echo -e "${BLUE}Starting GemmaForge services...${NC}"
+
+    # vLLM
+    if ! systemctl is-active --quiet gemma-forge-gemma 2>/dev/null; then
+        if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -q gemma-forge-gemma; then
+            echo -e "  Starting vLLM (gemma-forge-gemma)..."
+            sudo systemctl start gemma-forge-gemma
+        fi
+    fi
+    echo -e "  ${GREEN}vLLM${NC}: started (model takes ~2min to load)"
+
+    # API
+    if ! _is_running "$API_PID_FILE"; then
+        echo -e "  Starting API server..."
+        cd "$FORGE_ROOT"
+        "${VENV}/uvicorn" web.api.serve_replay:app --host 0.0.0.0 --port 8080 \
+            &>/tmp/forge-api.log &
+        echo $! > "$API_PID_FILE"
+        echo -e "  ${GREEN}API${NC}: http://0.0.0.0:8080"
+    else
+        echo -e "  ${GREEN}API${NC}: already running"
+    fi
+
+    # UI
+    if ! _is_running "$UI_PID_FILE"; then
+        echo -e "  Starting UI dev server..."
+        cd "${FORGE_ROOT}/web/ui"
+        npx next dev --port 3333 --hostname 0.0.0.0 \
+            &>/tmp/forge-ui.log &
+        echo $! > "$UI_PID_FILE"
+        echo -e "  ${GREEN}UI${NC}: http://0.0.0.0:3333"
+    else
+        echo -e "  ${GREEN}UI${NC}: already running"
+    fi
+
+    echo ""
+    echo -e "${GREEN}All services started.${NC}"
+    echo -e "  Dashboard: http://$(hostname -f 2>/dev/null || hostname):3333"
+}
+
+cmd_down() {
+    echo -e "${BLUE}Stopping GemmaForge services...${NC}"
+
+    # Stop ralph run first
+    if _is_running "$RUN_PID_FILE"; then
+        echo "  Stopping ralph loop..."
+        kill "$(_pid_of "$RUN_PID_FILE")" 2>/dev/null || true
+        rm -f "$RUN_PID_FILE"
+    fi
+
+    # Stop UI
+    if _is_running "$UI_PID_FILE"; then
+        echo "  Stopping UI..."
+        kill "$(_pid_of "$UI_PID_FILE")" 2>/dev/null || true
+        rm -f "$UI_PID_FILE"
+    fi
+
+    # Stop API
+    if _is_running "$API_PID_FILE"; then
+        echo "  Stopping API..."
+        kill "$(_pid_of "$API_PID_FILE")" 2>/dev/null || true
+        rm -f "$API_PID_FILE"
+    fi
+
+    # Don't stop vLLM by default (takes too long to reload)
+    echo ""
+    echo -e "${GREEN}Services stopped.${NC} vLLM left running (use 'forge down --all' to stop vLLM too)."
+
+    if [[ "${1:-}" == "--all" ]]; then
+        echo "  Stopping vLLM..."
+        sudo systemctl stop gemma-forge-gemma 2>/dev/null || \
+            docker stop gemma-forge-gemma 2>/dev/null || true
+        echo -e "  ${GREEN}vLLM stopped.${NC}"
+    fi
+}
+
+cmd_run() {
+    local skill="${1:-stig-rhel9}"
+
+    if _is_running "$RUN_PID_FILE"; then
+        echo -e "${YELLOW}A run is already active (PID $(_pid_of "$RUN_PID_FILE")).${NC}"
+        echo "  Use 'forge stop-run' first."
+        return 1
+    fi
+
+    # Pre-flight checks
+    echo -e "${BLUE}Pre-flight checks...${NC}"
+
+    # Check vLLM
+    local vllm_check
+    vllm_check=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8050/v1/models 2>/dev/null || echo "000")
+    if [[ "$vllm_check" != "200" ]]; then
+        echo -e "  ${RED}vLLM not responding on :8050${NC}"
+        echo "  Run 'forge up' first and wait for model to load."
+        return 1
+    fi
+    echo -e "  ${GREEN}vLLM responding${NC}"
+
+    # Check VM
+    local vm_check
+    vm_check=$(ssh -i /data/vm/gemma-forge/keys/adm-forge -o StrictHostKeyChecking=no -o ConnectTimeout=5 \
+        adm-forge@192.168.122.43 "echo ok" 2>/dev/null || echo "fail")
+    if [[ "$vm_check" != "ok" ]]; then
+        echo -e "  ${YELLOW}VM not reachable — attempting restore from baseline snapshot...${NC}"
+        "${FORGE_ROOT}/infra/vm/scripts/vm-snapshot.sh" restore baseline 2>&1 | tail -1
+        sleep 5
+        vm_check=$(ssh -i /data/vm/gemma-forge/keys/adm-forge -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
+            adm-forge@192.168.122.43 "echo ok" 2>/dev/null || echo "fail")
+        if [[ "$vm_check" != "ok" ]]; then
+            echo -e "  ${RED}VM still unreachable after restore${NC}"
+            return 1
+        fi
+    fi
+    echo -e "  ${GREEN}VM reachable${NC}"
+
+    # Restore baseline snapshot
+    echo -e "  Restoring VM to baseline..."
+    "${FORGE_ROOT}/infra/vm/scripts/vm-snapshot.sh" restore baseline 2>&1 | tail -1
+
+    # Wait for SSH after snapshot restore
+    for i in $(seq 1 12); do
+        if ssh -i /data/vm/gemma-forge/keys/adm-forge -o StrictHostKeyChecking=no -o ConnectTimeout=5 \
+            adm-forge@192.168.122.43 "echo ok" &>/dev/null; then
+            break
+        fi
+        sleep 5
+    done
+
+    # Health check
+    echo -e "  Running mission app healthcheck..."
+    ssh -i /data/vm/gemma-forge/keys/adm-forge -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
+        adm-forge@192.168.122.43 "sudo /usr/local/bin/mission-healthcheck.sh" 2>&1 | tail -3
+
+    echo ""
+    echo -e "${PURPLE}Starting Ralph loop (skill: ${skill})...${NC}"
+
+    cd "$FORGE_ROOT"
+    "${VENV}/python" -m gemma_forge.harness.ralph --skill "$skill" \
+        &>/tmp/forge-run.log &
+    echo $! > "$RUN_PID_FILE"
+
+    echo -e "  PID: $(_pid_of "$RUN_PID_FILE")"
+    echo -e "  Logs: forge logs"
+    echo -e "  Dashboard: http://$(hostname -f 2>/dev/null || hostname):3333"
+    echo ""
+    echo -e "${GREEN}Run started. Connect the dashboard for live view.${NC}"
+}
+
+cmd_stop_run() {
+    if _is_running "$RUN_PID_FILE"; then
+        local pid=$(_pid_of "$RUN_PID_FILE")
+        echo "Stopping ralph loop (PID ${pid})..."
+        kill "$pid" 2>/dev/null || true
+        rm -f "$RUN_PID_FILE"
+        echo -e "${GREEN}Run stopped.${NC}"
+    else
+        echo "No active run."
+    fi
+}
+
+cmd_logs() {
+    local logfile="${1:-/tmp/forge-run.log}"
+    if [[ -f "$logfile" ]]; then
+        tail -f "$logfile"
+    else
+        # Find most recent run log
+        local latest
+        latest=$(ls -1t "${RUNS_DIR}"/run-*.jsonl 2>/dev/null | head -1)
+        if [[ -n "$latest" ]]; then
+            echo -e "No active run log. Showing latest: $(basename "$latest")"
+            tail -50 "$latest"
+        else
+            echo "No logs found."
+        fi
+    fi
+}
+
+cmd_help() {
+    echo "GemmaForge — Sovereign Edge AI"
+    echo ""
+    echo "Usage: forge <command> [args]"
+    echo ""
+    echo "Service management:"
+    echo "  up              Start all services (vLLM, API, UI)"
+    echo "  down            Stop services (keeps vLLM running)"
+    echo "  down --all      Stop everything including vLLM"
+    echo "  status          Show what's running"
+    echo ""
+    echo "Ralph loop:"
+    echo "  run [skill]     Start a ralph loop run (default: stig-rhel9)"
+    echo "  stop-run        Stop the active ralph loop"
+    echo "  logs            Tail the active run log"
+    echo ""
+}
+
+# Main dispatch
+case "${1:-help}" in
+    up)         cmd_up ;;
+    down)       shift; cmd_down "$@" ;;
+    status)     cmd_status ;;
+    run)        shift; cmd_run "$@" ;;
+    stop-run)   cmd_stop_run ;;
+    logs)       shift; cmd_logs "$@" ;;
+    help|--help|-h) cmd_help ;;
+    *)          echo "Unknown command: $1"; cmd_help; exit 1 ;;
+esac

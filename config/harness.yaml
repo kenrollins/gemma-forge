@@ -1,6 +1,15 @@
 loop:
-  max_iterations: 50
-  max_rules_per_run: 50
+  max_iterations: 1000
+  max_rules_per_run: 1000
+  # True Ralph persistence — escalate on TIME, not attempt count.
+  # The attempt ceiling is a safety backstop, not the primary stopping condition.
+  max_retries_per_rule: 100
+  max_wall_time_per_rule_s: 1200  # 20 minutes real grinding before escalation
+  # Architect re-engagement — after N failed attempts on a rule, or when the
+  # Reflector plateaus, re-invoke the architect to decide CONTINUE / PIVOT / ESCALATE.
+  # See docs/whitepaper/improvements/01-architect-reengagement.md
+  architect_reengage_every_n_attempts: 3
+  architect_reengage_on_plateau: true
 stig:
   datastream: /usr/share/xml/scap/ssg/content/ssg-rl9-ds.xml
   profile: xccdf_org.ssgproject.content_profile_stig

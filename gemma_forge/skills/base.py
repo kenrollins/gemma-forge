@@ -41,6 +41,31 @@ class StigConfig(BaseModel):
     results_dir: str = "/tmp/gemma-forge-stig"
 
 
+class OutcomeConfig(BaseModel):
+    """One row in the outcomes timeline — success/failure/skipped kinds."""
+
+    type: str  # "fixed" | "escalated" | "skipped" — canonical event type emitted by ralph loop
+    label: str  # Display label (e.g., "Remediated", "Patched", "Recovered")
+    color: str  # Hex color for the chip (e.g., "#22C55E")
+
+
+class UIConfig(BaseModel):
+    """Skill-specific labels so the frontend can render any skill without hardcoding STIG terms."""
+
+    title: str = "Ralph Loop"  # Header displayed in the Scoreboard
+    work_item: str = "work item"  # Singular (e.g., "STIG rule", "CVE", "certificate")
+    work_item_plural: str = "work items"  # Plural (e.g., "STIG rules", "CVEs")
+    # Prefix to strip from work item IDs when displaying (e.g., "xccdf_org.ssgproject.content_rule_")
+    id_prefix_strip: str = ""
+    # Fixed-count stat label in the scoreboard (e.g., "Fixed", "Patched", "Recovered")
+    fixed_label: str = "Fixed"
+    outcomes: list[OutcomeConfig] = [
+        OutcomeConfig(type="fixed", label="Fixed", color="#22C55E"),
+        OutcomeConfig(type="escalated", label="Escalated", color="#EF4444"),
+        OutcomeConfig(type="skipped", label="Skipped", color="#6B7280"),
+    ]
+
+
 class SkillManifest(BaseModel):
     """Schema for a skill.yaml manifest file."""
 
@@ -72,6 +97,9 @@ class SkillManifest(BaseModel):
 
     # Optional plugin module (relative to skill directory)
     plugin: Optional[str] = None
+
+    # UI display config — skill-specific labels for the frontend
+    ui: UIConfig = UIConfig()
 
 
 class Skill:

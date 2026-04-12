@@ -107,3 +107,6 @@ warn_redundant_casts = true
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "slow: integration tests requiring real LLM + VM; use --run-slow to include",
+]

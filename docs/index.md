@@ -166,34 +166,34 @@ build similar systems faster on their own hardware.
 
 ## The 5-Layer Enterprise AI Stack
 
-<div style="max-width: 900px; margin: 0 auto;">
+<div class="layer-stack" style="max-width: 900px; margin: 0 auto;">
 
-<div style="background: linear-gradient(135deg, rgba(239, 68, 68, 0.12), rgba(239, 68, 68, 0.04)); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: 8px 8px 0 0; padding: 1.2rem 1.5rem;">
-<h3 style="color: #EF4444; margin: 0 0 0.5rem 0; border: none; font-size: 1.1rem;">&#9316; Layer 5 — Application</h3>
+<div style="background: linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(239, 68, 68, 0.05)); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px 8px 0 0; padding: 1.2rem 1.5rem;">
+<h3 style="color: #EF4444;">&#9316; Layer 5 — Application</h3>
 <p style="margin: 0.3rem 0;"><strong>STIG Remediation Skill</strong> · <strong>GemmaForge Dashboard</strong> · <strong>This Documentation Site</strong></p>
 <p style="margin: 0.3rem 0; opacity: 0.7; font-style: italic; font-size: 0.85rem;">Where the user sees results. Skills are pluggable — STIG is the first, not the only.</p>
 </div>
 
-<div style="background: linear-gradient(135deg, rgba(168, 85, 247, 0.12), rgba(168, 85, 247, 0.04)); border: 1px solid rgba(168, 85, 247, 0.25); border-top: none; padding: 1.2rem 1.5rem;">
-<h3 style="color: #A855F7; margin: 0 0 0.5rem 0; border: none; font-size: 1.1rem;">&#9315; Layer 4 — Orchestration</h3>
+<div style="background: linear-gradient(135deg, rgba(168, 85, 247, 0.15), rgba(168, 85, 247, 0.05)); border: 1px solid rgba(168, 85, 247, 0.3); border-top: none; padding: 1.2rem 1.5rem;">
+<h3 style="color: #A855F7;">&#9315; Layer 4 — Orchestration</h3>
 <p style="margin: 0.3rem 0;"><strong>Ralph Loop Harness</strong> · <strong>Google ADK</strong> · <strong>Skills System</strong> · <strong>Cross-run SQLite Memory</strong> · <strong>Adaptive Concurrency Clutch</strong></p>
 <p style="margin: 0.3rem 0; opacity: 0.7; font-style: italic; font-size: 0.85rem;">Where agents reason, reflect, and persist. The harness makes structural decisions; the model makes reasoning decisions.</p>
 </div>
 
-<div style="background: linear-gradient(135deg, rgba(0, 118, 206, 0.12), rgba(0, 118, 206, 0.04)); border: 1px solid rgba(0, 118, 206, 0.25); border-top: none; padding: 1.2rem 1.5rem;">
-<h3 style="color: #0076CE; margin: 0 0 0.5rem 0; border: none; font-size: 1.1rem;">&#9314; Layer 3 — Model</h3>
+<div style="background: linear-gradient(135deg, rgba(0, 118, 206, 0.15), rgba(0, 118, 206, 0.05)); border: 1px solid rgba(0, 118, 206, 0.3); border-top: none; padding: 1.2rem 1.5rem;">
+<h3 style="color: #0076CE;">&#9314; Layer 3 — Model</h3>
 <p style="margin: 0.3rem 0;"><strong>Gemma 4 31B Dense bf16</strong> · <strong>vLLM 0.19.0</strong> · <strong>Tensor Parallel = 4</strong></p>
 <p style="margin: 0.3rem 0; opacity: 0.7; font-style: italic; font-size: 0.85rem;">Where inference happens. Full precision across all four GPUs, ~14 tok/s sustained, no NVLink required.</p>
 </div>
 
-<div style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(16, 185, 129, 0.04)); border: 1px solid rgba(16, 185, 129, 0.25); border-top: none; padding: 1.2rem 1.5rem;">
-<h3 style="color: #10B981; margin: 0 0 0.5rem 0; border: none; font-size: 1.1rem;">&#9313; Layer 2 — Platform / MLOps</h3>
+<div style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(16, 185, 129, 0.05)); border: 1px solid rgba(16, 185, 129, 0.3); border-top: none; padding: 1.2rem 1.5rem;">
+<h3 style="color: #10B981;">&#9313; Layer 2 — Platform / MLOps</h3>
 <p style="margin: 0.3rem 0;"><strong>OpenTelemetry</strong> · <strong>Jaeger</strong> · <strong>Prometheus</strong> · <strong>Grafana</strong> · <strong>Structured JSONL Run Logger</strong></p>
 <p style="margin: 0.3rem 0; opacity: 0.7; font-style: italic; font-size: 0.85rem;">Where you observe and measure. Federal-credible standards, no vendor lock-in.</p>
 </div>
 
-<div style="background: linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(245, 158, 11, 0.04)); border: 1px solid rgba(245, 158, 11, 0.25); border-top: none; border-radius: 0 0 8px 8px; padding: 1.2rem 1.5rem;">
-<h3 style="color: #F59E0B; margin: 0 0 0.5rem 0; border: none; font-size: 1.1rem;">&#9312; Layer 1 — Infrastructure</h3>
+<div style="background: linear-gradient(135deg, rgba(245, 158, 11, 0.15), rgba(245, 158, 11, 0.05)); border: 1px solid rgba(245, 158, 11, 0.3); border-top: none; border-radius: 0 0 8px 8px; padding: 1.2rem 1.5rem;">
+<h3 style="color: #F59E0B;">&#9312; Layer 1 — Infrastructure</h3>
 <p style="margin: 0.3rem 0;"><strong>Dell PowerEdge XR7620</strong> · <strong>4x NVIDIA L4 24 GB</strong> · <strong>libvirt + virsh snapshots</strong> · <strong>Rocky Linux 9</strong></p>
 <p style="margin: 0.3rem 0; opacity: 0.7; font-style: italic; font-size: 0.85rem;">The foundation. A rugged 2U short-depth edge server — no cloud, air-gappable, built for the tactical edge.</p>
 </div>

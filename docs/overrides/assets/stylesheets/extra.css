@@ -122,11 +122,11 @@
   margin-top: 2.4rem;
 }
 
-.md-typeset h3 {
+.md-typeset h3:not([style]) {
   color: #3399E0;
 }
 
-[data-md-color-scheme="default"] .md-typeset h3 {
+[data-md-color-scheme="default"] .md-typeset h3:not([style]) {
   color: #0076CE;
 }
 
@@ -138,6 +138,19 @@
 
 [data-md-color-scheme="default"] .md-typeset strong {
   color: #0076CE;
+}
+
+/* -- Layer stack: prevent theme overrides on inline-styled elements -- */
+
+.layer-stack h3 {
+  border: none !important;
+  padding: 0 !important;
+  margin: 0 0 0.5rem 0 !important;
+  font-size: 1.1rem !important;
+}
+
+.layer-stack strong {
+  color: #e2e8f0 !important;
 }
 
 /* -- Navigation tabs: tighter -- */

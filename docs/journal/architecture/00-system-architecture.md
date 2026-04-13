@@ -282,32 +282,6 @@ any *secondary* layers it touches.
 
 ---
 
-## Dell AI Tech Categories mapping
-
-GemmaForge maps onto Dell's eight AI technology categories as follows.
-The project primarily demonstrates **Intelligent Automation and AI
-Agents** deployed on **Edge & Embedded AI**, running on **AI
-Infrastructure and Platforms**, using **Generative AI & Language**
-models, with a strong **AI Safety and Governance** story from the
-snapshot-based revert and deterministic evaluation layer.
-
-| # | Category | GemmaForge alignment |
-|---|---|---|
-| **4** | Intelligent Automation and AI Agents | **Primary.** The Ralph loop harness, agent roles, STIG remediation |
-| **1** | Edge & Embedded AI | **Primary.** XR7620 at the tactical edge, 4× L4 GPUs, air-gap capable |
-| **1** | AI Infrastructure and Platforms | **Core enabler.** vLLM serving, hardware configuration, observability stack |
-| **3** | Generative AI & Language | **Model layer.** Gemma 4 31B handles all three LLM roles |
-| **2** | AI Safety and Governance | **Foundational.** Snapshot-revert, deterministic eval, Reflector-as-check |
-| 5 | Industry-Specific AI Solutions | The STIG remediation skill as one example |
-| 3 | Computer Vision | Not exercised in this project (Gemma 4's vision capabilities are unused here) |
-| 3 | Predictive, Optimization and Digital Twins | Not in scope |
-
-Five of Dell's eight AI technology categories are directly exercised by
-this project, which is part of why this particular combination of
-techniques is a useful reference exploration for Dell Federal customers.
-
----
-
 ## Further reading
 
 For the architectural contribution that came out of this project — a

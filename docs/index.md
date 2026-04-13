@@ -89,9 +89,11 @@ If you haven't yet tried building your own project with an agentic
 coding system, I hope this gives you some insight into the process
 and encourages you to try. It's one of the most engaging and
 rewarding ways to learn — the velocity is real, the collaboration
-is genuine, and the results will surprise you. I hope what I learned
-helps other presales engineers, SI partners, and technical evaluators
-build similar systems faster on their own hardware.
+is genuine, and the results will surprise you.
+
+I hope what I learned helps other presales engineers, SI partners,
+and technical evaluators build similar systems faster on their own
+hardware.
 
 ---
 

@@ -66,6 +66,49 @@ export interface SkillUI {
   outcomes: OutcomeDef[];
 }
 
+// -- Cross-run learning data (from cross_run_hydration event) --
+
+export interface CategoryStat {
+  category: string;
+  success_rate: number;
+  avg_attempts: number;
+  total_items: number;
+}
+
+export interface CrossRunData {
+  prior_runs: number;
+  loaded_bans: number;
+  loaded_lessons: number;
+  category_stats: CategoryStat[];
+}
+
+// -- Work item detail (assembled from multiple events for FocusPanel) --
+
+export interface WorkItemDetail {
+  id: string;
+  title: string;
+  category: string;
+  state: string;
+  attempts: number;
+  wall_time_s: number;
+  escalation_reason?: string;
+  approaches_tried: string[];
+  reflections: Array<{ text: string; attempt: number; plateaued: boolean }>;
+  reengagements: Array<{ verdict: string; trigger: string; attempt: number }>;
+}
+
+// -- Graph node (from graph_state events) --
+
+export interface GraphNode {
+  id: string;
+  title: string;
+  category: string;
+  state: "queued" | "blocked" | "active" | "completed" | "escalated" | "skipped";
+  attempts: number;
+  wall_time_s: number;
+  escalation_reason?: string | null;
+}
+
 export const DEFAULT_SKILL_UI: SkillUI = {
   title: "Awaiting Mission",
   work_item: "work item",

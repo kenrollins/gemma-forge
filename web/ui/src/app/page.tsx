@@ -1,12 +1,11 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import { GpuState, RunEvent, SkillUI, DEFAULT_SKILL_UI } from "../components/types";
-import Scoreboard from "../components/Scoreboard";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { GpuState, RunEvent, SkillUI, DEFAULT_SKILL_UI, CrossRunData } from "../components/types";
+import HeroStrip from "../components/HeroStrip";
+import TaskMap from "../components/TaskMap";
+import FocusPanel from "../components/FocusPanel";
 import EventLog from "../components/EventLog";
-import Mission from "../components/Mission";
-import MissionHeader from "../components/MissionHeader";
-import TaskGraph from "../components/TaskGraph";
 
 function getApiBase(): string {
   if (typeof window === "undefined") return "http://localhost:8080";
@@ -344,6 +343,17 @@ export default function Dashboard() {
     return () => clearInterval(gpuInterval);
   }, [mode]);
 
+  // -- Derived data for new components --
+
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+  const [eventLogExpanded, setEventLogExpanded] = useState(false);
+
+  const crossRunData: CrossRunData | null = useMemo(() => {
+    const evt = events.find(e => e.event_type === "cross_run_hydration");
+    if (evt && evt.data?.prior_runs) return evt.data as unknown as CrossRunData;
+    return null;
+  }, [events]);
+
   return (
     <div className="flex flex-col h-[calc(100vh-48px)]">
       {/* Mode selector bar */}
@@ -359,32 +369,54 @@ export default function Dashboard() {
         onConnect={connect}
       />
 
-      {/* Compact scoreboard + pipeline on one line */}
-      <Scoreboard events={events} gpus={gpus} connected={connected} elapsed={elapsed} skillUI={skillUI} />
+      {/* Activity ticker — right below mode bar where it's visible */}
+      <ActivityTicker events={events} skillUI={skillUI} connected={connected} />
 
-      {/* Main content area */}
-        <div className="flex-1 flex flex-col overflow-hidden min-h-0">
-          {/* Top: Task Graph — the hero visual */}
-          <div className="flex-1 min-h-[280px] border-b border-[#1C1F26]">
-            <TaskGraph events={events} skillUI={skillUI} />
-          </div>
+      {/* Hero strip — progress bar, metrics, current item */}
+      <HeroStrip events={events} skillUI={skillUI} connected={connected} elapsed={elapsed} />
 
-          {/* Bottom: Mission header + Event log full width */}
-          <div className="h-[240px] shrink-0 flex flex-col overflow-hidden">
-            <MissionHeader events={events} skillUI={skillUI} />
-            <div className="flex-1 overflow-hidden flex flex-col min-h-0">
-              <div className="px-3 py-1 border-b border-[#1C1F26] text-[9px] font-semibold uppercase tracking-wider text-[#4B5563] bg-[#0D0F14]">
-                Events ({events.length})
-              </div>
-              <div className="flex-1 overflow-hidden">
-                <EventLog events={events} />
-              </div>
-            </div>
-          </div>
-
-          {/* Activity ticker — mission control heartbeat */}
-          <ActivityTicker events={events} skillUI={skillUI} connected={connected} />
+      {/* Main content: FocusPanel (hero) + TaskMap (sidebar) */}
+      <div className="flex-1 flex overflow-hidden min-h-0">
+        <FocusPanel
+          events={events}
+          skillUI={skillUI}
+          selectedItemId={selectedItemId}
+          onSelectItem={setSelectedItemId}
+          onClose={() => setSelectedItemId(null)}
+        />
+        <div className="w-[340px] shrink-0 border-l border-[#1C1F26] overflow-hidden">
+          <TaskMap
+            events={events}
+            skillUI={skillUI}
+            selectedItemId={selectedItemId}
+            onSelectItem={setSelectedItemId}
+            crossRunData={crossRunData}
+          />
         </div>
+      </div>
+
+      {/* Event log — collapsible */}
+      <div
+        className={`shrink-0 border-t border-[#1C1F26] flex flex-col overflow-hidden transition-all duration-300 ${
+          eventLogExpanded ? "h-[400px]" : "h-[180px]"
+        }`}
+      >
+        <div
+          className="px-3 py-1 border-b border-[#1C1F26] bg-[#0D0F14] flex items-center gap-2 cursor-pointer select-none"
+          onClick={() => setEventLogExpanded(!eventLogExpanded)}
+        >
+          <span className="text-[9px] font-semibold uppercase tracking-wider text-[#4B5563]">
+            Events ({events.length})
+          </span>
+          <span className="text-[10px] text-[#4B5563] ml-auto">
+            {eventLogExpanded ? "\u25B2" : "\u25BC"}
+          </span>
+        </div>
+        <div className="flex-1 overflow-hidden">
+          <EventLog events={events} />
+        </div>
+      </div>
+
     </div>
   );
 }

@@ -747,7 +747,10 @@ async def run_ralph(
     from gemma_forge.harness.run_logger import RunLogger
     from gemma_forge.harness.memory_store import SQLiteMemoryStore
     run_log = RunLogger()
-    mem_store = SQLiteMemoryStore()
+    # Per-skill memory DB — each skill accumulates its own cross-run knowledge.
+    # Path: memory/{skill_name}.db (e.g., memory/stig-rhel9.db)
+    skill_db_name = (skill_name or "default").replace("/", "-")
+    mem_store = SQLiteMemoryStore(db_path=f"memory/{skill_db_name}.db")
     mem_store.initialize()
     mem_run_id = mem_store.start_run(skill_name or "unknown", harness_cfg)
 

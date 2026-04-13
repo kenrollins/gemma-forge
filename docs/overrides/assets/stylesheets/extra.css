@@ -1,6 +1,17 @@
 /* GemmaForge custom theme overrides
-   Enhances MkDocs Material with visual hierarchy, callout styling,
-   and a technical/mission-control aesthetic. */
+   Dell Blue (#0076CE) primary, with dark-mode mission-control aesthetic. */
+
+/* -- Dell Blue as primary color -- */
+
+:root,
+[data-md-color-scheme="slate"],
+[data-md-color-scheme="default"] {
+  --md-primary-fg-color: #0076CE;
+  --md-primary-fg-color--light: #3399E0;
+  --md-primary-fg-color--dark: #00264A;
+  --md-accent-fg-color: #0076CE;
+  --md-accent-fg-color--transparent: rgba(0, 118, 206, 0.12);
+}
 
 /* -- Slate scheme adjustments (dark mode default) -- */
 
@@ -22,7 +33,7 @@
 }
 
 .md-typeset table:not([class]) thead {
-  background: rgba(34, 211, 238, 0.08);
+  background: rgba(0, 118, 206, 0.08);
 }
 
 .md-typeset table:not([class]) th {
@@ -31,7 +42,7 @@
   letter-spacing: 0.05em;
   font-weight: 600;
   padding: 0.6rem 0.8rem;
-  border-bottom: 2px solid rgba(34, 211, 238, 0.2);
+  border-bottom: 2px solid rgba(0, 118, 206, 0.2);
 }
 
 .md-typeset table:not([class]) td {
@@ -39,22 +50,22 @@
 }
 
 .md-typeset table:not([class]) tr:hover td {
-  background: rgba(34, 211, 238, 0.04);
+  background: rgba(0, 118, 206, 0.04);
 }
 
 /* -- Blockquotes: styled as callout cards -- */
 
 .md-typeset blockquote {
-  border-left: 3px solid #22d3ee;
-  background: rgba(34, 211, 238, 0.06);
+  border-left: 3px solid #0076CE;
+  background: rgba(0, 118, 206, 0.06);
   padding: 0.8rem 1.2rem;
   border-radius: 0 6px 6px 0;
   margin: 1.2rem 0;
 }
 
 [data-md-color-scheme="default"] .md-typeset blockquote {
-  border-left: 3px solid #0891b2;
-  background: rgba(8, 145, 178, 0.06);
+  border-left: 3px solid #0076CE;
+  background: rgba(0, 118, 206, 0.04);
 }
 
 /* -- Code blocks: tighter with accent border -- */
@@ -112,21 +123,21 @@
 }
 
 .md-typeset h3 {
-  color: #22d3ee;
+  color: #3399E0;
 }
 
 [data-md-color-scheme="default"] .md-typeset h3 {
-  color: #0891b2;
+  color: #0076CE;
 }
 
-/* -- Strong emphasis: accent color for key phrases -- */
-
-.md-typeset strong {
-  color: var(--md-accent-fg-color);
-}
+/* -- Strong emphasis: Dell Blue for bold text on dark, darker on light -- */
 
 [data-md-color-scheme="slate"] .md-typeset strong {
-  color: #e2e8f0;
+  color: #5CB3E6;
+}
+
+[data-md-color-scheme="default"] .md-typeset strong {
+  color: #0076CE;
 }
 
 /* -- Navigation tabs: tighter -- */

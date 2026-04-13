@@ -17,74 +17,78 @@ hide:
 ## What this is
 
 When Google released [Gemma 4](https://blog.google/technology/developers/gemma-4/)
-in April 2026 with native function calling and Day-0 vLLM support, we
-wanted to answer a simple question: **can a smaller open-weights model
-at the tactical edge solve real problems autonomously if you give it
-the right harness?**
+in April 2026 with native function calling and Day-0 vLLM support, I
+saw an opportunity to explore a question that had been nagging me:
+**can a smaller open-weights model at the tactical edge solve real
+problems autonomously if you give it the right harness?**
 
 Not by throwing a bigger model at it. Not by calling a cloud API. By
-combining two patterns that hadn't been put together before: **Ralph
-loop persistence** — where the agent doesn't stop when it fails but
-grinds through with retries and external state — with **Reflexion-style
-self-improvement** — where each failure produces a verbal self-critique
-that makes the next attempt smarter. We built that combined harness
-from scratch and ran it on a Dell PowerEdge XR7620 with four NVIDIA L4
-GPUs. No cloud dependency. No internet required. Everything runs local.
+combining two ideas that hadn't been put together before: **Ralph
+loop persistence** — where an agent doesn't quit when it fails but
+keeps grinding, using external state to persist across context
+boundaries — with **Reflexion-style self-improvement**, where each
+failure produces a self-critique that makes the next attempt smarter.
+I wanted to build that combined harness from scratch, understand every
+design decision firsthand, and run it on a Dell PowerEdge XR7620 with
+four NVIDIA L4 GPUs. No cloud dependency. No internet required.
+Everything local.
 
-**Why GemmaForge?** Gemma, obviously, from building this around
-Google's new Gemma 4 model. And Forge because of what it represents:
-a controlled environment where raw material is heated, shaped, and
-refined through repeated cycles until it becomes something useful.
-That's what the harness does with each run. Raw model output goes in;
-the reflexion loop hammers it against a deterministic evaluator;
-failures get reflected on and fed back; and what comes out is a
-refined solution — or an honest explanation of why the problem can't
-be solved yet. Each run leaves the forge smarter than the last.
+**Why "GemmaForge"?** Gemma, obviously, because this is built around
+Google's Gemma 4 model. And Forge because of what the system
+represents — a controlled environment where raw material gets heated,
+shaped, and refined through repeated cycles until it becomes something
+useful. Raw model output goes in; the reflexion loop hammers it
+against a deterministic evaluator; failures get reflected on and fed
+back; and what comes out is a refined solution, or an honest
+explanation of why the problem can't be solved yet. Each run leaves
+the forge smarter than the last.
 
 **Agent harnesses** have become a central topic in AI architecture
-over the past few months — the recognition that the orchestration
-layer around a model matters as much as the model itself. How the
-harness manages memory, handles failures, controls tool use, and
-decides when to persist versus when to escalate: these are the
-engineering decisions that separate a demo from a system. GemmaForge
-is our exploration of those decisions, built from scratch, documented
-as we went.
+recently — the growing recognition that the orchestration layer around
+a model matters as much as the model itself. How the harness manages
+memory, handles failures, controls tool use, decides when to persist
+versus when to escalate: these are the engineering decisions that
+separate a demo from a deployable system. This project is my
+exploration of those decisions, built from scratch and documented
+along the way.
 
-The harness is designed as an **extensible skill system** — a
-skill-agnostic core with abstract interfaces that any use case can
-implement. To deeply explore what this architecture can do, we wanted
-a use case that would stress every part of it: persistence across
-many retries, real side effects on a live system, deterministic
-evaluation with no ambiguity, and the need for safe revert when
-things go wrong. **DISA STIG remediation** on Rocky Linux 9 fit
-perfectly. Hardening a live VM against 270 security rules — where
-each fix can break SSH, sudo, or the mission application — exercises
-the harness in ways that a text-generation task never would. But the
-harness doesn't know it's doing STIG. It processes work items through
-interfaces. Adding a new skill is a folder and five small Python
-classes. STIG is the witness, not the point.
+I designed the harness as an **extensible skill system** with a
+skill-agnostic core and abstract interfaces that any use case can
+implement. To stress-test what the architecture could handle, I
+needed a use case that would push every part of it: persistence
+across many retries, real side effects on a live system, a
+deterministic evaluator with no ambiguity, and the need for safe
+revert when things go wrong. **DISA STIG remediation** on Rocky
+Linux 9 turned out to be a perfect fit — hardening a live VM against
+270 security rules, where any individual fix can break SSH, sudo, or
+the mission application, exercises the harness in ways that a
+text-generation task never would. But the harness itself doesn't know
+it's doing STIG. It processes work items through interfaces, and
+adding a new skill is a folder and five small Python classes.
 
-## Why this exists
+## Why all this documentation?
 
-In addition to sharing the source code, we wanted to record and
-journal the entire process of creating this — the insights, the
-gotchas, the failures, and the eureka moments as we went. Originally
-this was just for our own learning, but there's real value in sharing
-it publicly. If you haven't yet taken a deep look at the latest
-agentic coding tools, or haven't built your own project with one,
-take some time and read through the journal notes. The learnings and
-insights in there may be just as valuable as the final product.
+I built this project using an agentic coding workflow — a process
+that's worth its own discussion (see
+[journey/16](journal/journey/16-agentic-coding-as-a-method.md)).
+Beyond sharing the source code, I wanted to capture the full process:
+the insights, the gotchas, the dead ends, and the moments where
+something finally clicked. Originally the notes were just for my own
+learning, but looking back at them, I think there's real value in
+making them public.
 
-Life before death. Strength before weakness. *Journey before
-destination.* This project is documented the way it was built — one
-step at a time, with honest accounting of what worked and what didn't.
-Every failure mode is written down. Every pivot is explained. Every
-architectural decision has a journal entry showing what was tried,
-what broke, and what we landed on instead.
+If you haven't yet explored the latest agentic coding tools, or
+haven't taken on a project with one, I'd encourage you to read
+through the journal entries. The learnings in there may be as
+valuable as the finished product — maybe more so, because they
+transfer to whatever you're building, not just STIG remediation.
 
-We hope what we learned helps other presales engineers, SI partners,
-and technical evaluators build similar systems faster on their own
-hardware of choice.
+For this effort, I wanted to focus as much on the journey as the
+destination. Every failure mode is documented. Every pivot is
+explained. Every architectural decision has a journal entry showing
+what was tried, what broke, and what I landed on instead. I hope what
+I learned helps other presales engineers, SI partners, and technical
+evaluators build similar systems faster on their own hardware.
 
 ---
 
@@ -117,7 +121,7 @@ hardware of choice.
     ---
 
     22 chronological field notes of how this was built. Honest,
-    specific, and written as we went — failures included. Start at
+    specific, and written as I went — failures included. Start at
     [the origin](journal/journey/00-origin.md) or jump to the
     [overnight run](journal/journey/14-overnight-run-findings.md)
     that changed everything.
@@ -159,58 +163,68 @@ hardware of choice.
 
 ## The 5-Layer Enterprise AI Stack
 
-<div class="grid" markdown>
+<div style="max-width: 900px; margin: 0 auto;">
 
-<div markdown style="background: rgba(239, 68, 68, 0.08); border-left: 4px solid #EF4444; padding: 1rem 1.2rem; border-radius: 0 8px 8px 0; margin-bottom: 0.5rem;">
+<div markdown style="background: linear-gradient(135deg, rgba(239, 68, 68, 0.12), rgba(239, 68, 68, 0.04)); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: 8px 8px 0 0; padding: 1.2rem 1.5rem;">
 
-**Layer 5 — Application**{ style="color: #EF4444" }
+:material-numeric-5-circle:{ style="color: #EF4444; font-size: 1.4em; vertical-align: middle;" }
+**Application**{ style="color: #EF4444; font-size: 1.1em;" }
 
-STIG Remediation skill, GemmaForge Dashboard, this documentation site.
-*Where the user sees value.*
+STIG Remediation skill · GemmaForge Dashboard · This documentation site
 
-</div>
-
-<div markdown style="background: rgba(168, 85, 247, 0.08); border-left: 4px solid #A855F7; padding: 1rem 1.2rem; border-radius: 0 8px 8px 0; margin-bottom: 0.5rem;">
-
-**Layer 4 — Orchestration**{ style="color: #A855F7" }
-
-Ralph Loop Harness, Google ADK, skills system, cross-run SQLite memory,
-adaptive concurrency clutch. *Where agents reason, reflect, and persist.*
+*Where the user sees results. Skills are pluggable — STIG is the first, not the only.*
 
 </div>
 
-<div markdown style="background: rgba(34, 211, 238, 0.08); border-left: 4px solid #22D3EE; padding: 1rem 1.2rem; border-radius: 0 8px 8px 0; margin-bottom: 0.5rem;">
+<div markdown style="background: linear-gradient(135deg, rgba(168, 85, 247, 0.12), rgba(168, 85, 247, 0.04)); border: 1px solid rgba(168, 85, 247, 0.25); border-left: 1px solid rgba(168, 85, 247, 0.25); border-right: 1px solid rgba(168, 85, 247, 0.25); padding: 1.2rem 1.5rem;">
 
-**Layer 3 — Model**{ style="color: #22D3EE" }
+:material-numeric-4-circle:{ style="color: #A855F7; font-size: 1.4em; vertical-align: middle;" }
+**Orchestration**{ style="color: #A855F7; font-size: 1.1em;" }
 
-Gemma 4 31B bf16 full precision, vLLM 0.19.0, Tensor Parallel = 4.
-*Where inference happens — 14 tok/s on 4x L4 with no NVLink.*
+Ralph Loop Harness · Google ADK · Skills System · Cross-run SQLite Memory · Adaptive Concurrency Clutch
 
-</div>
-
-<div markdown style="background: rgba(16, 185, 129, 0.08); border-left: 4px solid #10B981; padding: 1rem 1.2rem; border-radius: 0 8px 8px 0; margin-bottom: 0.5rem;">
-
-**Layer 2 — Platform / MLOps**{ style="color: #10B981" }
-
-OpenTelemetry + Jaeger + Prometheus + Grafana, structured JSONL run
-logger. *Where you observe and measure.*
+*Where agents reason, reflect, and persist. The harness makes all structural decisions; the model makes all reasoning decisions.*
 
 </div>
 
-<div markdown style="background: rgba(245, 158, 11, 0.08); border-left: 4px solid #F59E0B; padding: 1rem 1.2rem; border-radius: 0 8px 8px 0; margin-bottom: 0.5rem;">
+<div markdown style="background: linear-gradient(135deg, rgba(0, 118, 206, 0.12), rgba(0, 118, 206, 0.04)); border: 1px solid rgba(0, 118, 206, 0.25); padding: 1.2rem 1.5rem;">
 
-**Layer 1 — Infrastructure**{ style="color: #F59E0B" }
+:material-numeric-3-circle:{ style="color: #0076CE; font-size: 1.4em; vertical-align: middle;" }
+**Model**{ style="color: #0076CE; font-size: 1.1em;" }
 
-Dell PowerEdge XR7620, 4x NVIDIA L4 24 GB, libvirt + virsh snapshots,
-Rocky Linux 9 target VM. *The edge hardware that makes it sovereign.*
+Gemma 4 31B Dense bf16 · vLLM 0.19.0 · Tensor Parallel = 4
+
+*Where inference happens. Full precision, all four GPUs, ~14 tok/s sustained with no NVLink.*
+
+</div>
+
+<div markdown style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(16, 185, 129, 0.04)); border: 1px solid rgba(16, 185, 129, 0.25); padding: 1.2rem 1.5rem;">
+
+:material-numeric-2-circle:{ style="color: #10B981; font-size: 1.4em; vertical-align: middle;" }
+**Platform / MLOps**{ style="color: #10B981; font-size: 1.1em;" }
+
+OpenTelemetry · Jaeger · Prometheus · Grafana · Structured JSONL Run Logger
+
+*Where you observe and measure. Federal-credible standards, no vendor lock-in.*
+
+</div>
+
+<div markdown style="background: linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(245, 158, 11, 0.04)); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 0 0 8px 8px; padding: 1.2rem 1.5rem;">
+
+:material-numeric-1-circle:{ style="color: #F59E0B; font-size: 1.4em; vertical-align: middle;" }
+**Infrastructure**{ style="color: #F59E0B; font-size: 1.1em;" }
+
+Dell PowerEdge XR7620 · 4x NVIDIA L4 24 GB · libvirt + virsh snapshots · Rocky Linux 9
+
+*The foundation. A rugged 2U edge server — no cloud, no NVLink, air-gappable.*
 
 </div>
 
 </div>
 
-See the [architecture overview](journal/architecture/00-system-architecture.md)
-for the full picture — including industry alternatives at each layer
-so you can map this to your own environment.
+<p style="text-align: center; margin-top: 1rem;">
+<a href="journal/architecture/00-system-architecture/">View the full architecture with industry alternatives at each layer →</a>
+</p>
 
 ---
 

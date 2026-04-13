@@ -72,6 +72,9 @@ is meant to be readable on its own.
 - [**21. The Task Graph**](21-task-graph-and-react-flow.md) — from flat queue to live DAG: dependency awareness, conflict detection, and a React Flow visualization.
 - [**22. Context Graphs and the Memory Question**](22-context-graphs-and-the-memory-question.md) — the research spiral from decision provenance to NIST requirements to "do we even need a database?" — and how the clutch mechanism answered the question.
 
+### Phase 9 — The first complete run and cross-run learning
+- [**23. The First Complete Run**](23-first-complete-run.md) — 270 rules, 13.5 hours, 85 remediated, 157 escalated — and the discovery that the cross-run memory system was storing everything but teaching nothing.
+
 ## Related
 
 - [Architecture overview](../architecture/00-system-architecture.md) — the same content organized by layer instead of by time.

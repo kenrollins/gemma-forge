@@ -242,8 +242,13 @@ class SemanticMemory:
             for p in self.preferred_approaches[-5:]:
                 lines.append(f"  ✓ {p}")
         if self.lessons:
-            lines.append("STRATEGIC LESSONS:")
-            for l in self.lessons[-3:]:
+            lines.append("STRATEGIC LESSONS (from prior runs and this run):")
+            # Show up to 8 lessons. Prior-run lessons (tagged [prior run]) sort
+            # first since they carry cross-run weight; within-run lessons follow.
+            prior = [l for l in self.lessons if l.startswith("[prior run]")]
+            current = [l for l in self.lessons if not l.startswith("[prior run]")]
+            display = (prior + current)[-8:]
+            for l in display:
                 lines.append(f"  • {l}")
         return "\n".join(lines) if lines else ""
 
@@ -818,12 +823,31 @@ async def run_ralph(
         if prior_bans:
             logger.info("  Loaded %d banned patterns from prior runs", len(prior_bans))
 
-        # Load top strategic lessons across all categories
-        prior_lessons = mem_store.load_all_lessons(min_weight=0.3, limit=20)
+        # Load top strategic lessons — category-diverse, weight-ranked.
+        # First load top global lessons, then ensure each category is represented.
+        prior_lessons = mem_store.load_all_lessons(min_weight=0.2, limit=40)
+        seen_texts: set = set()
+        deduped: list = []
         for pl in prior_lessons:
+            # Deduplicate near-identical lessons (same first 80 chars)
+            key = pl.lesson[:80].lower()
+            if key not in seen_texts:
+                seen_texts.add(key)
+                deduped.append(pl)
+        # Ensure category diversity: at most 3 lessons per category in the global set
+        cat_counts: dict = {}
+        diverse: list = []
+        for pl in deduped:
+            cat_counts.setdefault(pl.category, 0)
+            if cat_counts[pl.category] < 3:
+                diverse.append(pl)
+                cat_counts[pl.category] += 1
+        # Cap the global set at 30
+        for pl in diverse[:30]:
             state.semantic.lessons.append(f"[prior run] {pl.lesson}")
-        if prior_lessons:
-            logger.info("  Loaded %d strategic lessons (weight >= 0.3)", len(prior_lessons))
+        if diverse:
+            logger.info("  Loaded %d strategic lessons (%d raw, %d after dedup, weight >= 0.2)",
+                        len(diverse[:30]), len(prior_lessons), len(deduped))
 
         # Log the category difficulty model for the clutch
         cat_stats = mem_store.get_category_stats()
@@ -1006,13 +1030,35 @@ async def run_ralph(
             if episodic.attempts:
                 work_sections.append((3, "episodic_memory", episodic.summary(max_attempts=5)))
 
+            # 3.5: Cross-run item history — what happened to THIS rule in prior runs
+            if attempt == 1:  # only on first attempt to avoid prompt bloat
+                prior_attempts = mem_store.query_prior_attempts(selected["rule_id"], limit=5)
+                if prior_attempts:
+                    pa_lines = [f"CROSS-RUN HISTORY for this rule ({len(prior_attempts)} prior attempts):"]
+                    for pa in prior_attempts:
+                        status = "PASSED" if pa.eval_passed else "FAILED"
+                        pa_lines.append(f"  [{status}] {pa.approach[:120]}")
+                        if pa.lesson:
+                            pa_lines.append(f"    Lesson: {pa.lesson[:150]}")
+                        if pa.failure_mode:
+                            pa_lines.append(f"    Failure: {pa.failure_mode[:100]}")
+                    work_sections.append((3, "cross_run_item_history", "\n".join(pa_lines)))
+
             # 4: Semantic memory (bans, preferred approaches, lessons) — already capped
             sem = state.semantic.summary()
             if sem:
                 work_sections.append((4, "semantic_memory", sem))
 
-            # 5: Final directive
-            work_sections.append((5, "directive", "Call apply_fix EXACTLY ONCE now, then return a brief text summary."))
+            # 4.5: Category-specific lessons from prior runs
+            cat_lessons = mem_store.load_lessons(rule_category, min_weight=0.2, limit=5)
+            if cat_lessons:
+                cl_lines = [f"LESSONS FROM PRIOR RUNS for [{rule_category}] rules:"]
+                for cl in cat_lessons:
+                    cl_lines.append(f"  • {cl.lesson[:150]}")
+                work_sections.append((5, "category_lessons", "\n".join(cl_lines)))
+
+            # 6: Final directive
+            work_sections.append((6, "directive", "Call apply_fix EXACTLY ONCE now, then return a brief text summary."))
 
             work_context, work_meta = assemble_prompt(work_sections, budget_tokens=WORKER_USER_BUDGET)
             run_log.log("prompt_assembled", "worker", {
@@ -1128,6 +1174,11 @@ async def run_ralph(
                     if lesson_text:
                         mem_store.save_lesson(rule_category, lesson_text,
                                               mem_run_id, selected["rule_id"])
+
+                # Reinforce cross-run lessons: boost lessons from this category
+                # that the agent had available when it succeeded.
+                for sl in mem_store.load_lessons(rule_category, min_weight=0.0, limit=50):
+                    mem_store.update_lesson_weight(sl.id, success=True)
 
                 break
 
@@ -1459,6 +1510,11 @@ async def run_ralph(
                 mem_run_id, selected["rule_id"], selected["title"],
                 rule_category, "escalated", attempt - 1,
                 round(rule_wall_time, 1))
+
+            # Reinforce cross-run lessons: decay lessons from this category
+            # that were available but didn't prevent escalation.
+            for sl in mem_store.load_lessons(rule_category, min_weight=0.0, limit=50):
+                mem_store.update_lesson_weight(sl.id, success=False)
 
         # Persist attempt traces to cross-run memory (all attempts, success or failure)
         for i, att in enumerate(episodic.attempts):

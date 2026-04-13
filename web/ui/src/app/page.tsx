@@ -202,7 +202,7 @@ export default function Dashboard() {
   const [events, setEvents] = useState<RunEvent[]>([]);
   const [connected, setConnected] = useState(false);
   const [elapsed, setElapsed] = useState(0);
-  const [mode, setMode] = useState<"live" | "replay">("replay");
+  const [mode, setMode] = useState<"live" | "replay">("live");
   const [runs, setRuns] = useState<RunInfo[]>([]);
   const [selectedRun, setSelectedRun] = useState("");
   const [replaySpeed, setReplaySpeed] = useState(20);
@@ -395,16 +395,10 @@ export default function Dashboard() {
             </button>
           </div>
 
-          {/* Bottom: Mission activity + Event log side by side */}
-          <div className="h-[260px] shrink-0 flex overflow-hidden">
-            {/* Left: Mission (current action + reflection) */}
-            <div className="flex-1 border-r border-[#1C1F26] overflow-hidden">
-              <MissionHeader events={events} skillUI={skillUI} />
-              <Mission events={events} skillUI={skillUI} />
-            </div>
-
-            {/* Right: Event log (compact) */}
-            <div className="w-[480px] shrink-0 flex flex-col overflow-hidden">
+          {/* Bottom: Mission header + Event log full width */}
+          <div className="h-[240px] shrink-0 flex flex-col overflow-hidden">
+            <MissionHeader events={events} skillUI={skillUI} />
+            <div className="flex-1 overflow-hidden flex flex-col min-h-0">
               <div className="px-3 py-1 border-b border-[#1C1F26] text-[9px] font-semibold uppercase tracking-wider text-[#4B5563] bg-[#0D0F14]">
                 Events ({events.length})
               </div>

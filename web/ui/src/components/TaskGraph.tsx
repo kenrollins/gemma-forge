@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { RunEvent, SkillUI } from "./types";
 
 // -- Types ------------------------------------------------------------------
@@ -51,8 +51,6 @@ export default function TaskGraph({
   events: RunEvent[];
   skillUI: SkillUI;
 }) {
-  const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null);
-
   const graphState: GraphSnapshot | null = useMemo(() => {
     for (let i = events.length - 1; i >= 0; i--) {
       if (events[i].event_type === "graph_state" && events[i].data?.nodes) {
@@ -87,7 +85,9 @@ export default function TaskGraph({
 
   const counts = graphState.counts;
   const total = graphState.nodes.length;
-  const completedPct = total > 0 ? Math.round((counts.completed / total) * 100) : 0;
+  // "Processed" = remediated + escalated + skipped (all done, won't be retried)
+  const processed = (counts.completed || 0) + (counts.escalated || 0) + (counts.skipped || 0);
+  const processedPct = total > 0 ? Math.round((processed / total) * 100) : 0;
 
   const stripId = (id: string) => {
     if (skillUI.id_prefix_strip && id.startsWith(skillUI.id_prefix_strip))
@@ -101,14 +101,21 @@ export default function TaskGraph({
       <div className="px-4 py-2.5 border-b border-[#2A2F3A] bg-[#12151A]">
         <div className="flex items-center gap-4 mb-2">
           {/* Hero completion metric */}
-          <div className="flex items-baseline gap-1">
-            <span className="text-2xl font-light tabular-nums tracking-tight text-[#E2E8F0]">
-              {counts.completed}
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-2xl font-light tabular-nums tracking-tight text-[#10B981]">
+              {counts.completed || 0}
             </span>
-            <span className="text-[10px] text-[#4B5563]">/{total}</span>
+            <span className="text-[10px] text-[#4B5563]">remediated</span>
+            <span className="text-xl font-light tabular-nums tracking-tight text-[#F59E0B] ml-1">
+              {counts.escalated || 0}
+            </span>
+            <span className="text-[10px] text-[#4B5563]">escalated</span>
+            <span className="text-[10px] text-[#4B5563] ml-1">
+              of {total}
+            </span>
           </div>
           <span className="text-[10px] uppercase tracking-[0.15em] text-[#8B95A5]">
-            {completedPct}% complete
+            {processedPct}% processed
           </span>
 
           {/* State legend */}
@@ -129,10 +136,10 @@ export default function TaskGraph({
           </div>
         </div>
 
-        {/* Segmented progress bar */}
-        <div className="h-1.5 rounded-full bg-[#1F2937] overflow-hidden flex">
-          {["completed", "active", "escalated", "skipped", "blocked", "queued"].map(state => {
-            const pct = total > 0 ? (counts[state] / total) * 100 : 0;
+        {/* Segmented progress bar — remediated | escalated | active | remaining */}
+        <div className="h-2 rounded-full bg-[#1F2937] overflow-hidden flex">
+          {["completed", "escalated", "skipped", "active", "blocked", "queued"].map(state => {
+            const pct = total > 0 ? ((counts[state] || 0) / total) * 100 : 0;
             if (pct === 0) return null;
             return (
               <div
@@ -147,10 +154,9 @@ export default function TaskGraph({
         </div>
       </div>
 
-      {/* Heatmap grid + hover detail */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Grid area */}
-        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+      {/* Heatmap grid — full width */}
+      <div className="flex-1 overflow-hidden">
+        <div className="h-full overflow-y-auto px-4 py-3 space-y-3">
           {categories.map(([category, nodes]) => {
             const done = nodes.filter(n => n.state === "completed").length;
             const esc = nodes.filter(n => n.state === "escalated").length;
@@ -194,67 +200,12 @@ export default function TaskGraph({
                           ? `0 0 3px ${STATE_COLOR.completed}30`
                           : "none",
                       }}
-                      onMouseEnter={() => setHoveredNode(node)}
-                      onMouseLeave={() => setHoveredNode(null)}
                     />
                   ))}
                 </div>
               </div>
             );
           })}
-        </div>
-
-        {/* Hover detail panel (right side) */}
-        <div className="w-52 shrink-0 border-l border-[#2A2F3A] bg-[#12151A] p-3 overflow-y-auto">
-          {hoveredNode ? (
-            <div className="space-y-2">
-              <div
-                className="w-full h-1 rounded-full"
-                style={{ backgroundColor: STATE_COLOR[hoveredNode.state] }}
-              />
-              <div className="text-[10px] font-mono font-bold text-[#E2E8F0] break-all">
-                {stripId(hoveredNode.id)}
-              </div>
-              <div className="text-[9px] text-[#8B95A5] leading-snug">
-                {hoveredNode.title}
-              </div>
-              <div className="flex items-center gap-1.5 mt-1">
-                <span
-                  className="text-[8px] font-mono px-1.5 py-0.5 rounded"
-                  style={{
-                    backgroundColor: STATE_COLOR[hoveredNode.state] + "22",
-                    color: STATE_COLOR[hoveredNode.state],
-                  }}
-                >
-                  {hoveredNode.state.toUpperCase()}
-                </span>
-                <span className="text-[9px] font-mono text-[#4B5563]">
-                  {hoveredNode.category}
-                </span>
-              </div>
-              {hoveredNode.attempts > 0 && (
-                <div className="flex justify-between text-[9px]">
-                  <span className="text-[#4B5563]">Attempts</span>
-                  <span className="font-mono text-[#E2E8F0]">{hoveredNode.attempts}</span>
-                </div>
-              )}
-              {hoveredNode.wall_time_s > 0 && (
-                <div className="flex justify-between text-[9px]">
-                  <span className="text-[#4B5563]">Time</span>
-                  <span className="font-mono text-[#E2E8F0]">{Math.round(hoveredNode.wall_time_s)}s</span>
-                </div>
-              )}
-              {hoveredNode.escalation_reason && (
-                <div className="text-[9px] text-[#F59E0B] mt-1">
-                  {hoveredNode.escalation_reason}
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="text-[10px] text-[#4B5563] italic">
-              Hover a cell for details
-            </div>
-          )}
         </div>
       </div>
     </div>

@@ -98,7 +98,6 @@ validation:
 nav:
   - Home: index.md
   - Architecture Brief: brief.md
-  - About: about.md
   - Architecture:
       - Overview: journal/architecture/00-system-architecture.md
       - Failure Modes in Reflexive Agent Harnesses: journal/architecture/01-reflexive-agent-harness-failure-modes.md
@@ -172,6 +171,7 @@ nav:
           - 0014 - Triton + vLLM Director as Shared Host Service: adr/0014-triton-vllm-director-shared-host-service.md
           - 0015 - Gemma 4 Model Lineup: adr/0015-gemma-4-model-lineup.md
           - Template: adr/template.md
+  - About: about.md
 
 extra_css:
   - overrides/assets/stylesheets/extra.css

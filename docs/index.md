@@ -69,10 +69,9 @@ adding a new skill is a folder and five small Python classes.
 
 ## Why all this documentation?
 
-I built this project using an agentic coding workflow — a process
-that's worth its own discussion (see
-[journey/16](journal/journey/16-agentic-coding-as-a-method.md)).
-Beyond sharing the source code, I wanted to capture the full process:
+I built this project using an agentic coding workflow — a human
+and an AI coding partner building together at speed. Beyond sharing
+the source code, I wanted to capture the full process:
 the insights, the gotchas, the dead ends, and the moments where
 something finally clicked. Originally the notes were just for my own
 learning, but looking back at them, I think there's real value in

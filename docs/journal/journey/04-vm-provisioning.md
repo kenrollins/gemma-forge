@@ -24,7 +24,7 @@ caused by missing ACPI/APIC features and AppArmor denials.
 OpenTofu with the `dmacvicar/libvirt` provider for VM provisioning.
 Chosen over Terraform (HashiCorp BSL license concern), Vagrant (same
 BSL issue, reads as a dev tool), and virt-install (no declarative IaC
-story for Federal evaluators).
+story for anyone reviewing the architecture).
 
 Target: Rocky Linux 9 GenericCloud image with cloud-init, running
 Nginx + Postgres as a "mission app" the Ralph loop must keep alive.

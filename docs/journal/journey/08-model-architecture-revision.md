@@ -98,4 +98,4 @@ Ken liked "available" better than forcing a role. The demo story:
 available for additional skills. This XR7620 isn't maxed out — it
 has room for the next mission."
 
-Federal evaluators like seeing headroom more than seeing 100% utilized.
+Having headroom to grow is more important than seeing a config 100% utilized.

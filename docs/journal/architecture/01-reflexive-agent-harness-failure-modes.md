@@ -16,7 +16,7 @@ one_line: "A project-agnostic taxonomy of six failure modes in reflexive agent h
 
 # Failure Modes in Reflexive Agent Harnesses
 
-**Status:** Working draft, evidence still being collected
+**Status:** Six failure modes demonstrated empirically across multiple overnight runs. Two additional suspected modes identified — one now confirmed (memory tier collapse), one mitigated by design (inter-agent context drift).
 **Audience:** People building agentic systems with a reflection / retry loop
 **Note:** This document is intentionally project-agnostic. It emerged from
 empirical work on a specific system (a STIG remediation harness on edge
@@ -390,12 +390,18 @@ on this and other skills. Two failure modes we suspect but have not yet
 empirically demonstrated:
 
 - **Memory tier collapse**: episodic and semantic memory grow unboundedly
-  and collide. We have a rough fix for this (distillation + token budget)
-  but not a deep treatment.
+  and crowd out actionable knowledge. *Update: we observed this empirically
+  in Run 1 — 644 lessons stored but only 3 surfaced in prompts, with no
+  weight differentiation. The fix (lesson reinforcement, category-specific
+  retrieval, dedup at hydration) is documented in
+  [journey/23](../journey/23-first-complete-run.md).*
 - **Inter-agent context drift**: agents in a multi-agent system gradually
-  lose alignment because they each see different slices of state. The
-  fix is probably "shared structured state with explicit views," but we
-  haven't built or tested it yet.
+  lose alignment because they each see different slices of state. Our
+  current architecture mitigates this with fresh sessions per turn —
+  each agent sees only what the harness explicitly assembles into its
+  prompt, not accumulated conversation history. This prevents drift but
+  at the cost of the harness bearing full responsibility for context
+  assembly.
 
 **It also isn't**: a paper. There's enough here for a paper, but a paper
 needs comparison against alternative architectures, statistical claims

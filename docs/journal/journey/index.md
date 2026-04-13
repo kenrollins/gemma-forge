@@ -43,9 +43,8 @@ is meant to be readable on its own.
 
 ### Phase 4 — Iterating on the architecture
 - [**08. Model Architecture Revision**](08-model-architecture-revision.md) — moving away from hardware-first role assignment to judgment-based roles.
-- [**08.5. The Nemotron Experiment**](08.5-the-nemotron-experiment.md) — cross-model Auditor role, why it worked technically, and why we walked it back.
-- [**09. TP vs PP**](09-tp-vs-pp.md) — why the parallelism strategy is determined by model architecture, not operator choice.
-- [**10. Parallelism Deep Dive**](10-parallelism-deep-dive.md) — the bandwidth math for no-NVLink L4s.
+- [**09. The Nemotron Experiment**](09-the-nemotron-experiment.md) — cross-model Auditor role, why it worked technically, and why we walked it back.
+- [**10. The Parallelism Maze**](10-the-parallelism-maze.md) — every path we tried was blocked by a different constraint until only one option remained.
 
 ### Phase 5 — Observability
 - [**03. Observability**](03-observability.md) — the OpenTelemetry stack, the dual-purpose decision.
@@ -62,7 +61,7 @@ is meant to be readable on its own.
 - [**14. The Overnight Run**](14-overnight-run-findings.md) — 10 hours, 2 rules remediated, 26 escalated, four architectural flaws discovered.
 - [**15. The Test as Architecture Discovery**](15-the-test-as-architecture-discovery.md) — the discipline reframe that turned verification tests into property tests.
 - [**15.5. The Test Pass in Practice**](15.5-test-pass-in-practice.md) — 99 tests across 7 tiers, the real bugs caught, the honest gaps.
-- [**16. Agentic Coding as a Method**](16-agentic-coding-as-a-method.md) — how this project got built at this velocity, without mystification.
+- [**16. Capturing Lightning**](16-agentic-coding-as-a-method.md) — why the journal became the memory, and what happens when you don't stop to write it down.
 - [**17. The v3 Fix Pass**](17-v3-fix-pass.md) — the narrative of the five architectural changes, in the order we made them.
 
 ### Phase 8 — The second overnight run and v4

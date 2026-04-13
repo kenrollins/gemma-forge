@@ -5,8 +5,8 @@ title: "Journey: Full Precision bf16 on All 4 L4s — No Quantization, No Compro
 date: 2026-04-10
 tags: [L3-model, parallelism, quantization, discovery]
 related:
-  - journey/09-tp-vs-pp
-  - journey/10-parallelism-deep-dive
+  - journey/10-the-parallelism-maze
+  - journey/10-the-parallelism-maze
   - journey/02-model-strategy
 one_line: "bf16 TP=4 on 4× L4 matched NVFP4 TP=2 throughput at full precision — an unexpected finding that reshaped the demo configuration and surfaced when PCIe aggregate bandwidth beats NVLink intuition."
 ---

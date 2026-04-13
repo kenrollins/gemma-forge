@@ -37,9 +37,9 @@ The model itself worked. The engine that runs it worked. But the
 ecosystem around it — the model-config library, the serving
 orchestrator, the container images — lagged by days to weeks.
 
-## Why this matters for Federal customers
+## Why this matters for edge deployments
 
-Federal sovereign edge deployments must plan for this gap because:
+Air-gapped and sovereign edge deployments must plan for this gap because:
 
 1. **They can't just `pip install` from PyPI on a classified network.**
    Every dependency must be pre-staged and validated. If the validated

@@ -16,6 +16,13 @@ one_line: "GemmaForge mapped onto the 5-Layer Enterprise AI Partner Map, with co
 
 # System Architecture
 
+This architecture was not designed top-down. It emerged from building
+the system, running it, watching it fail, and fixing what broke. The
+layer map below reflects where we ended up after 23 journal entries
+of iteration — not where we planned to be on day one. Every component
+choice has a story behind it, and most of those stories involve
+trying something else first.
+
 An overview of GemmaForge as a system, mapped onto the 5-Layer Enterprise AI
 Partner Map. Each layer block shows (1) industry examples — both
 open-source and enterprise-grade — so readers can see what alternatives
@@ -173,8 +180,7 @@ engines that run them.*
 
 **Patterns at this layer**
 - **parallelism** — TP/PP choice, NVLink vs PCIe, multi-GPU bandwidth.
-  See [`journey/09-tp-vs-pp`](../journey/09-tp-vs-pp.md) and
-  [`journey/10-parallelism-deep-dive`](../journey/10-parallelism-deep-dive.md).
+  See [`journey/10-the-parallelism-maze`](../journey/10-the-parallelism-maze.md).
 - **quantization** — NVFP4 vs bf16 tradeoffs, the VRAM math, when
   quantization helps versus hurts throughput. See
   [`journey/02-model-strategy`](../journey/02-model-strategy.md) and

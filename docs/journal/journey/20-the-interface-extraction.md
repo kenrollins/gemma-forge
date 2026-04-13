@@ -44,11 +44,12 @@ eval_result = await evaluate_fix(
 `stig_check_rule` (OpenSCAP on the VM), then `read_recent_journal`
 (journald on the VM). Every one of those is STIG-on-a-VM-specific.
 
-Now imagine writing a skill that generates a whitepaper. There's no
-VM. There's no OpenSCAP. There's no journal. But you still need to
-evaluate whether a section is good enough. You'd have to... fork
-ralph.py? Rewrite the evaluation? Copy-paste the loop and gut the
-middle?
+Now imagine writing a skill for automated test repair — fixing
+failing tests in a CI pipeline. There's no VM. There's no OpenSCAP.
+The evaluator just runs the test suite and checks for green. But
+the revert is a `git checkout`, not a VM snapshot. You'd have
+to... fork ralph.py? Rewrite the evaluation? Copy-paste the loop
+and gut the middle?
 
 That's the moment we knew we had a problem. The harness wasn't a
 harness — it was a STIG remediation script that happened to have

@@ -139,10 +139,10 @@ properly implementing the right architecture for the ralph loop
 construct we are trying to prove out?"
 
 That's the kind of question that gets lost in the momentum of
-building. It's also the kind of question that a whitepaper reviewer
-or a Federal evaluator would ask in the first five minutes. Better
-to catch it now — and document that we caught it — than to ship a
-three-agent system and call it reflexion.
+building. It's also the kind of question that anyone reviewing this
+architecture would ask in the first five minutes. Better to catch
+it now — and document that we caught it — than to ship a three-agent
+system and call it reflexion.
 
 ## Key artifacts
 

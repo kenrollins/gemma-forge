@@ -145,9 +145,9 @@ other problems" — is exactly right. The snapshot-based revert also buys us:
    analysis but no longer load-bearing for correctness.
 5. **Forensic-quality post-mortems.** The `post_mortem` event is a rich,
    structured record of exactly what broke. Future iterations of the
-   dashboard can surface these as "failure cards" — the Federal audience
-   will love seeing "here's the failure, here's exactly what broke, here's
-   the rollback proof" instead of "rule X failed, we tried again."
+   dashboard can surface these as "failure cards" — showing "here's the
+   failure, here's exactly what broke, here's the rollback proof" instead
+   of "rule X failed, we tried again."
 6. **Decouples Reflector quality from Worker quality.** The Reflector can
    reason about real environment facts (from `post_mortem`) rather than
    the Worker's self-reported output. This is a more robust learning loop.

@@ -1,12 +1,12 @@
 ---
-id: journey-08.5-nemotron-experiment
+id: journey-09-nemotron-experiment
 type: journey
 title: "The Nemotron Experiment: Cross-Model Architecture, and Why We Walked It Back"
 date: 2026-04-10
 tags: [L3-model, L4-orchestration, parallelism, refactor]
 related:
   - journey/08-model-architecture-revision
-  - journey/09-tp-vs-pp
+  - journey/10-the-parallelism-maze
   - gotchas/nemotron-tool-parser
   - gotchas/nemotron-tp-tiling-error
 one_line: "We spent most of a day wiring up a cross-model architecture where Nemotron 30B MoE served as the Auditor role alongside Gemma 4, discovered it worked technically but fought the design, and walked it back to all-Gemma."
@@ -54,7 +54,7 @@ The integration itself was fine. Specifically:
   each layer. Because Nemotron is MoE (mixture-of-experts), PP is
   the right parallelism choice — each GPU only holds half the
   experts, which freed up ~120× more KV cache headroom than TP=2
-  would have. See [`journey/09-tp-vs-pp`](09-tp-vs-pp.md) for the
+  would have. See [`journey/10-the-parallelism-maze`](10-the-parallelism-maze.md) for the
   parallelism reasoning.
 - **Tool calling through vLLM.** Nemotron's native tool-call
   format is different from Gemma's. vLLM requires the right
@@ -198,7 +198,7 @@ What we *did* remove:
 
 - [`journey/08-model-architecture-revision`](08-model-architecture-revision.md)
   — the broader revision that included this walk-back
-- [`journey/09-tp-vs-pp`](09-tp-vs-pp.md) — the parallelism
+- [`journey/10-the-parallelism-maze`](10-the-parallelism-maze.md) — the parallelism
   reasoning that was relevant for Nemotron's PP choice
 - [`gotchas/nemotron-tool-parser`](../gotchas/nemotron-tool-parser.md)
   — the atomic lesson about the required vLLM flags

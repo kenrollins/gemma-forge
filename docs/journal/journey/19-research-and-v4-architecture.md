@@ -131,9 +131,9 @@ analysis revealed something more important: **our harness is too
 tightly coupled to the STIG skill.**
 
 The evaluator calls OpenSCAP directly. The revert calls `virsh
-snapshot-revert` directly. If you wanted to write a whitepaper skill
-or a code-refactoring skill, you'd be fighting the harness, not using
-it.
+snapshot-revert` directly. If you wanted to write a configuration
+drift skill or a data pipeline validation skill, you'd be fighting
+the harness, not using it.
 
 ### The interface insight
 

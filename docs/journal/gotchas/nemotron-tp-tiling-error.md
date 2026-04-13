@@ -5,7 +5,7 @@ title: "Gotcha: Nemotron NVFP4 fails with tensor parallelism (Marlin kernel tili
 date: 2026-04-10
 tags: [L3-model, parallelism, discovery]
 related:
-  - journey/09-tp-vs-pp
+  - journey/10-the-parallelism-maze
   - journey/08-model-architecture-revision
 one_line: "Nemotron TP=2 fails with Marlin kernel tiling error (5152 not divisible by 64). PP=2 works around it — the dimension that kills TP is fine when the layers are stacked across GPUs."
 ---

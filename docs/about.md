@@ -77,13 +77,10 @@ GemmaForge was built in an agentic coding workflow — a human operator
 paired with an AI coding assistant, with the human making every
 architectural and strategic decision and the AI contributing
 implementation velocity, test coverage, and documentation drafting.
-The workflow itself is part of the story and has its own journey
-entry at
-[journey/16 — Agentic Coding as a Method](journal/journey/16-agentic-coding-as-a-method.md).
-
-The workflow is described in vendor-neutral terms because the point
-is the pattern, not any specific tool. Any reader with access to a
-comparable agentic coding environment can adopt the same rhythm.
+One of the unexpected insights from this process was that the
+journal — written in real time as discoveries happened — became
+more valuable than we expected. That realization has its own entry
+at [journey/16 — Capturing Lightning](journal/journey/16-agentic-coding-as-a-method.md).
 
 ## License
 

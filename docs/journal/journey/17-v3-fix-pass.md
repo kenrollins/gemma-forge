@@ -54,8 +54,8 @@ prompt overflowed.
 **Why the harness cap matters even with the prompt**: the prompt
 alone is a 90%-effective fix. The harness cap is defense in depth —
 it guarantees the invariant holds even if the LLM decides to ignore
-the prompt. For a Federal audience this matters: "we told the model
-not to" is not a safety argument.
+the prompt. In any production context, "we told the model not to"
+is not a safety argument.
 
 **Verified with**: a live LLM smoke test. A Worker agent given a
 loose prompt ("if it fails, try something different") tried to

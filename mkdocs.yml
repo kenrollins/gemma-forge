@@ -116,9 +116,8 @@ nav:
       - 07 - Skills System: journal/journey/07-skills-system.md
       - 07.5 - Virsh Console Fallback: journal/journey/07.5-virsh-console-fallback.md
       - 08 - Model Architecture Revision: journal/journey/08-model-architecture-revision.md
-      - 08.5 - The Nemotron Experiment: journal/journey/08.5-the-nemotron-experiment.md
-      - 09 - TP vs PP: journal/journey/09-tp-vs-pp.md
-      - 10 - Parallelism Deep Dive: journal/journey/10-parallelism-deep-dive.md
+      - 09 - The Nemotron Experiment: journal/journey/09-the-nemotron-experiment.md
+      - 10 - The Parallelism Maze: journal/journey/10-the-parallelism-maze.md
       - 11 - The Missing Reflector: journal/journey/11-the-missing-reflector.md
       - 12 - bf16 TP=4 Full Precision: journal/journey/12-bf16-tp4-full-precision.md
       - 12.5 - Structured Run Logger: journal/journey/12.5-structured-run-logger.md
@@ -126,7 +125,7 @@ nav:
       - 14 - Overnight Run Findings: journal/journey/14-overnight-run-findings.md
       - 15 - Test as Architecture Discovery: journal/journey/15-the-test-as-architecture-discovery.md
       - 15.5 - Test Pass in Practice: journal/journey/15.5-test-pass-in-practice.md
-      - 16 - Agentic Coding as Method: journal/journey/16-agentic-coding-as-a-method.md
+      - 16 - Capturing Lightning: journal/journey/16-agentic-coding-as-a-method.md
       - 17 - The v3 Fix Pass: journal/journey/17-v3-fix-pass.md
       - 18 - Second Overnight Run: journal/journey/18-second-overnight-run.md
       - 19 - Research and v4 Architecture: journal/journey/19-research-and-v4-architecture.md

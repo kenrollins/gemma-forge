@@ -7,7 +7,6 @@ import EventLog from "../components/EventLog";
 import Mission from "../components/Mission";
 import MissionHeader from "../components/MissionHeader";
 import TaskGraph from "../components/TaskGraph";
-import TaskGraphFlow from "../components/TaskGraphFlow";
 
 function getApiBase(): string {
   if (typeof window === "undefined") return "http://localhost:8080";
@@ -206,7 +205,6 @@ export default function Dashboard() {
   const [runs, setRuns] = useState<RunInfo[]>([]);
   const [selectedRun, setSelectedRun] = useState("");
   const [replaySpeed, setReplaySpeed] = useState(20);
-  const [graphExpanded, setGraphExpanded] = useState(false);
   const evtSourceRef = useRef<EventSource | null>(null);
 
   const defaultGpus: GpuState[] = [
@@ -365,34 +363,10 @@ export default function Dashboard() {
       <Scoreboard events={events} gpus={gpus} connected={connected} elapsed={elapsed} skillUI={skillUI} />
 
       {/* Main content area */}
-      {graphExpanded ? (
-        /* Full-screen interactive DAG */
-        <div className="flex-1 flex flex-col overflow-hidden min-h-0 relative">
-          <div className="absolute top-3 right-3 z-20">
-            <button
-              onClick={() => setGraphExpanded(false)}
-              className="px-3 py-1.5 text-[10px] font-mono bg-[#12141A] border border-[#1C1F26] text-[#9CA3AF] hover:text-[#E8EAED] rounded-sm transition-colors"
-            >
-              ✕ Close Graph
-            </button>
-          </div>
-          <TaskGraphFlow events={events} skillUI={skillUI} />
-        </div>
-      ) : (
         <div className="flex-1 flex flex-col overflow-hidden min-h-0">
           {/* Top: Task Graph — the hero visual */}
-          <div className="flex-1 min-h-[280px] border-b border-[#1C1F26] flex">
-            <div className="flex-1 overflow-hidden">
-              <TaskGraph events={events} skillUI={skillUI} />
-            </div>
-            <button
-              onClick={() => setGraphExpanded(true)}
-              className="w-8 shrink-0 border-l border-[#1C1F26] text-[9px] font-semibold uppercase tracking-wider text-[#4B5563] hover:text-[#9CA3AF] hover:bg-[#12141A] bg-[#0D0F14] transition-colors flex items-center justify-center"
-              title="Expand interactive graph"
-              style={{ writingMode: "vertical-rl" }}
-            >
-              Expand Graph
-            </button>
+          <div className="flex-1 min-h-[280px] border-b border-[#1C1F26]">
+            <TaskGraph events={events} skillUI={skillUI} />
           </div>
 
           {/* Bottom: Mission header + Event log full width */}
@@ -411,7 +385,6 @@ export default function Dashboard() {
           {/* Activity ticker — mission control heartbeat */}
           <ActivityTicker events={events} skillUI={skillUI} connected={connected} />
         </div>
-      )}
     </div>
   );
 }

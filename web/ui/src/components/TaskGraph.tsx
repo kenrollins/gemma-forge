@@ -186,8 +186,9 @@ export default function TaskGraph({
                     <div
                       key={node.id}
                       className={`rounded-[3px] cursor-pointer transition-all duration-200
-                        hover:scale-[1.6] hover:z-10 hover:ring-1 hover:ring-white/30
+                        hover:scale-[1.8] hover:z-20 hover:ring-2 hover:ring-white/40
                         ${node.state === "active" ? "animate-pulse" : ""}
+                        group relative
                       `}
                       style={{
                         width: CELL_SIZE,
@@ -200,7 +201,47 @@ export default function TaskGraph({
                           ? `0 0 3px ${STATE_COLOR.completed}30`
                           : "none",
                       }}
-                    />
+                    >
+                      {/* Hover tooltip */}
+                      {node.state !== "queued" && (
+                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2
+                          hidden group-hover:block z-30 pointer-events-none">
+                          <div className="bg-[#1a1e26] border border-[#2A2F3A] rounded-md px-3 py-2
+                            shadow-xl min-w-[200px] max-w-[300px]">
+                            <div className="text-[10px] font-mono font-bold text-[#E2E8F0] break-words">
+                              {stripId(node.id)}
+                            </div>
+                            <div className="text-[9px] text-[#8B95A5] mt-0.5">
+                              {node.title}
+                            </div>
+                            <div className="flex items-center gap-2 mt-1.5">
+                              <span className="text-[8px] font-mono px-1.5 py-0.5 rounded"
+                                style={{
+                                  backgroundColor: STATE_COLOR[node.state] + "33",
+                                  color: STATE_COLOR[node.state],
+                                }}>
+                                {node.state}
+                              </span>
+                              {node.attempts > 0 && (
+                                <span className="text-[9px] font-mono text-[#6B7280]">
+                                  {node.attempts} attempts
+                                </span>
+                              )}
+                              {node.wall_time_s > 0 && (
+                                <span className="text-[9px] font-mono text-[#6B7280]">
+                                  {Math.round(node.wall_time_s)}s
+                                </span>
+                              )}
+                            </div>
+                            {node.escalation_reason && (
+                              <div className="text-[9px] text-[#F59E0B] mt-1">
+                                {node.escalation_reason}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   ))}
                 </div>
               </div>

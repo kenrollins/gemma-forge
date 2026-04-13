@@ -33,27 +33,27 @@ design decision firsthand, and run it on a Dell PowerEdge XR7620 with
 four NVIDIA L4 GPUs. No cloud dependency. No internet required.
 Everything local.
 
-**Why "GemmaForge"?** Gemma, obviously, because this is built around
-Google's Gemma 4 model. And Forge because of what the system
-represents — a controlled environment where raw material gets heated,
-shaped, and refined through repeated cycles until it becomes something
-useful. Raw model output goes in; the reflexion loop hammers it
-against a deterministic evaluator; failures get reflected on and fed
-back; and what comes out is a refined solution, or an honest
-explanation of why the problem can't be solved yet. Each run leaves
-the forge smarter than the last.
+**Why "GemmaForge" as a project name?** Gemma, obviously, because
+this is built around Google's Gemma 4 model. And Forge because of
+what the system represents — a controlled environment where raw
+material gets heated, shaped, and refined through repeated cycles
+until it becomes something useful. Raw model output goes in; the
+reflexion loop hammers it against a deterministic evaluator; failures
+get reflected on and fed back; and what comes out is a refined
+solution, or an honest explanation of why the problem can't be solved
+yet. Each run leaves the forge smarter than the last.
 
-**Agent harnesses** have become a central topic in AI architecture
-recently — the growing recognition that the orchestration layer around
-a model matters as much as the model itself. How the harness manages
-memory, handles failures, controls tool use, decides when to persist
-versus when to escalate: these are the engineering decisions that
-separate a demo from a deployable system. This project is my
-exploration of those decisions, built from scratch and documented
-along the way.
+**Why build my own harness?** Agent harnesses have become a central
+topic in AI architecture recently — there's a growing recognition
+that the orchestration layer around a model matters as much as the
+model itself. How the harness manages memory, handles failures,
+controls tool use, decides when to persist versus when to escalate:
+these are the engineering decisions that separate a demo from a
+deployable system. I wanted to understand those decisions by making
+them myself, not by inheriting them from a framework.
 
-I designed the harness as an **extensible skill system** with a
-skill-agnostic core and abstract interfaces that any use case can
+Lastly, I designed the harness as an **extensible skill system** —
+a skill-agnostic core with abstract interfaces that any use case can
 implement. To stress-test what the architecture could handle, I
 needed a use case that would push every part of it: persistence
 across many retries, real side effects on a live system, a
@@ -77,18 +77,23 @@ something finally clicked. Originally the notes were just for my own
 learning, but looking back at them, I think there's real value in
 making them public.
 
-If you haven't yet explored the latest agentic coding tools, or
-haven't taken on a project with one, I'd encourage you to read
-through the journal entries. The learnings in there may be as
-valuable as the finished product — maybe more so, because they
-transfer to whatever you're building, not just STIG remediation.
+For this project, I decided to have my agentic coding partner capture
+into a journal the critical insights, decisions, successes, and
+failures as they were happening. For me, the focus for this effort
+was as much about the journey as the destination. So if you have
+time, explore the journal entries. Every failure mode is documented.
+Every pivot is explained. Every architectural decision has an entry
+showing what was tried, what broke, and what I landed on instead.
 
-For this effort, I wanted to focus as much on the journey as the
-destination. Every failure mode is documented. Every pivot is
-explained. Every architectural decision has a journal entry showing
-what was tried, what broke, and what I landed on instead. I hope what
-I learned helps other presales engineers, SI partners, and technical
-evaluators build similar systems faster on their own hardware.
+If you haven't yet tried building your own project with an agentic
+coding system, I hope this gives you some insight into the process
+and encourages you to try. It's one of the most engaging and
+rewarding ways to learn — the velocity is real, the collaboration
+is genuine, and the results will surprise you.
+
+I hope what I learned helps other presales engineers, SI partners,
+and technical evaluators build similar systems faster on their own
+hardware.
 
 ---
 
@@ -165,58 +170,53 @@ evaluators build similar systems faster on their own hardware.
 
 <div style="max-width: 900px; margin: 0 auto;">
 
-<div markdown style="background: linear-gradient(135deg, rgba(239, 68, 68, 0.12), rgba(239, 68, 68, 0.04)); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: 8px 8px 0 0; padding: 1.2rem 1.5rem;">
+<div style="background: linear-gradient(135deg, rgba(239, 68, 68, 0.12), rgba(239, 68, 68, 0.04)); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: 8px 8px 0 0; padding: 1.2rem 1.5rem;" markdown>
 
-:material-numeric-5-circle:{ style="color: #EF4444; font-size: 1.4em; vertical-align: middle;" }
-**Application**{ style="color: #EF4444; font-size: 1.1em;" }
+### :material-numeric-5-circle:{ .lg } Layer 5 — Application { style="color: #EF4444; margin: 0; border: none;" }
 
-STIG Remediation skill · GemmaForge Dashboard · This documentation site
+<span style="color: #EF4444;">**STIG Remediation Skill**</span> · <span style="color: #EF4444;">**GemmaForge Dashboard**</span> · <span style="color: #EF4444;">**This Documentation Site**</span>
 
 *Where the user sees results. Skills are pluggable — STIG is the first, not the only.*
 
 </div>
 
-<div markdown style="background: linear-gradient(135deg, rgba(168, 85, 247, 0.12), rgba(168, 85, 247, 0.04)); border: 1px solid rgba(168, 85, 247, 0.25); border-left: 1px solid rgba(168, 85, 247, 0.25); border-right: 1px solid rgba(168, 85, 247, 0.25); padding: 1.2rem 1.5rem;">
+<div style="background: linear-gradient(135deg, rgba(168, 85, 247, 0.12), rgba(168, 85, 247, 0.04)); border: 1px solid rgba(168, 85, 247, 0.25); border-top: none; padding: 1.2rem 1.5rem;" markdown>
 
-:material-numeric-4-circle:{ style="color: #A855F7; font-size: 1.4em; vertical-align: middle;" }
-**Orchestration**{ style="color: #A855F7; font-size: 1.1em;" }
+### :material-numeric-4-circle:{ .lg } Layer 4 — Orchestration { style="color: #A855F7; margin: 0; border: none;" }
 
-Ralph Loop Harness · Google ADK · Skills System · Cross-run SQLite Memory · Adaptive Concurrency Clutch
+<span style="color: #A855F7;">**Ralph Loop Harness**</span> · <span style="color: #A855F7;">**Google ADK**</span> · <span style="color: #A855F7;">**Skills System**</span> · <span style="color: #A855F7;">**Cross-run SQLite Memory**</span> · <span style="color: #A855F7;">**Adaptive Concurrency Clutch**</span>
 
-*Where agents reason, reflect, and persist. The harness makes all structural decisions; the model makes all reasoning decisions.*
-
-</div>
-
-<div markdown style="background: linear-gradient(135deg, rgba(0, 118, 206, 0.12), rgba(0, 118, 206, 0.04)); border: 1px solid rgba(0, 118, 206, 0.25); padding: 1.2rem 1.5rem;">
-
-:material-numeric-3-circle:{ style="color: #0076CE; font-size: 1.4em; vertical-align: middle;" }
-**Model**{ style="color: #0076CE; font-size: 1.1em;" }
-
-Gemma 4 31B Dense bf16 · vLLM 0.19.0 · Tensor Parallel = 4
-
-*Where inference happens. Full precision, all four GPUs, ~14 tok/s sustained with no NVLink.*
+*Where agents reason, reflect, and persist. The harness makes structural decisions; the model makes reasoning decisions.*
 
 </div>
 
-<div markdown style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(16, 185, 129, 0.04)); border: 1px solid rgba(16, 185, 129, 0.25); padding: 1.2rem 1.5rem;">
+<div style="background: linear-gradient(135deg, rgba(0, 118, 206, 0.12), rgba(0, 118, 206, 0.04)); border: 1px solid rgba(0, 118, 206, 0.25); border-top: none; padding: 1.2rem 1.5rem;" markdown>
 
-:material-numeric-2-circle:{ style="color: #10B981; font-size: 1.4em; vertical-align: middle;" }
-**Platform / MLOps**{ style="color: #10B981; font-size: 1.1em;" }
+### :material-numeric-3-circle:{ .lg } Layer 3 — Model { style="color: #0076CE; margin: 0; border: none;" }
 
-OpenTelemetry · Jaeger · Prometheus · Grafana · Structured JSONL Run Logger
+<span style="color: #0076CE;">**Gemma 4 31B Dense bf16**</span> · <span style="color: #0076CE;">**vLLM 0.19.0**</span> · <span style="color: #0076CE;">**Tensor Parallel = 4**</span>
+
+*Where inference happens. Full precision across all four GPUs, ~14 tok/s sustained, no NVLink required.*
+
+</div>
+
+<div style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(16, 185, 129, 0.04)); border: 1px solid rgba(16, 185, 129, 0.25); border-top: none; padding: 1.2rem 1.5rem;" markdown>
+
+### :material-numeric-2-circle:{ .lg } Layer 2 — Platform / MLOps { style="color: #10B981; margin: 0; border: none;" }
+
+<span style="color: #10B981;">**OpenTelemetry**</span> · <span style="color: #10B981;">**Jaeger**</span> · <span style="color: #10B981;">**Prometheus**</span> · <span style="color: #10B981;">**Grafana**</span> · <span style="color: #10B981;">**Structured JSONL Run Logger**</span>
 
 *Where you observe and measure. Federal-credible standards, no vendor lock-in.*
 
 </div>
 
-<div markdown style="background: linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(245, 158, 11, 0.04)); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 0 0 8px 8px; padding: 1.2rem 1.5rem;">
+<div style="background: linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(245, 158, 11, 0.04)); border: 1px solid rgba(245, 158, 11, 0.25); border-top: none; border-radius: 0 0 8px 8px; padding: 1.2rem 1.5rem;" markdown>
 
-:material-numeric-1-circle:{ style="color: #F59E0B; font-size: 1.4em; vertical-align: middle;" }
-**Infrastructure**{ style="color: #F59E0B; font-size: 1.1em;" }
+### :material-numeric-1-circle:{ .lg } Layer 1 — Infrastructure { style="color: #F59E0B; margin: 0; border: none;" }
 
-Dell PowerEdge XR7620 · 4x NVIDIA L4 24 GB · libvirt + virsh snapshots · Rocky Linux 9
+<span style="color: #F59E0B;">**Dell PowerEdge XR7620**</span> · <span style="color: #F59E0B;">**4x NVIDIA L4 24 GB**</span> · <span style="color: #F59E0B;">**libvirt + virsh snapshots**</span> · <span style="color: #F59E0B;">**Rocky Linux 9**</span>
 
-*The foundation. A rugged 2U edge server — no cloud, no NVLink, air-gappable.*
+*The foundation. A rugged 2U short-depth edge server — no cloud, air-gappable, built for the tactical edge.*
 
 </div>
 

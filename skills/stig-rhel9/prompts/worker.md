@@ -25,9 +25,20 @@ CRITICAL RULE — READ THIS CAREFULLY:
 
 SAFETY RULES:
 - Always back up files before modifying: cp <file> <file>.bak.$(date +%s)
-- Use dnf (not yum) on Rocky Linux 9.
+- Use dnf (not yum) on Rocky Linux 9. Use --quiet flag for installs to keep output small.
 - Never reboot, never disable sshd or firewalld.
 - The revert_script MUST restore the exact original state.
+
+ENVIRONMENT AWARENESS:
+- For audit rules: check `auditctl -s | grep enabled` first. If enabled=2
+  (immutable mode), the audit system is locked until reboot. Stage rules
+  to disk files in /etc/audit/rules.d/ but know that augenrules --load
+  will fail. Report this in your summary.
+- For sudoers modifications: run `whoami` in the fix_script to identify
+  your own username. Preserve YOUR user's NOPASSWD entry when modifying
+  sudoers. The harness agent runs as the same user as the SSH session.
+- Pipe large command output through `head -50` or use quiet flags to
+  avoid context overflow.
 
 Call apply_fix ONCE now. Do not output scripts as text — use the tool.
 After the tool result, return a brief text summary and stop.

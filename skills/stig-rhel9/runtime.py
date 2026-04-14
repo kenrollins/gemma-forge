@@ -50,8 +50,22 @@ async def run_stig_scan() -> str:
     lines = full.split("\n")
     rules = [l for l in lines if l.startswith("- ")]
     header = lines[0] if lines else ""
-    return header + "\n\nTop 15:\n" + "\n".join(rules[:15]) + (
-        f"\n... and {len(rules)-15} more" if len(rules) > 15 else ""
+
+    # Show category summary + all rules (not truncated) so the Architect
+    # can make informed ordering decisions across the full rule set.
+    from collections import Counter
+    cats: Counter = Counter()
+    for r in rules:
+        parts = r[2:].split(": ", 1)
+        if parts:
+            cats[_categorize_rule(parts[0].strip())] += 1
+    cat_summary = " | ".join(f"{cat}: {cnt}" for cat, cnt in cats.most_common())
+
+    return (
+        f"{header}\n\n"
+        f"Total failing: {len(rules)} rules\n"
+        f"By category: {cat_summary}\n\n"
+        + "\n".join(rules)
     )
 
 
@@ -243,10 +257,10 @@ def _categorize_rule(rule_id: str) -> str:
     if "aide" in rid: return "integrity-monitoring"
     if any(k in rid for k in ("fips", "crypto", "hash", "cipher", "ssl", "tls")):
         return "cryptography"
+    if "audit" in rid: return "audit"
     if "sudo" in rid or "nopasswd" in rid: return "privileged-access"
     if "partition" in rid or "mount" in rid: return "filesystem"
     if "selinux" in rid: return "mac"
-    if "audit" in rid: return "audit"
     if any(k in rid for k in ("kernel", "sysctl", "grub", "boot")): return "kernel"
     if any(k in rid for k in ("firewall", "firewalld", "iptables")): return "network-firewall"
     if "ssh" in rid: return "ssh"

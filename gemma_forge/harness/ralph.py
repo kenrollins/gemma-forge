@@ -263,10 +263,10 @@ def categorize_rule(rule_id: str) -> str:
     if "aide" in rid: return "integrity-monitoring"
     if any(k in rid for k in ("fips", "crypto", "hash", "cipher", "ssl", "tls")):
         return "cryptography"
+    if "audit" in rid: return "audit"
     if "sudo" in rid or "nopasswd" in rid: return "privileged-access"
     if "partition" in rid or "mount" in rid: return "filesystem"
     if "selinux" in rid: return "mac"
-    if "audit" in rid: return "audit"
     if any(k in rid for k in ("kernel", "sysctl", "grub", "boot")): return "kernel"
     if any(k in rid for k in ("firewall", "firewalld", "iptables")): return "network-firewall"
     if "ssh" in rid: return "ssh"

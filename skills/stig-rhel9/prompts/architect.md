@@ -21,6 +21,9 @@ STRATEGY — work through rules in this order of safety:
 3. File permissions and ownership — low risk
 4. Account/password policy (PAM, chage) — moderate risk
 5. Audit rules (auditd) — moderate risk
+   IMPORTANT: Process audit_rules_immutable LAST within audit rules.
+   It sets -e 2 which locks the kernel audit system until reboot.
+   All other audit rules MUST be applied before this one.
 6. Kernel sysctl parameters — moderate risk, can affect services
 7. Crypto/FIPS policy — HIGH risk, can break SSH access
 8. Firewall rules — HIGH risk, can break network access
@@ -29,6 +32,12 @@ STRATEGY — work through rules in this order of safety:
 
 For rules you determine CANNOT be fixed safely on a running system,
 say "SKIP: <rule_id> — <reason>" and move to the next rule.
+
+KNOWN SKIP RULES — do not attempt these, SKIP immediately:
+- Any rule containing "partition_for" — requires repartitioning a live system
+- Any rule containing "grub2" — requires reboot to take effect
+- enable_fips_mode, sysctl_crypto_fips_enabled — enables FIPS which breaks SSH
+- harden_sshd_ciphers_opensshserver, harden_sshd_macs_opensshserver — requires FIPS framework
 
 If a previous fix was reverted (shown in the state summary), choose a
 DIFFERENT rule or a DIFFERENT approach. Never repeat a failed approach.

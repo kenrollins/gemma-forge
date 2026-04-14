@@ -355,15 +355,24 @@ async def ssh_apply(
 
     stdout, stderr, rc = await _run_ssh(config, fix_script)
 
+    # Cap tool output to avoid context overflow. The full output is
+    # available in the run log; the model only needs enough to understand
+    # what happened. 2000 chars ≈ ~500 tokens, well within budget.
+    max_output = 2000
+    out = stdout.strip()[:max_output]
+    err = stderr.strip()[:max_output]
+    if len(stdout.strip()) > max_output:
+        out += "\n[...output truncated]"
+
     if rc == 0:
-        return f"APPLIED: {description}\nOutput: {stdout.strip()}"
+        return f"APPLIED: {description}\nOutput: {out}"
     else:
         # Keep the revert script stored — the fix may have partially executed.
         return (
             f"APPLY_FAILED: {description}\n"
             f"Exit code: {rc}\n"
-            f"Stdout: {stdout.strip()}\n"
-            f"Stderr: {stderr.strip()}"
+            f"Stdout: {out}\n"
+            f"Stderr: {err}"
         )
 
 

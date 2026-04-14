@@ -45,28 +45,39 @@ function ModeBar({
 }) {
   return (
     <div className="flex items-center gap-3 px-4 py-2 border-b border-[#1C1F26] bg-[#0D0F14]">
-      {/* Mode toggle */}
-      <div className="flex bg-[#12141A] rounded-sm border border-[#1C1F26] overflow-hidden">
-        <button
-          onClick={() => setMode("live")}
-          className={`px-3 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${
-            mode === "live"
-              ? "bg-[#22C55E]/15 text-[#22C55E] border-r border-[#1C1F26]"
-              : "text-[#6B7280] hover:text-[#9CA3AF] border-r border-[#1C1F26]"
-          }`}
+      {/* Mode toggle — pill switch */}
+      <div className="flex items-center gap-1.5">
+        <span className="text-[9px] text-[#4B5563] uppercase tracking-wider mr-1">Mode</span>
+        <div
+          className="relative flex bg-[#12141A] rounded-full border border-[#2A2E38] p-0.5 cursor-pointer"
+          style={{ width: 120 }}
         >
-          Live
-        </button>
-        <button
-          onClick={() => setMode("replay")}
-          className={`px-3 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${
-            mode === "replay"
-              ? "bg-[#3B82F6]/15 text-[#3B82F6]"
-              : "text-[#6B7280] hover:text-[#9CA3AF]"
-          }`}
-        >
-          Replay
-        </button>
+          {/* Sliding indicator */}
+          <div
+            className="absolute top-0.5 h-[calc(100%-4px)] w-[calc(50%-2px)] rounded-full transition-all duration-200"
+            style={{
+              left: mode === "live" ? 2 : "calc(50%)",
+              background: mode === "live" ? "rgba(34, 197, 94, 0.2)" : "rgba(59, 130, 246, 0.2)",
+              border: `1px solid ${mode === "live" ? "rgba(34, 197, 94, 0.4)" : "rgba(59, 130, 246, 0.4)"}`,
+            }}
+          />
+          <button
+            onClick={() => setMode("live")}
+            className={`relative z-10 flex-1 py-1 text-[10px] font-bold uppercase tracking-wider text-center rounded-full transition-colors ${
+              mode === "live" ? "text-[#22C55E]" : "text-[#6B7280] hover:text-[#9CA3AF]"
+            }`}
+          >
+            {"\u25CF"} Live
+          </button>
+          <button
+            onClick={() => setMode("replay")}
+            className={`relative z-10 flex-1 py-1 text-[10px] font-bold uppercase tracking-wider text-center rounded-full transition-colors ${
+              mode === "replay" ? "text-[#3B82F6]" : "text-[#6B7280] hover:text-[#9CA3AF]"
+            }`}
+          >
+            {"\u25B6"} Replay
+          </button>
+        </div>
       </div>
 
       {/* Run selector (replay mode) */}
@@ -109,13 +120,13 @@ function ModeBar({
         </>
       )}
 
-      {/* Connect button */}
+      {/* Connect button — pulses when disconnected to invite action */}
       <button
         onClick={onConnect}
         className={`ml-auto px-3 py-1 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors ${
           connected
             ? "bg-[#22C55E]/15 text-[#22C55E]"
-            : "bg-[#3B82F6]/15 text-[#3B82F6] hover:bg-[#3B82F6]/25"
+            : "bg-[#3B82F6]/15 text-[#3B82F6] hover:bg-[#3B82F6]/25 animate-pulse"
         }`}
       >
         {connected ? "Connected" : "Connect"}
@@ -175,10 +186,10 @@ function ActivityTicker({ events, skillUI, connected }: {
   return (
     <div className="h-7 shrink-0 overflow-hidden border-t border-[#2A2F3A] bg-[#12151A] px-4 flex items-center gap-3">
       <span className="text-[9px] uppercase tracking-[0.15em] text-[#4B5563] shrink-0">
-        LIVE
+        Latest
       </span>
       {connected ? (
-        <span className="w-1.5 h-1.5 rounded-full bg-[#22D3EE] animate-pulse shrink-0" />
+        <span className="w-1.5 h-1.5 rounded-full bg-[#22C55E] animate-pulse shrink-0" />
       ) : (
         <span className="w-1.5 h-1.5 rounded-full bg-[#4B5563] shrink-0" />
       )}

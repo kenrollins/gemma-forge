@@ -82,7 +82,9 @@ function describeCurrentAction(events: RunEvent[]): { text: string; agent: strin
   return null;
 }
 
-// Build WorkItemDetail from events for a specific item
+// Build WorkItemDetail from events for a specific item.
+// Walks the full event stream sequentially, tracking which rule is active,
+// so we capture full agent_response text (not the truncated summaries).
 function buildItemDetail(itemId: string, events: RunEvent[], skillUI: SkillUI): WorkItemDetail | null {
   let title = "";
   let category = "";
@@ -94,21 +96,33 @@ function buildItemDetail(itemId: string, events: RunEvent[], skillUI: SkillUI): 
   const reflections: { text: string; attempt: number; plateaued: boolean }[] = [];
   const reengagements: { verdict: string; trigger: string; attempt: number }[] = [];
 
-  for (const e of events) {
-    const rid = e.data?.rule_id as string;
-    if (rid !== itemId) continue;
+  // Track which rule is currently active so we can capture agent_response
+  // events that don't carry rule_id themselves
+  let inTargetRule = false;
+  let currentAttemptNum = 0;
 
+  for (const e of events) {
+    // rule_selected marks the boundary — entering or leaving our target rule
     if (e.event_type === "rule_selected") {
-      title = e.data.title as string || "";
-      category = e.data.category as string || "";
+      if (e.data.rule_id === itemId) {
+        inTargetRule = true;
+        title = e.data.title as string || "";
+        category = e.data.category as string || "";
+      } else if (inTargetRule) {
+        // A different rule was selected — we've left our target's window
+        break;
+      }
+      continue;
     }
+
+    if (!inTargetRule) continue;
+
+    // Events with rule_id — direct match
     if (e.event_type === "rule_complete") {
       state = e.data.outcome as string || "unknown";
       attempts = e.data.attempts as number || 0;
       wallTime = e.data.wall_time_s as number || 0;
       escalationReason = e.data.escalation_reason as string | undefined;
-      const tried = e.data.approaches_tried as string[];
-      if (tried) approachesTried.push(...tried);
     }
     if (e.event_type === "remediated") {
       state = "completed";
@@ -121,10 +135,13 @@ function buildItemDetail(itemId: string, events: RunEvent[], skillUI: SkillUI): 
       wallTime = e.data.wall_time_s as number || 0;
       escalationReason = e.data.reason as string;
     }
+    if (e.event_type === "attempt_start") {
+      currentAttemptNum = e.data.attempt as number || 0;
+    }
     if (e.event_type === "reflection") {
       reflections.push({
         text: e.data.text as string || "",
-        attempt: e.data.attempt as number || 0,
+        attempt: e.data.attempt as number || currentAttemptNum,
         plateaued: e.data.plateaued as boolean || false,
       });
     }
@@ -132,8 +149,17 @@ function buildItemDetail(itemId: string, events: RunEvent[], skillUI: SkillUI): 
       reengagements.push({
         verdict: e.data.verdict as string || "?",
         trigger: e.data.trigger as string || "?",
-        attempt: e.data.attempt as number || 0,
+        attempt: e.data.attempt as number || currentAttemptNum,
       });
+    }
+
+    // agent_response — full untruncated text. These don't have rule_id
+    // but we know they belong to our rule because we're inside its window.
+    if (e.event_type === "agent_response" && e.data?.text) {
+      if (e.agent === "worker") {
+        // Each worker response is an approach — capture the full text
+        approachesTried.push(e.data.text as string);
+      }
     }
   }
 
@@ -206,14 +232,22 @@ function AgentInsight({ events }: { events: RunEvent[] }) {
       const timing = e.data.timing as { tok_per_sec?: number } | undefined;
       if (tokens?.prompt) totalTokens.prompt += tokens.prompt;
       if (tokens?.completion) totalTokens.completion += tokens.completion;
-      conversation.push({
-        agent: e.agent,
-        type: "response",
-        text: e.data.text as string,
-        elapsed_s: e.elapsed_s,
-        tokens,
-        tokPerSec: timing?.tok_per_sec,
-      });
+      // Skip reflector agent_response — the structured reflection event
+      // captures the same content in parsed form. Also skip architect
+      // responses that will be replaced by architect_reengaged events
+      // (we can't know yet, so we add them and pop later).
+      if (e.agent === "reflector") {
+        // Don't add to conversation — the reflection event handles it
+      } else {
+        conversation.push({
+          agent: e.agent,
+          type: "response",
+          text: e.data.text as string,
+          elapsed_s: e.elapsed_s,
+          tokens,
+          tokPerSec: timing?.tok_per_sec,
+        });
+      }
     } else if (e.event_type === "evaluation") {
       const passed = e.data.passed as boolean;
       conversation.push({
@@ -243,6 +277,13 @@ function AgentInsight({ events }: { events: RunEvent[] }) {
         attempt: e.data.attempt as number,
       });
     } else if (e.event_type === "architect_reengaged") {
+      // The architect reengagement text was already captured as an
+      // agent_response event (same turn). Remove that duplicate and
+      // replace with the structured verdict display.
+      const lastIdx = conversation.length - 1;
+      if (lastIdx >= 0 && conversation[lastIdx].agent === "architect" && conversation[lastIdx].type === "response") {
+        conversation.pop();
+      }
       const verdict = e.data.verdict as string;
       conversation.push({
         agent: "architect",
@@ -252,6 +293,20 @@ function AgentInsight({ events }: { events: RunEvent[] }) {
       });
     } else if (e.event_type === "reflection") {
       latestReflectionText = e.data.text as string || "";
+      // Reflector agent_response is already skipped above, so no
+      // duplicate to pop. Just add the structured version.
+      const parsed = parseReflection(latestReflectionText);
+      const parts: string[] = [];
+      if (parsed.pattern) parts.push(`Pattern: ${parsed.pattern}`);
+      if (parsed.rootCause) parts.push(`Cause: ${parsed.rootCause}`);
+      if (parsed.lesson) parts.push(`Lesson: ${parsed.lesson}`);
+      if (parsed.banned) parts.push(`BAN: ${parsed.banned}`);
+      conversation.push({
+        agent: "reflector",
+        type: "reflection",
+        text: parts.join("\n") || latestReflectionText.slice(0, 400),
+        elapsed_s: e.elapsed_s,
+      });
     } else if (e.event_type === "remediated") {
       conversation.push({
         agent: "harness",
@@ -284,56 +339,16 @@ function AgentInsight({ events }: { events: RunEvent[] }) {
   // Type-based styling
   const entryBorder = (entry: ConvoEntry) => {
     if (entry.type === "eval_pass" || entry.type === "success") return "#22C55E";
-    if (entry.type === "eval_fail" || entry.type === "revert" || entry.type === "escalated") return "#EF4444";
+    if (entry.type === "eval_fail" || entry.type === "revert") return "#EF4444";
+    if (entry.type === "escalated") return "#F59E0B";
     if (entry.type === "verdict") return "#3B82F6";
     return AGENT_COLORS[entry.agent] || "#6B7280";
   };
 
-  // Add reflections into the conversation timeline inline
-  // Re-walk events to insert reflections in sequence
-  const enrichedConversation: ConvoEntry[] = [];
-  let inRule = false;
-  for (const e of events) {
-    if (e.event_type === "rule_selected") {
-      if (e.data.rule_id === currentRuleId) {
-        inRule = true;
-        enrichedConversation.length = 0;
-      } else if (inRule) break;
-    }
-    if (!inRule) continue;
-
-    // Already have these from conversation, but we need reflections too
-    if (e.event_type === "reflection") {
-      const parsed = parseReflection(e.data.text as string || "");
-      const parts: string[] = [];
-      if (parsed.pattern) parts.push(`Pattern: ${parsed.pattern}`);
-      if (parsed.rootCause) parts.push(`Cause: ${parsed.rootCause}`);
-      if (parsed.lesson) parts.push(`Lesson: ${parsed.lesson}`);
-      if (parsed.banned) parts.push(`BAN: ${parsed.banned}`);
-      enrichedConversation.push({
-        agent: "reflector",
-        type: "reflection",
-        text: parts.join("\n") || (e.data.text as string || "").slice(0, 400),
-        elapsed_s: e.elapsed_s,
-        tokens: e.data.tokens as { prompt?: number; completion?: number } | undefined,
-      });
-    }
-  }
-
-  // Merge reflections into the main conversation at the right positions
-  // Strategy: rebuild from conversation + enrichedConversation by elapsed_s
-  const allEntries = [...conversation];
-  for (const ref of enrichedConversation) {
-    // Insert reflection after the last entry with elapsed_s <= ref.elapsed_s
-    let insertIdx = allEntries.length;
-    for (let j = allEntries.length - 1; j >= 0; j--) {
-      if (allEntries[j].elapsed_s <= ref.elapsed_s) {
-        insertIdx = j + 1;
-        break;
-      }
-    }
-    allEntries.splice(insertIdx, 0, ref);
-  }
+  // allEntries is just the conversation — reflections are already inline
+  // from the main loop (added when reflection events are encountered,
+  // with the duplicate agent_response popped).
+  const allEntries = conversation;
 
   // Auto-scroll: use a callback ref on the last entry instead of useRef+useEffect
   const bottomCallback = (el: HTMLDivElement | null) => {
@@ -486,6 +501,44 @@ function AgentInsight({ events }: { events: RunEvent[] }) {
             );
           }
 
+          // Architect verdict — structured display
+          if (entry.type === "verdict") {
+            // Parse VERDICT / REASONING / NEW_PLAN from the text
+            const verdictMatch = entry.text.match(/VERDICT:\s*(CONTINUE|PIVOT|ESCALATE)/i);
+            const reasoningMatch = entry.text.match(/REASONING:\s*([\s\S]*?)(?=NEW_PLAN:|$)/i);
+            const planMatch = entry.text.match(/NEW_PLAN:\s*([\s\S]*?)$/i);
+            const verdict = verdictMatch ? verdictMatch[1].toUpperCase() : "?";
+            const reasoning = reasoningMatch ? reasoningMatch[1].trim() : "";
+            const plan = planMatch ? planMatch[1].trim() : "";
+            const vColor = verdict === "ESCALATE" ? "#EF4444" : verdict === "PIVOT" ? "#F59E0B" : "#22C55E";
+
+            return (
+              <div
+                key={i}
+                className="rounded px-3 py-2.5 mt-1"
+                style={{ borderLeft: `3px solid ${vColor}`, background: `${vColor}08` }}
+              >
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-2 h-2 rounded-full" style={{ background: "#3B82F6" }} />
+                  <span className="text-[10px] uppercase tracking-wider font-bold text-[#3B82F6]">architect re-engagement</span>
+                  <span className="font-bold font-mono text-[12px] px-2 py-0.5 rounded" style={{ color: vColor, background: `${vColor}20` }}>
+                    {verdict}
+                  </span>
+                  <span className="text-[9px] text-[#4B5563] ml-auto tabular-nums">{entry.elapsed_s.toFixed(0)}s</span>
+                </div>
+                {reasoning && (
+                  <div className="text-[12px] text-[#C9D1D9] leading-relaxed mb-2">{reasoning}</div>
+                )}
+                {plan && (
+                  <div className="mt-2 pt-2 border-t border-[#2A2E38]">
+                    <div className="text-[10px] uppercase tracking-wider text-[#6B7280] font-semibold mb-1">New Plan</div>
+                    <pre className="text-[12px] text-[#E8EAED] font-mono whitespace-pre-wrap leading-relaxed">{plan}</pre>
+                  </div>
+                )}
+              </div>
+            );
+          }
+
           // Agent-specific visual treatment
           const isArchitect = entry.agent === "architect";
           const isWorker = entry.agent === "worker";
@@ -538,10 +591,13 @@ function AgentInsight({ events }: { events: RunEvent[] }) {
                   {entry.elapsed_s.toFixed(0)}s
                 </span>
               </div>
-              {/* Content — no artificial clipping for architect */}
+              {/* Content — colored per agent identity */}
               {isResponse ? (
-                <pre className={`font-mono whitespace-pre-wrap leading-relaxed overflow-y-auto
-                  ${isArchitect ? "text-[12px] text-[#E8EAED] max-h-64" : "text-[11px] text-[#C9D1D9] max-h-40"}`}>
+                <pre
+                  className={`font-mono whitespace-pre-wrap leading-relaxed overflow-y-auto
+                    ${isArchitect ? "text-[12px] max-h-64" : "text-[11px] max-h-40"}`}
+                  style={{ color: `color-mix(in srgb, ${agentColor} 40%, #E8EAED)` }}
+                >
                   {entry.text.split("\n").filter(l => l.trim()).join("\n")}
                 </pre>
               ) : (
@@ -663,7 +719,7 @@ function OutcomeFeed({
         <div className="space-y-1">
           {recent.map((o, i) => {
             const outcomeDef = skillUI.outcomes.find(x => x.type === o.type);
-            const color = outcomeDef?.color || (o.type === "fixed" ? "#22C55E" : o.type === "escalated" ? "#EF4444" : "#6B7280");
+            const color = outcomeDef?.color || (o.type === "fixed" ? "#22C55E" : o.type === "escalated" ? "#F59E0B" : "#6B7280");
             const icon = o.type === "fixed" ? "\u2713" : o.type === "escalated" ? "\u2717" : "\u2298";
             return (
               <button
@@ -714,7 +770,7 @@ function ItemDetail({
   const stateColors: Record<string, string> = {
     completed: "#22C55E",
     remediated: "#22C55E",
-    escalated: "#EF4444",
+    escalated: "#F59E0B",
     skipped: "#6B7280",
     active: "#22D3EE",
     queued: "#4B5563",
@@ -723,54 +779,58 @@ function ItemDetail({
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto">
-      {/* Header */}
-      <div className="px-3 py-2 border-b border-[#1C1F26] sticky top-0 bg-[#12141A] z-10">
-        <div className="flex items-center justify-between mb-1">
-          <span
-            className="px-1.5 py-0.5 rounded-sm text-[9px] font-bold uppercase"
-            style={{ background: `${color}20`, color }}
-          >
-            {detail.state}
-          </span>
+      {/* Header — prominent, full width */}
+      <div className="px-5 py-4 border-b border-[#1C1F26] sticky top-0 bg-[#12141A] z-10">
+        <div className="flex items-start justify-between">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-3 mb-2">
+              <span
+                className="px-2 py-1 rounded text-[11px] font-bold uppercase"
+                style={{ background: `${color}20`, color }}
+              >
+                {detail.state}
+              </span>
+              <span className="px-2 py-1 rounded text-[11px] font-semibold bg-[#1A1D24] text-[#60A5FA]">
+                {detail.category}
+              </span>
+              <span className="text-[12px] text-[#6B7280] tabular-nums">{detail.attempts} attempt{detail.attempts !== 1 ? "s" : ""}</span>
+              <span className="text-[12px] text-[#6B7280] tabular-nums">{formatTime(detail.wall_time_s)}</span>
+            </div>
+            <div className="text-[16px] font-mono font-bold text-[#E8EAED]">
+              {shortId(detail.id, skillUI.id_prefix_strip)}
+            </div>
+            {detail.title && (
+              <div className="text-[13px] text-[#9CA3AF] mt-1">{detail.title}</div>
+            )}
+          </div>
           <button
             onClick={onClose}
-            className="text-[#6B7280] hover:text-[#E8EAED] text-sm px-1"
+            className="text-[#6B7280] hover:text-[#E8EAED] text-lg px-2 py-1 shrink-0"
           >
             {"\u2715"}
           </button>
         </div>
-        <div className="text-[13px] font-mono font-bold text-[#E8EAED] truncate">
-          {shortId(detail.id, skillUI.id_prefix_strip)}
-        </div>
-        {detail.title && (
-          <div className="text-[11px] text-[#9CA3AF] mt-0.5">{detail.title}</div>
-        )}
-        <div className="flex items-center gap-3 mt-1.5 text-[10px] text-[#6B7280]">
-          <span className="px-1.5 py-0.5 rounded-sm bg-[#1A1D24]">{detail.category}</span>
-          <span className="tabular-nums">{detail.attempts} attempts</span>
-          <span className="tabular-nums">{formatTime(detail.wall_time_s)}</span>
-        </div>
       </div>
 
-      {/* Escalation reason */}
+      {/* Escalation reason — prominent banner */}
       {detail.escalation_reason && (
-        <div className="mx-3 mt-2 px-2 py-1.5 rounded-sm text-[11px]" style={{ background: "#EF444415", borderLeft: "2px solid #EF4444" }}>
-          <span className="text-[#EF4444] font-bold text-[9px] uppercase mr-1.5">Escalation</span>
-          <span className="text-[#F87171]">{detail.escalation_reason}</span>
+        <div className="mx-5 mt-3 px-4 py-3 rounded" style={{ background: "#F59E0B12", borderLeft: "3px solid #F59E0B" }}>
+          <div className="text-[10px] text-[#F59E0B] font-bold uppercase mb-1">Escalation Reason</div>
+          <div className="text-[13px] text-[#FBBF24]">{detail.escalation_reason}</div>
         </div>
       )}
 
       {/* Approaches tried */}
       {detail.approaches_tried.length > 0 && (
-        <div className="px-3 py-2 border-b border-[#1C1F26]">
-          <div className="text-[9px] uppercase tracking-wider text-[#4B5563] mb-1.5">
+        <div className="px-5 py-3 border-b border-[#1C1F26]">
+          <div className="text-[11px] uppercase tracking-wider text-[#6B7280] font-semibold mb-2">
             Approaches Tried ({detail.approaches_tried.length})
           </div>
-          <div className="space-y-1">
+          <div className="space-y-2">
             {detail.approaches_tried.map((approach, i) => (
-              <div key={i} className="flex gap-2 text-[11px]">
-                <span className="text-[#4B5563] shrink-0 tabular-nums w-4 text-right">{i + 1}.</span>
-                <span className="text-[#9CA3AF] leading-relaxed">{approach}</span>
+              <div key={i} className="flex gap-3 text-[13px]">
+                <span className="text-[#4B5563] shrink-0 tabular-nums w-5 text-right font-bold">{i + 1}.</span>
+                <pre className="text-[#C9D1D9] leading-relaxed font-mono whitespace-pre-wrap flex-1">{approach}</pre>
               </div>
             ))}
           </div>
@@ -779,23 +839,45 @@ function ItemDetail({
 
       {/* Reflections */}
       {detail.reflections.length > 0 && (
-        <div className="px-3 py-2 border-b border-[#1C1F26]">
-          <div className="text-[9px] uppercase tracking-wider text-[#A855F7] mb-1.5">
+        <div className="px-5 py-3 border-b border-[#1C1F26]">
+          <div className="text-[11px] uppercase tracking-wider text-[#A855F7] font-semibold mb-2">
             Reflections ({detail.reflections.length})
           </div>
-          <div className="space-y-2">
+          <div className="space-y-3">
             {detail.reflections.map((ref, i) => {
               const parsed = parseReflection(ref.text);
               return (
-                <div key={i} className="text-[10px] bg-[#110a1a] rounded-sm px-2 py-1.5">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-[#A855F7] text-[9px]">att {ref.attempt}</span>
+                <div key={i} className="bg-[#110a1a] rounded px-4 py-3" style={{ borderLeft: "2px solid #A855F7" }}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-[#A855F7] text-[11px] font-semibold">Attempt {ref.attempt}</span>
                     {ref.plateaued && (
-                      <span className="text-[#F59E0B] text-[8px] uppercase">plateau</span>
+                      <span className="text-[#F59E0B] text-[10px] uppercase px-1.5 py-0.5 rounded bg-[#F59E0B15]">plateau</span>
                     )}
                   </div>
-                  {parsed.pattern && <div className="text-[#C4B5FD]">{parsed.pattern}</div>}
-                  {parsed.lesson && <div className="text-[#6B7280] mt-0.5">Lesson: {parsed.lesson}</div>}
+                  {parsed.pattern && (
+                    <div className="text-[12px] mb-1">
+                      <span className="text-[#A855F7] font-bold text-[10px] inline-block w-16">Pattern</span>
+                      <span className="text-[#C4B5FD]">{parsed.pattern}</span>
+                    </div>
+                  )}
+                  {parsed.rootCause && (
+                    <div className="text-[12px] mb-1">
+                      <span className="text-[#F59E0B] font-bold text-[10px] inline-block w-16">Cause</span>
+                      <span className="text-[#9CA3AF]">{parsed.rootCause}</span>
+                    </div>
+                  )}
+                  {parsed.lesson && (
+                    <div className="text-[11px] font-mono mt-1">
+                      <span className="text-[#3B82F6] font-bold">LESSON</span>{" "}
+                      <span className="text-[#6B7280]">{parsed.lesson}</span>
+                    </div>
+                  )}
+                  {parsed.banned && (
+                    <div className="text-[11px] font-mono">
+                      <span className="text-[#EF4444] font-bold">BAN</span>{" "}
+                      <span className="text-[#6B7280]">{parsed.banned}</span>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -805,20 +887,23 @@ function ItemDetail({
 
       {/* Architect reengagements */}
       {detail.reengagements.length > 0 && (
-        <div className="px-3 py-2">
-          <div className="text-[9px] uppercase tracking-wider text-[#3B82F6] mb-1.5">
+        <div className="px-5 py-3">
+          <div className="text-[11px] uppercase tracking-wider text-[#3B82F6] font-semibold mb-2">
             Architect Verdicts ({detail.reengagements.length})
           </div>
-          <div className="space-y-1">
+          <div className="space-y-2">
             {detail.reengagements.map((r, i) => {
               const vColor = r.verdict === "ESCALATE" ? "#EF4444" : r.verdict === "PIVOT" ? "#F59E0B" : "#22C55E";
               return (
-                <div key={i} className="flex items-center gap-2 text-[10px]">
-                  <span className="font-bold tabular-nums" style={{ color: vColor }}>
+                <div key={i} className="flex items-center gap-3 text-[12px] px-3 py-2 rounded bg-[#0D0F14]">
+                  <span className="font-bold font-mono px-2 py-0.5 rounded" style={{ color: vColor, background: `${vColor}15` }}>
                     {r.verdict}
                   </span>
+                  <span className="text-[#9CA3AF]">
+                    at attempt {r.attempt}
+                  </span>
                   <span className="text-[#6B7280]">
-                    at attempt {r.attempt} ({r.trigger})
+                    ({r.trigger})
                   </span>
                 </div>
               );

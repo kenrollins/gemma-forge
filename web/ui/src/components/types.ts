@@ -117,7 +117,7 @@ export const DEFAULT_SKILL_UI: SkillUI = {
   fixed_label: "Fixed",
   outcomes: [
     { type: "fixed", label: "Fixed", color: "#22C55E" },
-    { type: "escalated", label: "Escalated", color: "#EF4444" },
+    { type: "escalated", label: "Escalated", color: "#F59E0B" },
     { type: "skipped", label: "Skipped", color: "#6B7280" },
   ],
 };

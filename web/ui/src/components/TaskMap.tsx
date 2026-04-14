@@ -50,27 +50,34 @@ function CrossRunInsight({ data }: { data: CrossRunData }) {
         <span className="text-[10px] text-[#4B5563] ml-auto">{expanded ? "\u25B2" : "\u25BC"}</span>
       </button>
       {expanded && (
-        <div className="px-3 pb-2 space-y-0.5">
-          {[...data.category_stats].sort((a, b) => b.success_rate - a.success_rate).map(cat => {
-            const pct = Math.round(cat.success_rate * 100);
-            return (
-              <div key={cat.category} className="flex items-center gap-1.5">
-                <span className="text-[8px] text-[#6B7280] w-24 truncate text-right shrink-0">
-                  {cat.category}
-                </span>
-                <div className="flex-1 h-1.5 rounded-full bg-[#1A1D24] overflow-hidden">
-                  <div
-                    className="h-full rounded-full"
-                    style={{
-                      width: `${Math.max(pct, 1)}%`,
-                      background: pct >= 80 ? "#10B981" : pct >= 40 ? "#F59E0B" : "#EF4444",
-                    }}
-                  />
+        <div className="px-3 pb-2">
+          <div className="text-[8px] text-[#4B5563] mb-1">
+            Fix rate from prior runs — how often each category was remediated vs escalated
+          </div>
+          <div className="space-y-0.5">
+            {[...data.category_stats].sort((a, b) => b.success_rate - a.success_rate).map(cat => {
+              const pct = Math.round(cat.success_rate * 100);
+              return (
+                <div key={cat.category} className="flex items-center gap-1.5">
+                  <span className="text-[8px] text-[#6B7280] w-24 truncate text-right shrink-0">
+                    {cat.category}
+                  </span>
+                  <div className="flex-1 h-1.5 rounded-full bg-[#1A1D24] overflow-hidden">
+                    <div
+                      className="h-full rounded-full"
+                      style={{
+                        width: `${Math.max(pct, 1)}%`,
+                        background: pct >= 80 ? "#10B981" : pct >= 40 ? "#F59E0B" : "#EF4444",
+                      }}
+                    />
+                  </div>
+                  <span className="text-[8px] text-[#6B7280] tabular-nums shrink-0">
+                    {pct}% of {cat.total_items}
+                  </span>
                 </div>
-                <span className="text-[8px] text-[#4B5563] tabular-nums w-8 shrink-0">{pct}%</span>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       )}
     </div>
@@ -209,11 +216,11 @@ function WaffleView({
                   <div
                     key={node.id}
                     onClick={() => onSelectItem(node.id)}
+                    title={`${shortId(node.id, skillUI.id_prefix_strip)}\n${node.title}\n${node.state}${node.attempts > 0 ? ` · ${node.attempts} att` : ""}${node.wall_time_s > 0 ? ` · ${formatTime(node.wall_time_s)}` : ""}${node.escalation_reason ? `\n${node.escalation_reason}` : ""}`}
                     className={`rounded-[3px] cursor-pointer transition-all duration-200
                       hover:scale-[1.6] hover:z-20 hover:ring-2 hover:ring-white/40
                       ${node.state === "active" ? "animate-pulse" : ""}
                       ${isSelected ? "ring-2 ring-white/60 scale-[1.4] z-20" : ""}
-                      group relative
                     `}
                     style={{
                       width: cellSize,
@@ -226,37 +233,7 @@ function WaffleView({
                         ? `0 0 3px ${STATE_COLOR.completed}30`
                         : "none",
                     }}
-                  >
-                    {/* Hover tooltip — positioned left of cell since we're in the right sidebar */}
-                    {node.state !== "queued" && (
-                      <div className="absolute right-full top-1/2 -translate-y-1/2 mr-2
-                        hidden group-hover:block z-50 pointer-events-none">
-                        <div className="bg-[#1a1e26] border border-[#3A3F4A] rounded px-2.5 py-1.5
-                          shadow-2xl w-[220px]"
-                          style={{ boxShadow: "0 4px 20px rgba(0,0,0,0.6)" }}>
-                          <div className="text-[11px] font-mono font-bold text-[#E8EAED] break-words leading-snug">
-                            {shortId(node.id, skillUI.id_prefix_strip)}
-                          </div>
-                          <div className="text-[10px] text-[#9CA3AF] mt-0.5 leading-snug">{node.title}</div>
-                          <div className="flex items-center gap-2 mt-1.5">
-                            <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded"
-                              style={{ backgroundColor: STATE_COLOR[node.state] + "30", color: STATE_COLOR[node.state] }}>
-                              {node.state}
-                            </span>
-                            {node.attempts > 0 && (
-                              <span className="text-[10px] font-mono text-[#9CA3AF]">{node.attempts} att</span>
-                            )}
-                            {node.wall_time_s > 0 && (
-                              <span className="text-[10px] font-mono text-[#9CA3AF]">{formatTime(node.wall_time_s)}</span>
-                            )}
-                          </div>
-                          {node.escalation_reason && (
-                            <div className="text-[10px] text-[#F59E0B] mt-1">{node.escalation_reason}</div>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                  />
                 );
               })}
             </div>

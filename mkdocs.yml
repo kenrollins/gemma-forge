@@ -135,6 +135,7 @@ nav:
       - 23 - The First Complete Run: journal/journey/23-first-complete-run.md
       - 24 - Run 2 — Cross-Run Learning: journal/journey/24-run-2-cross-run-learning.md
       - 25 - Run 3 — Learning Plateaus: journal/journey/25-run-3-learning-plateaus.md
+      - 26 - Dreaming and Real Databases: journal/journey/26-dreaming-and-real-databases.md
   - Improvements:
       - 01 - Architect Re-engagement: journal/improvements/01-architect-reengagement.md
       - 02 - Worker Single-Action: journal/improvements/02-worker-single-action-enforcement.md
@@ -172,6 +173,7 @@ nav:
           - 0013 - One Triton per L4 (no NVLink): adr/0013-one-triton-per-l4-no-nvlink.md
           - 0014 - Triton + vLLM Director as Shared Host Service: adr/0014-triton-vllm-director-shared-host-service.md
           - 0015 - Gemma 4 Model Lineup: adr/0015-gemma-4-model-lineup.md
+          - 0016 - Graphiti + Neo4j + Postgres Memory Stack: adr/0016-graphiti-neo4j-postgres-memory-stack.md
           - Template: adr/template.md
   - About: about.md
 

@@ -76,6 +76,9 @@ is meant to be readable on its own.
 - [**24. Run 2 — Cross-Run Learning**](24-run-2-cross-run-learning.md) — the fix landed: 59 rules flipped from escalated to remediated, the fix rate jumped 35% → 58%, then Run 2 exposed a new cascade and the uncomfortable question of whether memory that was right yesterday can be wrong tomorrow.
 - [**25. Run 3 — When the Learning Curve Bends**](25-run-3-learning-plateaus.md) — 60% fix rate, diminishing returns, the environment fidelity problem showing up in real data.
 
+### Phase 10 — The memory-architecture pivot
+- [**26. Dreaming, and When the Little Engine Needs Real Databases**](26-dreaming-and-real-databases.md) — catching up to the 2026 memory-systems frontier: Graphiti-on-Neo4j for Reflective, Postgres replacing SQLite, and a dream pass between runs as the distinctive contribution.
+
 ## Related
 
 - [Architecture overview](../architecture/00-system-architecture.md) — the same content organized by layer instead of by time.

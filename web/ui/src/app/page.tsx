@@ -210,12 +210,13 @@ function ActivityTicker({ events, skillUI, connected }: {
 export default function Dashboard() {
   const [events, setEvents] = useState<RunEvent[]>([]);
   const [connected, setConnected] = useState(false);
-  const [elapsed, setElapsed] = useState(0);
   const [mode, setMode] = useState<"live" | "replay">("live");
   const [runs, setRuns] = useState<RunInfo[]>([]);
   const [selectedRun, setSelectedRun] = useState("");
   const [replaySpeed, setReplaySpeed] = useState(20);
   const evtSourceRef = useRef<EventSource | null>(null);
+  const eventBufferRef = useRef<RunEvent[]>([]);
+  const flushFrameRef = useRef<number | null>(null);
 
   const defaultGpus: GpuState[] = [
     { index: 0, name: "L4", memory_used_mib: 0, memory_total_mib: 23034, utilization_pct: 0, temperature_c: 0, power_w: 0, role: "gemma", model: "Gemma-4-31B-it bf16" },
@@ -242,15 +243,21 @@ export default function Dashboard() {
   }, []);
 
   // Track elapsed from events
-  useEffect(() => {
-    if (events.length > 0) setElapsed(events[events.length - 1].elapsed_s);
-  }, [events]);
+  const elapsed = events.length > 0 ? events[events.length - 1].elapsed_s : 0;
 
-  // Update GPU state from events
+  // Update GPU state from events — only when the latest gpu_state snapshot
+  // actually changes, to avoid cascading re-renders during fast replay streams.
+  const latestGpuStateRef = useRef<GpuState[] | null>(null);
   useEffect(() => {
-    const gpuEvents = events.filter(e => e.gpu_state && e.gpu_state.length > 0);
-    if (gpuEvents.length > 0) {
-      const latest = gpuEvents[gpuEvents.length - 1].gpu_state!;
+    let latest: GpuState[] | null = null;
+    for (let i = events.length - 1; i >= 0; i--) {
+      if (events[i].gpu_state && events[i].gpu_state!.length > 0) {
+        latest = events[i].gpu_state!;
+        break;
+      }
+    }
+    if (latest && latest !== latestGpuStateRef.current) {
+      latestGpuStateRef.current = latest;
       setGpus(latest.map((g) => ({ ...g, role: "gemma", model: "Gemma-4-31B-it bf16" })));
     }
   }, [events]);
@@ -290,6 +297,10 @@ export default function Dashboard() {
       evtSourceRef.current.close();
       evtSourceRef.current = null;
     }
+    if (flushFrameRef.current !== null) {
+      cancelAnimationFrame(flushFrameRef.current);
+      flushFrameRef.current = null;
+    }
     setConnected(false);
   }, []);
 
@@ -297,6 +308,22 @@ export default function Dashboard() {
   const connect = useCallback(() => {
     disconnect();
     setEvents([]);
+    eventBufferRef.current = [];
+    if (flushFrameRef.current !== null) {
+      cancelAnimationFrame(flushFrameRef.current);
+      flushFrameRef.current = null;
+    }
+
+    const scheduleFlush = () => {
+      if (flushFrameRef.current !== null) return;
+      flushFrameRef.current = requestAnimationFrame(() => {
+        flushFrameRef.current = null;
+        const buffered = eventBufferRef.current;
+        if (buffered.length === 0) return;
+        eventBufferRef.current = [];
+        setEvents(prev => prev.concat(buffered));
+      });
+    };
 
     const apiBase = getApiBase();
     let url: string;
@@ -321,7 +348,8 @@ export default function Dashboard() {
           setConnected(false);
           return;
         }
-        setEvents(prev => [...prev, event]);
+        eventBufferRef.current.push(event);
+        scheduleFlush();
       } catch {}
     };
     evtSource.onerror = () => {

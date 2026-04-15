@@ -104,7 +104,7 @@ nav:
   - Journey:
       - Overview: journal/journey/index.md
       - 00 - Origin: journal/journey/00-origin.md
-      - 00.5 - Can Gemma 4 Even Run Here?: journal/journey/00.5-can-gemma-4-even-run-here.md
+      - 00.5 - How Should We Serve Gemma 4?: journal/journey/00.5-how-should-we-serve-gemma-4.md
       - 01 - The Inference Layer: journal/journey/01-inference-layer.md
       - 02 - Model Strategy: journal/journey/02-model-strategy.md
       - 03 - Observability: journal/journey/03-observability.md

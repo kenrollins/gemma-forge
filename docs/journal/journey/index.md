@@ -26,7 +26,7 @@ is meant to be readable on its own.
 
 ### Phase 0 — Starting from scratch
 - [**00. The Origin of GemmaForge**](00-origin.md) — why Ralph loops, why Gemma 4, why STIG as the anchor, and what the project explicitly *is not*.
-- [**00.5. Can Gemma 4 Even Run Here?**](00.5-can-gemma-4-even-run-here.md) — the validation gate: does the 31B model fit on 4× L4, and what does NVFP4 actually look like in VRAM.
+- [**00.5. How Should We Serve Gemma 4?**](00.5-how-should-we-serve-gemma-4.md) — picking the serving strategy: precision, tensor parallelism, and the NVFP4 VRAM math surprise on L4.
 
 ### Phase 1 — The inference layer
 - [**01. The Inference Layer Evolution**](01-inference-layer.md) — Triton was the first choice, we pivoted to vLLM, and we kept the Triton scaffolding for when it catches up.

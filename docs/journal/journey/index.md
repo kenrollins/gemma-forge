@@ -73,6 +73,7 @@ is meant to be readable on its own.
 
 ### Phase 9 — The first complete run and cross-run learning
 - [**23. The First Complete Run**](23-first-complete-run.md) — 270 rules, 13.5 hours, 85 remediated, 157 escalated — and the discovery that the cross-run memory system was storing everything but teaching nothing.
+- [**24. Run 2 — Cross-Run Learning**](24-run-2-cross-run-learning.md) — the fix landed: 59 rules flipped from escalated to remediated, the fix rate jumped 35% → 58%, then Run 2 exposed a new cascade and the uncomfortable question of whether memory that was right yesterday can be wrong tomorrow.
 
 ## Related
 

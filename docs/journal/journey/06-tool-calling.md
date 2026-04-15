@@ -8,13 +8,13 @@ related:
   - gotchas/adk-future-annotations
   - gotchas/agent-instructions-tool-calling
   - gotchas/vllm-tool-call-parser
-one_line: "We built a working STIG remediation loop, realized it was a script pretending to be an agent, tore it apart, and rebuilt it with real tool calling — discovering along the way that Gemma 4 function calling through vLLM is production-capable on edge hardware."
+one_line: "I built a working STIG remediation loop, realized it was a script pretending to be an agent, tore it apart, and rebuilt it with real tool calling — discovering along the way that Gemma 4 function calling through vLLM is production-capable on edge hardware."
 ---
 
 # Journey: Tool Calling and the Ralph Loop — From Script to Agent
 
 ## The story in one sentence
-We built a working STIG remediation loop, realized it was a script
+I built a working STIG remediation loop, realized it was a script
 pretending to be an agent, tore it apart, and rebuilt it with real
 tool calling — discovering along the way that Gemma 4's function
 calling through vLLM is genuinely production-capable on edge hardware.
@@ -23,11 +23,10 @@ calling through vLLM is genuinely production-capable on edge hardware.
 
 The first implementation (loop.py) worked. It scanned, fixed, audited,
 and reverted. Three successful fixes, two reverts, mission app
-protected. But Ken asked the question that changed everything:
-
-> "Does it fit with our overall strategy of being as close to a real
-> implementation as possible? Are we saying that a custom harness is
-> better than the ADK LoopAgent?"
+protected. But there was a question that changed everything: does this
+fit the overall strategy of staying as close to a real implementation
+as possible? Is a custom harness actually better than the ADK
+LoopAgent?
 
 The honest answer was no. Here's what the first version actually did:
 
@@ -82,8 +81,8 @@ and --tool-call-parser to be set
 ```
 
 vLLM needs explicit flags to enable function calling, and each model
-family has its own parser for the tool-call format. We discovered that
-vLLM 0.19.0 ships a dedicated `gemma4` parser:
+family has its own parser for the tool-call format. vLLM 0.19.0 ships
+a dedicated `gemma4` parser:
 
 ```
 --enable-auto-tool-choice --tool-call-parser gemma4
@@ -136,7 +135,8 @@ compression.
 
 ## The moment it worked
 
-The successful run showed exactly the behavior we designed:
+The successful run showed exactly the behavior the architecture was
+designed for:
 
 1. **Architect** calls `run_stig_scan`, gets 270 failing rules,
    reasons: "I will start with a low-risk package installation,"
@@ -169,14 +169,14 @@ The Ralph moment was steps 5-8. The Worker failed, reasoned about WHY
 approach based on the Worker's reasoning in the conversation history.
 No Python if/else — the models did the thinking.
 
-## What we learned about Gemma 4's tool calling
+## What I learned about Gemma 4's tool calling
 
 1. **It works.** Both the 31B NVFP4 and E4B models generate proper
    structured `tool_calls` through vLLM's gemma4 parser. The models
    understand when to call tools, what arguments to pass, and how to
    reason about tool results.
 
-2. **The instructions matter enormously.** Our first set of
+2. **The instructions matter enormously.** The first set of
    instructions told the Worker to "output scripts as text." The
    models did exactly that — text output, not tool calls. Rewriting
    the instructions to say "call the apply_fix tool" changed the
@@ -197,12 +197,10 @@ No Python if/else — the models did the thinking.
 
 ## The bigger picture
 
-Ken framed it perfectly:
-
-> "This is to test that a ralph loop that powers through a problem
-> utilizing a large number of tokens can get to the same result as
-> a larger state of the art model. If I can prove that story at the
-> edge, then booyah!"
+The framing thesis: a Ralph loop that powers through a problem by
+spending tokens liberally can reach the same result as a larger
+state-of-the-art model. Prove that story at the edge and the whole
+premise lands.
 
 The Phase 3 run proved exactly that. A 31B model quantized to NVFP4,
 running on 2× L4 GPUs without NVLink, using real structured tool

@@ -8,22 +8,22 @@ related:
   - journey/11-the-missing-reflector
   - journey/14-overnight-run-findings
   - improvements/01-architect-reengagement
-one_line: "We built a reflexion loop with a 3-retry cap because that is what the academic paper does — and then realized that capping retries is the opposite of what makes Ralph interesting, so we replaced the counter with a wall-clock budget and let the loop actually grind."
+one_line: "I built a reflexion loop with a 3-retry cap because that is what the academic paper does — and then realized that capping retries is the opposite of what makes Ralph interesting, so I replaced the counter with a wall-clock budget and let the loop actually grind."
 ---
 
 # Journey: The Retry Budget That Wasn't Ralph
 
 ## The story in one sentence
-We built a reflexion loop with a 3-retry cap because that's what the academic
+I built a reflexion loop with a 3-retry cap because that's what the academic
 paper does — and then realized that capping retries is the *opposite* of what
-makes Ralph interesting, so we replaced the counter with a wall-clock budget
+makes Ralph interesting, so I replaced the counter with a wall-clock budget
 and let the loop actually grind.
 
 ## The trap
 
 The Reflexion paper (Shinn et al., NeurIPS 2023) uses a fixed retry cap —
 typically 3 to 5 — for each task in its benchmark. That convention slid into
-our ralph.py as `max_retries_per_rule: 3` and stayed there through four major
+ralph.py as `max_retries_per_rule: 3` and stayed there through four major
 architecture revisions.
 
 For a while the cap felt reasonable. The first Reflexion runs were about
@@ -31,15 +31,13 @@ For a while the cap felt reasonable. The first Reflexion runs were about
 output? Does episodic memory propagate? Does plateau detection fire? 3 retries
 is plenty to exercise all of that.
 
-But then Ken asked a question that re-framed the whole thing:
-
-> "Is 10 failed attempts in a row Ralphie enough? You see what we are doing
->  here, do you think the logic could figure some of these out if given enough
->  room to do so?"
+Then a reframing question landed: is 10 failed attempts in a row Ralphie
+enough? Given enough room, could the logic actually figure some of these
+out?
 
 ## What the previous run's reflections actually said
 
-We went back and looked at the AIDE-rule failures from
+I went back and looked at the AIDE-rule failures from
 `run-20260410-203508.jsonl`. The reflections told a clear story:
 
 - **Attempt 1** on `aide_check_audit_tools`:
@@ -70,7 +68,7 @@ is converging on the real fix ("you need to run `aide --init` AND your config
 has to actually be valid before that works").
 
 **At attempt 4 or 5, the Reflector would almost certainly have produced the
-exact remediation strategy.** And we cut it off.
+exact remediation strategy.** And the cap cut it off.
 
 ## The insight
 
@@ -88,7 +86,7 @@ will keep working until *physics* says stop, and physics means either wall
 clock or provably diminishing returns, not an arbitrary counter".
 
 The academic cap of 3 makes sense in a paper where the experiment is measuring
-a benchmark of 200 tasks and you need bounded runtime per task. Our experiment
+a benchmark of 200 tasks and you need bounded runtime per task. This experiment
 isn't benchmarking — it's demonstrating that persistence pays off. Different
 experiment, different stopping rule.
 
@@ -120,9 +118,9 @@ while True:
     # ... attempt logic
 ```
 
-And the escalation event now records *why* we gave up, so we can distinguish
-"the model plateaued and hit time" from "something broke and we hit the
-safety ceiling":
+And the escalation event now records *why* the loop gave up, so "the model
+plateaued and hit time" is distinguishable from "something broke and the
+safety ceiling tripped":
 
 ```python
 run_log.log("escalated", "harness", {
@@ -133,32 +131,32 @@ run_log.log("escalated", "harness", {
 })
 ```
 
-We also added a plateau-detection *metric* (not a stopping rule) — if the last
-three reflections for a rule share the same first-sentence pattern, we flag
-`reflector_plateaued: true` in the `rule_complete` event. That gives us a way
-to analyze after the run: "Did unlimited retries actually pay off, or did the
-reflector just repeat itself once it plateaued?"
+I also added a plateau-detection *metric* (not a stopping rule) — if the last
+three reflections for a rule share the same first-sentence pattern, the
+`rule_complete` event is flagged with `reflector_plateaued: true`. That gives
+a way to analyze after the run: did unlimited retries actually pay off, or
+did the reflector just repeat itself once it plateaued?
 
-## What we're about to find out
+## What this run is about to reveal
 
-Tonight we're running this over ~12 hours against the same 270 STIG rules. The
-questions this run answers:
+The plan is a ~12 hour run against the same 270 STIG rules. The questions
+this run answers:
 
-1. **Does compounding reflection actually pay off past attempt 3?** If so, we
-   should see rules remediated at attempts 4, 5, 6+. If not, `reflector_plateaued`
+1. **Does compounding reflection actually pay off past attempt 3?** If so,
+   rules should be remediated at attempts 4, 5, 6+. If not, `reflector_plateaued`
    should become true around attempt 3–4 for most rules.
 
 2. **Which rules converge fast and which grind?** The time budget forces a
    natural distribution — easy rules take 30-60 seconds, medium rules take a
    few minutes, hard rules hit 20 minutes. The `rule_complete` events with
-   `wall_time_s` give us that distribution directly.
+   `wall_time_s` give that distribution directly.
 
 3. **Does the architect's rule selection strategy hold up?** The previous run
    saw the architect picking AIDE rules repeatedly because they were listed
    first. With the architect only being consulted at rule selection (not
    during retries), a time-budget-per-rule means the architect's initial
    rule-picking judgment matters more. If it keeps picking hard rules first,
-   we burn time before getting to the easy wins.
+   time burns before the easy wins arrive.
 
 4. **What's the real rules/hour at steady state?** Previous run was ~13 rules/hour
    with 3-retry cap. With a 20-min budget, most rules will be *faster* on
@@ -166,7 +164,7 @@ questions this run answers:
    (because hard rules now grind for the full 20 minutes). The net should be
    lower throughput but higher remediation rate.
 
-## What this tells us about the architecture
+## What this tells me about the architecture
 
 The bigger lesson is that **the architect only engages at rule selection time.**
 After the rule is picked, the inner loop is just Worker + Eval + Reflector.
@@ -197,5 +195,5 @@ need the architect's strategic re-engagement to unblock stuck rules.
 
 - ADR for this decision: TBD (add after overnight run validates the approach)
 - Reflexion paper: Shinn et al., NeurIPS 2023
-- `journey/11-the-missing-reflector.md` — why we added the Reflector in the first place
+- `journey/11-the-missing-reflector.md` — why the Reflector was added in the first place
 - `journey/12-bf16-tp4-full-precision.md` — the hardware substrate that makes extended grinding affordable

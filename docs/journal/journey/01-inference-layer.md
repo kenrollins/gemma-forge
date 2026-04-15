@@ -9,29 +9,29 @@ related:
   - gotchas/triton-vllm-version
   - gotchas/transformers-gemma4
   - gotchas/vllm-tool-call-parser
-one_line: "We started with Triton Inference Server for dynamic model management, hit a Gemma 4 version gap, pivoted to plain vLLM containers, and ended with a cleaner operational model that's ready for Triton when it catches up."
+one_line: "I started with Triton Inference Server for dynamic model management, hit a Gemma 4 version gap, pivoted to plain vLLM containers, and ended with a cleaner operational model that's ready for Triton when it catches up."
 ---
 
 # Journey: The Inference Layer Evolution
 
 ## The story in one sentence
-We started with Triton Inference Server for dynamic model management,
+I started with Triton Inference Server for dynamic model management,
 discovered it couldn't run Gemma 4 yet, pivoted to plain vLLM containers,
 and ended up with a cleaner operational model that's ready for Triton
 when it catches up.
 
-## What we planned (ADR-0001, ADR-0014)
+## What I planned (ADR-0001, ADR-0014)
 
-The original PRD specified Ollama. During the interview phase with Ken,
-we rejected Ollama (not production-grade for multi-GPU serving) and
+The original PRD specified Ollama. During the interview phase I
+rejected Ollama (not production-grade for multi-GPU serving) and
 picked **vLLM** as the inference engine. This was validated: vLLM has
 Day-0 Gemma 4 support, is Apache-2, air-gappable, and is what Red Hat
 ships as RHAIIS.
 
-Then Ken raised a critical insight: *"I don't like vLLM because it
-doesn't support dynamic loading and unloading of models."* He wanted
-the XR7620 to be a multi-demo host where different demos load different
-model sets without redeploying containers.
+Then a critical insight surfaced: vLLM doesn't support dynamic
+loading and unloading of models. The XR7620 needed to be a multi-demo
+host where different demos load different model sets without
+redeploying containers.
 
 This led to the **Triton Inference Server with EXPLICIT model control
 mode** architecture (ADR-0014). Triton wraps vLLM as a backend and adds:
@@ -40,7 +40,7 @@ mode** architecture (ADR-0014). Triton wraps vLLM as a backend and adds:
 - systemd-managed processes, one per GPU (ADR-0013)
 - The "watch the L4s warm up" demo theater
 
-We researched this thoroughly. A subagent verified:
+I researched this thoroughly. A subagent verified:
 - Triton vLLM backend exists, maintained by NVIDIA
 - EXPLICIT mode mechanics (POST /v2/repository/models/<name>/load)
 - Multi-GPU best practice: one Triton per GPU (forced by GitHub #7786)
@@ -53,7 +53,7 @@ We researched this thoroughly. A subagent verified:
 released April 2 — five days AFTER the Triton cut. The model type
 `gemma4` is not in transformers 4.57.6 or vLLM 0.17.1.
 
-We tried upgrading vLLM inside the Triton container:
+I tried upgrading vLLM inside the Triton container:
 - `pip install -U vllm` → installed vLLM 0.19.0
 - But this broke the Triton vLLM backend code:
   `ModuleNotFoundError: No module named 'vllm.inputs.data'`
@@ -62,11 +62,11 @@ We tried upgrading vLLM inside the Triton container:
   and 0.19.0
 - Upgrading vLLM without upgrading the Triton backend code = broken
 
-We also discovered that `transformers>=4.58` is needed for the `gemma4`
+I also discovered that `transformers>=4.58` is needed for the `gemma4`
 model type. The stock transformers 4.57.6 in both Triton and
 vllm-openai containers doesn't have it.
 
-## What we decided
+## What I decided
 
 **Pivot to plain `vllm/vllm-openai` containers** for serving, with a
 custom `gemma-forge/vllm:latest` Dockerfile that bakes in
@@ -89,7 +89,7 @@ Verified end-to-end: all 3 endpoints responding, all 4 GPUs loaded,
 `make demo-down` frees all GPUs to 0 MiB, 29 existing Docker containers
 untouched.
 
-## What we learned
+## What I learned
 
 1. **"Day-0 model support" from one vendor does not guarantee Day-0
    support from the rest of the stack.** The model, the inference
@@ -98,14 +98,14 @@ untouched.
    edge operators must treat them as such.
 
 2. **The "shared host service" pattern survived the pivot.** Even
-   though we switched from Triton to plain vLLM, the concept of
-   `/data/triton/` as a host-level model catalog, systemd-managed
-   inference services, and `make demo-up/down` as the operational
-   interface — all of that transferred cleanly.
+   though the serving layer switched from Triton to plain vLLM, the
+   concept of `/data/triton/` as a host-level model catalog,
+   systemd-managed inference services, and `make demo-up/down` as the
+   operational interface — all of that transferred cleanly.
 
 3. **Triton's EXPLICIT mode is the right long-term architecture.**
-   When 26.04 ships, we swap the systemd units back and gain runtime
-   model swap via API with zero harness code changes. The pivot was
+   When 26.04 ships, the systemd units swap back and runtime model
+   swap via API returns with zero harness code changes. The pivot was
    tactical, not strategic.
 
 ## Key artifacts

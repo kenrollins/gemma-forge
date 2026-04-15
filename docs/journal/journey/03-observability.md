@@ -6,24 +6,23 @@ date: 2026-04-10
 tags: [L2-platform-mlops, decision, supply-chain]
 related:
   - gotchas/otel-spanmetrics-connector
-one_line: "The original plan was Langfuse; we evolved to OTel primary, Langfuse secondary; then during Phase 0.5 we discovered security concerns with Langfuse and dropped it entirely in favor of an OTel-pure stack that is more Federal-credible anyway."
+one_line: "The original plan was Langfuse; it evolved to OTel primary, Langfuse secondary; then during Phase 0.5 I discovered security concerns with Langfuse and dropped it entirely in favor of an OTel-pure stack that is more Federal-credible anyway."
 ---
 
 # Journey: Observability — From Langfuse to OTel-Pure
 
 ## The story in one sentence
-The original PRD specified Langfuse; we evolved to "OTel primary,
-Langfuse secondary"; then during Phase 0.5 we discovered Langfuse
+The original PRD specified Langfuse; it evolved to "OTel primary,
+Langfuse secondary"; then during Phase 0.5 I discovered Langfuse
 was already running on the host AND had security concerns, which
-gave us the push to drop it entirely in favor of an OTel-pure stack
+was the push to drop it entirely in favor of an OTel-pure stack
 that's more Federal-credible anyway.
 
-## What we planned
+## What I planned
 
 The original PRD said Langfuse for tracing. During the interview phase,
-Ken picked "Both" when asked about Langfuse vs OTel — meaning
-OpenTelemetry as the instrumentation standard with Langfuse as the
-LLM-friendly UI on top.
+I picked "Both" on Langfuse vs OTel — meaning OpenTelemetry as the
+instrumentation standard with Langfuse as the LLM-friendly UI on top.
 
 ## What changed
 
@@ -41,9 +40,9 @@ own copy.
 
 ### Discovery 2: Langfuse has security issues
 
-Ken flagged: *"Langfuse has security issues. I'm thinking about
-migrating off of it."* He mentioned wanting something "more
-Federal-like" that would run only on this host.
+Langfuse had surfaced security issues that made migrating off it
+attractive — specifically, wanting something more Federal-credible
+that would run only on this host.
 
 This was the tipping point. Building GemmaForge to depend on a product
 the host operator is migrating away from is a strategic mistake.

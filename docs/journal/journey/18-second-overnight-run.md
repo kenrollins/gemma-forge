@@ -1,7 +1,7 @@
 ---
 id: journey-18-second-overnight-run
 type: journey
-title: "The Second Overnight Run: 93 Rules, and What the Other 26 Teach Us"
+title: "The Second Overnight Run: 93 Rules, and What the Other 26 Teach"
 date: 2026-04-12
 tags: [L4-orchestration, reflexion-loop, context-management, snapshot-revert, postmortem]
 related:
@@ -11,7 +11,7 @@ related:
 one_line: "v3 ran for 9.5 hours and remediated 93 of 120 STIG rules autonomously — a 78% fix rate, up from 7% in the first overnight run — but 69% of wall time was spent on the 26 rules that ultimately escalated, revealing three architectural patterns worth addressing."
 ---
 
-# The Second Overnight Run: 93 Rules, and What the Other 26 Teach Us
+# The Second Overnight Run: 93 Rules, and What the Other 26 Teach
 
 ## The story in one sentence
 
@@ -129,7 +129,7 @@ Each of the five v3 fixes is visible in the data:
 
 ### Finding 1: Conversation history overflow
 
-**The problem we fixed at the prompt level exists at the conversation
+**The problem fixed at the prompt level exists at the conversation
 level.**
 
 On high-attempt rules (13+ attempts), accumulated tool call/result
@@ -138,7 +138,7 @@ identical: `PromptTooLongError`. The prompt budget assembler controls
 the *instruction* portion, but the *conversation history* — SSH
 commands and their multi-line output — grows unbounded within a rule.
 
-This is the same class of problem as our episodic memory distillation,
+This is the same class of problem as the episodic memory distillation,
 applied to the within-rule conversation. The harness needs a sliding
 window or summarization mechanism: keep the last N turns verbatim,
 compress earlier turns to a one-line summary.
@@ -209,7 +209,7 @@ impossible tasks.
 
 ## The Ralph loop observation
 
-The harness applied the Ralph loop to 120 STIG rules. We are now
+The harness applied the Ralph loop to 120 STIG rules. I'm now
 applying the Ralph loop to the harness itself:
 
 1. **Fail** — v2 ran overnight and remediated 2 rules.

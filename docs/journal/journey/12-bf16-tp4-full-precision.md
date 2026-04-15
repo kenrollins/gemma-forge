@@ -14,16 +14,17 @@ one_line: "bf16 TP=4 on 4× L4 matched NVFP4 TP=2 throughput at full precision �
 # Journey: Full Precision bf16 on All 4 L4s — No Quantization, No Compromises
 
 ## The story in one sentence
-We expected bf16 tp=4 to be painfully slow on the XR7620's 4 L4s without
-NVLink, tested it anyway, and discovered it matches our NVFP4 tp=2
+I expected bf16 tp=4 to be painfully slow on the XR7620's 4 L4s without
+NVLink, tested it anyway, and discovered it matches the NVFP4 tp=2
 throughput while running at full precision — an unexpected finding that
-reshaped how we configure the demo.
+reshaped the demo configuration.
 
-## Why we tested it
+## Why I tested it
 
 With the architecture revision (deterministic evaluator, all LLM roles
-on Gemma), we had 4 GPUs but only needed 2 for NVFP4 tp=2. Ken asked:
-"if we have 4 GPUs does that change how we configure the 31B?"
+on Gemma), 4 GPUs were available but only 2 were needed for NVFP4 tp=2.
+The question: with 4 GPUs available, does that change how to configure
+the 31B?
 
 The math said it should work: 62 GB bf16 / 4 GPUs = 15.5 GB per GPU,
 leaving ~5 GB for KV cache. The question was throughput — tp=4 on
@@ -49,8 +50,8 @@ are built for different workload shapes — but it's useful context for
 anyone calibrating expectations.
 
 The operationally meaningful finding for this project: **full precision,
-no quantization loss, 72% more KV cache headroom than our NVFP4
-configuration, all 4 GPUs engaged.** That is what changed our demo config.
+no quantization loss, 72% more KV cache headroom than the NVFP4
+configuration, all 4 GPUs engaged.** That is what changed the demo config.
 
 ## Why bf16 matches NVFP4 throughput
 

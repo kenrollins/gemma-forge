@@ -8,29 +8,27 @@ related:
   - journey/19-research-and-v4-architecture
   - journey/06.5-stateful-loop-refactor
   - journey/17-v3-fix-pass
-one_line: "We realized the harness and the STIG skill were the same code — and that meant any new skill would require forking the loop. So we extracted five interfaces, moved all STIG-specific logic into a runtime module, and rewired 1,400 lines of harness code without breaking a single test."
+one_line: "I realized the harness and the STIG skill were the same code — and that meant any new skill would require forking the loop. So I extracted five interfaces, moved all STIG-specific logic into a runtime module, and rewired 1,400 lines of harness code without breaking a single test."
 ---
 
 # The Interface Extraction: Ripping the Engine Apart Mid-Flight
 
 ## The story in one sentence
 
-We had a harness that remediated 93 STIG rules overnight, and we
-tore it apart anyway — because the thing that made it work for STIG
-was the same thing that would prevent it from working for anything
-else.
+The harness had remediated 93 STIG rules overnight, and I tore it
+apart anyway — because the thing that made it work for STIG was
+the same thing that would prevent it from working for anything else.
 
 ## Why this is its own entry
 
 The research pass ([`journey/19`](19-research-and-v4-architecture.md))
-told us *what* to build. This entry is about the terrifying moment
-where you have working code, a demo deadline, and you decide to
-refactor the core loop anyway — and the engineering discipline that
-made it land.
+defined *what* to build. This entry is about the terrifying moment
+of having working code, a demo deadline, and deciding to refactor the
+core loop anyway — and the engineering discipline that made it land.
 
 ---
 
-## The problem we couldn't ignore
+## The problem I couldn't ignore
 
 Look at this line from ralph.py, the heart of the harness:
 
@@ -51,13 +49,13 @@ the revert is a `git checkout`, not a VM snapshot. You'd have
 to... fork ralph.py? Rewrite the evaluation? Copy-paste the loop
 and gut the middle?
 
-That's the moment we knew we had a problem. The harness wasn't a
-harness — it was a STIG remediation script that happened to have
+That's the moment the problem became undeniable. The harness wasn't
+a harness — it was a STIG remediation script that happened to have
 good architecture around it.
 
 ## The five interfaces
 
-We stared at the code and asked: what does the harness *actually*
+I stared at the code and asked: what does the harness *actually*
 need from a skill? Not "what does STIG provide" — what does the
 *loop* need?
 
@@ -87,8 +85,8 @@ implements these five interfaces.
 
 ## The evaluation triage insight
 
-While extracting the evaluator interface, we had a second realization.
-The old evaluator returned a boolean: pass or fail. But our overnight
+While extracting the evaluator interface, a second realization landed.
+The old evaluator returned a boolean: pass or fail. But the overnight
 run data showed three *kinds* of failure, and the harness needed to
 respond differently to each.
 
@@ -125,10 +123,10 @@ Same harness logic, different signals. That's the abstraction working.
 
 ## The terrifying moment
 
-We had 75 property tests and a proven overnight run. The refactor
+I had 75 property tests and a proven overnight run. The refactor
 touched every function in the main loop — evaluation, checkpointing,
-scanning, tool wiring. If we got one thing wrong, the next run would
-fail in ways we couldn't predict.
+scanning, tool wiring. One thing wrong and the next run would fail
+in ways that were hard to predict.
 
 The strategy: change the plumbing, not the behavior. Every concrete
 call (`snapshot_exists`, `evaluate_fix`, `stig_scan`) got replaced
@@ -139,9 +137,9 @@ the exact same underlying functions, through the new interface.
 
 The test: `pytest tests/ -v`. 75 passed. Zero failed.
 
-We didn't add a single new feature in this refactor. The run would
-produce *identical* results. But now the harness doesn't know it's
-running STIG. It knows it has work items, an evaluator, a checkpoint
+The refactor added no new features. The run would produce
+*identical* results. But now the harness doesn't know it's running
+STIG. It knows it has work items, an evaluator, a checkpoint
 mechanism, and an executor. What those *are* is the skill's problem.
 
 ## What this enables
@@ -154,11 +152,11 @@ A new skill is now:
 
 No harness changes. No ralph.py modifications. No forking.
 
-The task graph and parallelism we're building next will operate on
-`WorkItem` objects — they don't care if those objects are STIG rules,
-whitepaper sections, or Kubernetes manifests. The DAG visualization
-in the dashboard will show nodes and edges — it doesn't care what the
-nodes represent.
+The task graph and parallelism coming next operate on `WorkItem`
+objects — they don't care if those objects are STIG rules, whitepaper
+sections, or Kubernetes manifests. The DAG visualization in the
+dashboard will show nodes and edges — it doesn't care what the nodes
+represent.
 
 That's the payoff of doing the extraction before the fun stuff: the
 fun stuff is automatically skill-agnostic because it builds on
@@ -166,16 +164,17 @@ interfaces, not STIG code.
 
 ## The meta-lesson
 
-We could have skipped this refactor and built task graphs directly
+I could have skipped this refactor and built task graphs directly
 into the STIG-specific code. It would have been faster for the demo.
-But it would have meant that every future skill reimplements the task
+But it would have meant every future skill reimplements the task
 graph, the triage logic, the conversation management — or worse,
 nobody writes a second skill because the cost is too high.
 
 The overnight run proved the architecture works. The interface
 extraction made it *transferable*. For a project whose explicit goal
-is "share what we learned so others can build similar systems faster,"
-that transferability isn't a nice-to-have. It's the whole point.
+is "share what was learned so others can build similar systems
+faster," that transferability isn't a nice-to-have. It's the whole
+point.
 
 ---
 
@@ -186,5 +185,5 @@ that transferability isn't a nice-to-have. It's the whole point.
 - [`journey/06.5`](06.5-stateful-loop-refactor.md) — the previous
   major refactor (ADK LoopAgent → Python-driven loop). Same courage,
   different scale.
-- [`journey/17`](17-v3-fix-pass.md) — the v3 fixes we were careful
-  not to break.
+- [`journey/17`](17-v3-fix-pass.md) — the v3 fixes that had to be
+  preserved through the refactor.

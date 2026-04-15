@@ -7,14 +7,14 @@ tags: [L4-orchestration, reflexion-loop, refactor]
 related:
   - journey/14-overnight-run-findings
   - architecture/01-reflexive-agent-harness-failure-modes
-one_line: "After the overnight run revealed five architectural flaws and we fixed them in a half-day push, we caught ourselves about to write verification tests for the fixes — and realized the real product is not the fixes but the abstract harness properties they embody."
+one_line: "After the overnight run revealed five architectural flaws and I fixed them in a half-day push, I caught myself about to write verification tests for the fixes — and realized the real product is not the fixes but the abstract harness properties they embody."
 ---
 
 # Journey: When Testing Becomes Architecture Discovery
 
 ## The story in one sentence
-After the overnight run revealed five distinct architectural flaws and we
-fixed them all in a half-day push, we caught ourselves about to write
+After the overnight run revealed five distinct architectural flaws and I
+fixed them all in a half-day push, I caught myself about to write
 "verification tests" for the fixes — and realized that the real product of
 this work is not the fixes but the **abstract harness properties** the
 fixes embody, and that the tests should assert those properties, not the
@@ -24,7 +24,7 @@ fixes.
 
 Going into the test pass after the v3 fixes, the natural framing was:
 
-> "We fixed five things. Let's verify each fix works."
+> "Five things got fixed. Verify each fix works."
 
 The natural test plan looked like:
 
@@ -42,23 +42,22 @@ its place.
 
 ## What changed
 
-In the conversation that produced this document, Ken made two related
-observations:
+Two reframing observations landed at the same time:
 
-> "Don't code for a specific bug or trap. Step back and figure out how to
-> deal with the core issue even if it means completely redoing something."
+> Don't code for a specific bug or trap. Step back and figure out how to
+> deal with the core issue even if it means completely redoing something.
 
 and:
 
-> "The issues identified above are a good callout for more broadly seeing
-> the issues that agentic architectures need to address."
+> These issues point to something more broadly — the problems that agentic
+> architectures need to address.
 
-These reframed the entire test pass. The thing we are building is not
+Together they reframed the entire test pass. The thing being built is not
 "a STIG remediation loop." It is **a generic reflexive-agent harness**,
-and STIG is the first witness that lets us discover what its abstractions
-need to be. The tests, therefore, should not test specific bugs from the
-overnight run — they should test the abstract properties the harness must
-hold *regardless* of which skill is plugged in.
+and STIG is the first witness that reveals what its abstractions need to
+be. The tests, therefore, should not test specific bugs from the overnight
+run — they should test the abstract properties the harness must hold
+*regardless* of which skill is plugged in.
 
 ## The principle
 
@@ -81,7 +80,7 @@ wrong?"
 
 ## The discipline
 
-We adopted an explicit checkpoint after each test tier:
+I adopted an explicit checkpoint after each test tier:
 
 > *Did the failures we just observed point to specific bugs, or do they
 > point to a missing abstraction?*
@@ -93,9 +92,9 @@ the trap of fixing every red test until they go green and shipping a
 
 ## What this discovered
 
-When we tried to write the abstract test for "agent turns are bounded in
-actions," we noticed that there is no place in the harness where you can
-plug in a different agent and have the cap apply automatically. The cap
+Writing the abstract test for "agent turns are bounded in actions"
+surfaced an issue: there is no place in the harness where a different
+agent can be plugged in and have the cap apply automatically. The cap
 is wired into a specific function (`_run_agent_turn`) and the convention
 is "everyone calls that function." That works for the current three
 agents but it doesn't *enforce* the property at the level of the
@@ -106,10 +105,10 @@ This is a smell. The right shape would be:
 - A `Harness` class that knows about agents only through the bounded
   wrapper, so violations are syntactically impossible
 
-We did not refactor to that shape today (would be premature; the rest of
-the architecture is also still in flux). But the test we are about to
-write *names* the property explicitly, so when the refactor happens, the
-test moves with it without modification. The test is the spec; the
+I did not refactor to that shape today (would be premature; the rest of
+the architecture is also still in flux). But the test about to be written
+*names* the property explicitly, so when the refactor happens, the test
+moves with it without modification. The test is the spec; the
 implementation is the current best instance.
 
 ## What goes in the journal vs what goes in the standalone piece
@@ -123,17 +122,17 @@ The decision was made to write **two** documents instead of one:
 
 - **`journey/14-overnight-run-findings.md`** and the present
   `journey/15-the-test-as-architecture-discovery.md` — the autobiographical
-  layer. Captures *how* each failure was discovered, who said what to
-  whom, what was tried first, and why we changed our minds. This layer
-  exists to make the standalone piece *credible*: each abstract claim
-  has an empirical receipt in the journey.
+  layer. Captures *how* each failure was discovered, what was tried
+  first, and why positions shifted. This layer exists to make the
+  standalone piece *credible*: each abstract claim has an empirical
+  receipt in the journey.
 
 The standalone piece is the contribution. The journey is the evidence.
 The harness implementation is the proof. The tests are the executable
 specification. All four are the same activity, written in different
 genres.
 
-## What we want to remember from this
+## What I want to remember from this
 
 1. **Test the abstractions, not the bugs.** Every test name should be a
    property statement, not an action description. If you can't write the
@@ -148,7 +147,7 @@ genres.
    Both belong in the journal; only one belongs on someone else's reading
    list.
 
-4. **The thing you're building is the abstraction, not the demo.** STIG
+4. **The thing being built is the abstraction, not the demo.** STIG
    is the demo. The harness is the contribution. Every architectural
    decision should ask "would this make sense for a different skill?"
 
@@ -173,12 +172,12 @@ genres.
 
 ## What happens next
 
-The test plan executes in tiers, with checkpoints. At each checkpoint, we
+The test plan executes in tiers, with checkpoints. At each checkpoint I
 either fix-and-continue or stop-and-redesign. The test outcomes feed back
 into both the harness code (fixes and refactors) and the failure-modes
-document (new evidence, new modes if we find them).
+document (new evidence, new modes if any surface).
 
-When the test suite stabilizes, we have:
+When the test suite stabilizes, the deliverables are:
 - A harness whose properties are explicitly named and verified
 - A test file that reads as a specification
 - A failure-modes document with empirical receipts
@@ -186,5 +185,6 @@ When the test suite stabilizes, we have:
 - A demo (the original STIG remediation) that proves it works on a real
   workload
 
-Then we build the frontend Journal + Architecture pages, then we run a
-second overnight, then we evaluate whether we need a v4.
+Then the frontend Journal + Architecture pages get built, a second
+overnight run happens, and the evaluation of whether a v4 is needed
+follows.

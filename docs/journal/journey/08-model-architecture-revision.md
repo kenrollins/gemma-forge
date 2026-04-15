@@ -7,15 +7,15 @@ tags: [L3-model, L4-orchestration, refactor]
 related:
   - journey/02-model-strategy
   - journey/11-the-missing-reflector
-one_line: "We started with four models assigned to four GPUs because we had four GPUs, then recognized it as hardware-first thinking, and redesigned around what each agent role actually needs."
+one_line: "I started with four models assigned to four GPUs because there were four GPUs, recognized it as hardware-first thinking, and redesigned around what each agent role actually needs."
 ---
 
 # Journey: Model Architecture Revision — From "One GPU Per Role" to "Right Model Per Role"
 
 ## The story in one sentence
-We started with four models assigned to four GPUs because we had four
-GPUs, then Ken called it out as hardware-first thinking, and we
-redesigned around what each agent role actually NEEDS.
+I started with four models assigned to four GPUs because there were
+four GPUs, caught it as hardware-first thinking, and redesigned around
+what each agent role actually NEEDS.
 
 ## What was wrong
 
@@ -24,21 +24,21 @@ The original lineup (ADR-0015) assigned models by size:
 - GPU 2: E4B (medium) → Auditor
 - GPU 3: E2B (smallest) → Sentry (never wired in)
 
-Three problems Ken identified:
+Three problems surfaced:
 
-1. **"We are utilizing each GPU just cause we can."** The assignment
+1. **Every GPU was utilized just because it was there.** The assignment
    was hardware-first, not architecture-first. The Sentry GPU was
    loaded but idle — pure waste.
 
-2. **"Wouldn't the auditor benefit from increased intelligence?"**
-   The Auditor makes the HARDEST decision in the loop (keep or revert)
-   but ran on the second-weakest model. That's like giving your code
-   reviewer a junior developer's brain.
+2. **The Auditor would benefit from increased intelligence.** The
+   Auditor makes the HARDEST decision in the loop (keep or revert) but
+   ran on the second-weakest model. That's like giving a code reviewer
+   a junior developer's brain.
 
-3. **"We were doing mostly pass/fail tests — are we really auditing?"**
-   The Auditor's entire job was: call healthcheck, read "HEALTHY" or
-   "UNHEALTHY", decide. A bash script could do that. The LLM was a
-   wrapper around a three-word string.
+3. **The "audit" was mostly a pass/fail test.** The Auditor's entire
+   job was: call healthcheck, read "HEALTHY" or "UNHEALTHY", decide.
+   A bash script could do that. The LLM was a wrapper around a
+   three-word string.
 
 ## The architectural insight
 
@@ -93,9 +93,9 @@ benign noise requires actual intelligence.
 
 ## Why GPU 3 stays free
 
-Ken liked "available" better than forcing a role. The demo story:
-"3 GPUs running 2 model families for 3 agent roles, with a 4th GPU
-available for additional skills. This XR7620 isn't maxed out — it
-has room for the next mission."
+"Available" beats forcing a role. The demo story: "3 GPUs running
+2 model families for 3 agent roles, with a 4th GPU available for
+additional skills. This XR7620 isn't maxed out — it has room for
+the next mission."
 
 Having headroom to grow is more important than seeing a config 100% utilized.

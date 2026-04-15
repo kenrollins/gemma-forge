@@ -8,29 +8,29 @@ related:
   - journey/08-model-architecture-revision
   - journey/13-ralph-persistence-retry-budget
   - architecture/01-reflexive-agent-harness-failure-modes
-one_line: "We built three agents, proved tool calling worked, ran successful overnight tests, celebrated — and then realized we were missing a foundational component of the reflexion architecture we set out to prove."
+one_line: "I built three agents, proved tool calling worked, ran successful overnight tests, celebrated — and then realized I was missing a foundational component of the reflexion architecture the project set out to prove."
 ---
 
 # Journey: The Missing Reflector — What Vibe Coding Misses
 
 ## The story in one sentence
-We built three agents, proved tool calling worked, ran successful
-overnight tests, celebrated — and then realized we were missing a
-foundational component of the reflexion architecture we set out to
-prove.
+I built three agents, proved tool calling worked, ran successful
+overnight tests, celebrated — and then realized the architecture
+was missing a foundational component of the reflexion loop the
+project set out to prove.
 
 ## How it got missed
 
 The build started with a PRD that described four GPU roles:
-Architect, Worker, Auditor, Sentry. As we worked through Phase 1-3,
-the architecture evolved based on real hardware constraints:
+Architect, Worker, Auditor, Sentry. Through Phase 1-3, the
+architecture evolved based on real hardware constraints:
 
 1. The 31B didn't fit on one L4 → TP=2 → Architect and Worker share GPUs 0+1
 2. Tool calling validation consumed attention → the loop worked! Ship it!
 3. The Auditor was a rubber stamp → expanded to real audit tools
-4. Ken asked "what about GPU 3?" → we dropped Sentry, moved to Nemotron PP=2
+4. GPU 3 was idle → Sentry dropped, moved to Nemotron PP=2
 5. The cross-model eval was working, the throughput data was rich →
-   we were excited about the TP vs PP story
+   momentum on the TP vs PP story
 
 At no point did anyone stop to ask: **"Are three agents actually the
 right architecture for a reflexion loop?"**
@@ -38,7 +38,7 @@ right architecture for a reflexion loop?"**
 The answer was no. A proper reflexion / Ralph loop has FOUR cognitive
 functions:
 
-| Function | Purpose | We had it? |
+| Function | Purpose | Present? |
 |---|---|---|
 | Plan | Decide what to do | ✓ Architect |
 | Execute | Do it | ✓ Worker |
@@ -58,7 +58,7 @@ The Reflector runs ONLY after a revert — not every iteration. It
 analyzes the pattern of failures across the run and generates
 strategic guidance for the Architect.
 
-Without Reflector (what we had):
+Without Reflector (the original shape):
 ```
 Iteration 5: Worker uses sed to modify aide.conf → breaks syntax → reverted
 Iteration 6: Architect sees "aide.conf sed failed" → picks a different rule
@@ -87,8 +87,8 @@ a retry loop and a learning loop.
 
 ## Where to put the Reflector
 
-Ken asked the critical question: "Which model reasons better — Gemma
-or Nemotron?" The benchmarks are clear:
+The critical question: which model reasons better — Gemma or
+Nemotron? The benchmarks are clear:
 
 | | Gemma 4 31B | Nemotron 30B |
 |---|---|---|
@@ -128,21 +128,21 @@ on the same model family means the strategic guidance is in a
 This is a genuine gotcha of iterative, AI-assisted development:
 
 1. Each individual step was correct and well-reasoned
-2. We tested, measured, debugged, documented at every stage
+2. I tested, measured, debugged, documented at every stage
 3. The system WORKED — 36 rules fixed in one run
-4. But we were solving implementation problems (VRAM, tool calling,
+4. But the work was on implementation problems (VRAM, tool calling,
    context overflow) instead of stepping back to ask "is the
    ARCHITECTURE right?"
 
-Ken caught it by asking: "By only having an agent team of 3, are we
-properly implementing the right architecture for the ralph loop
-construct we are trying to prove out?"
+The catch came from asking the obvious zoom-out question: with an
+agent team of only 3, is this really the right architecture for the
+Ralph loop this project is trying to prove?
 
 That's the kind of question that gets lost in the momentum of
-building. It's also the kind of question that anyone reviewing this
+building. It's also the kind of question anyone reviewing this
 architecture would ask in the first five minutes. Better to catch
-it now — and document that we caught it — than to ship a three-agent
-system and call it reflexion.
+it now — and document the catch — than to ship a three-agent system
+and call it reflexion.
 
 ## Key artifacts
 

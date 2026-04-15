@@ -8,29 +8,29 @@ related:
   - journey/18-second-overnight-run
   - journey/06.5-stateful-loop-refactor
   - architecture/01-reflexive-agent-harness-failure-modes
-one_line: "Before building v4, we stopped to ask whether we were reinventing wheels — researched the state of Ralph loops, Reflexion agents, and their combination, validated our architectural choices against the literature, and designed the v4 interface boundary that separates harness concerns from skill concerns."
+one_line: "Before building v4, I stopped to ask whether I was reinventing wheels — researched the state of Ralph loops, Reflexion agents, and their combination, validated architectural choices against the literature, and designed the v4 interface boundary that separates harness concerns from skill concerns."
 ---
 
 # Standing on Whose Shoulders?
 
 ## The story in one sentence
 
-After two overnight runs and five architectural fixes, we paused
-before committing to v4 to ask: are we doing something novel, are we
-catching up with what others did months ago, and did we make the right
-choices — because ripping and replacing now is cheaper than
-discovering we were wrong after three more improvements.
+After two overnight runs and five architectural fixes, I paused
+before committing to v4 to ask: is this doing something novel, is it
+catching up with what others did months ago, and were the right
+choices made — because ripping and replacing now is cheaper than
+discovering I was wrong after three more improvements.
 
 ## Why this is its own entry
 
 This is a decision moment, not a coding moment. The research changed
-what we built next and how we framed the project. Without it, v4
+what got built next and how the project is framed. Without it, v4
 would have been three more STIG-specific improvements. With it, v4
 became an interface extraction that makes the harness skill-agnostic.
 
 ---
 
-## What we found
+## What I found
 
 ### Ralph loops: established pattern, narrow application
 
@@ -45,12 +45,12 @@ Key implementations: [snarktank/ralph](https://github.com/snarktank/ralph)
 and an official Claude Code plugin. All focus on autonomous coding
 tasks.
 
-**What we learned**: Ralph loops are widely adopted for code
-generation but we found no evidence of production use for
+**What I learned**: Ralph loops are widely adopted for code
+generation but there's no evidence of production use for
 infrastructure remediation or compliance enforcement. The pattern
-as commonly understood is simpler than what we're building — it's
-persistence through external state, not multi-agent reflexion with
-deterministic evaluation.
+as commonly understood is simpler than what this project is
+building — persistence through external state, not multi-agent
+reflexion with deterministic evaluation.
 
 ### Reflexion agents: solid academic foundation
 
@@ -65,10 +65,11 @@ pattern to multi-agent settings and notes a critical limitation:
 matches exactly what we observed in the scanner-semantic-gap cases —
 the model kept trying variations of a fundamentally wrong approach.
 
-**VIGIL (Dec 2025)** is architecturally closest to us: a reflective
-runtime that supervises agents with mostly-deterministic code, using
-the LLM only for high-level reasoning. Their Roses/Buds/Thorns
-diagnostic structure is similar to our post-mortem capture.
+**VIGIL (Dec 2025)** is architecturally closest to GemmaForge: a
+reflective runtime that supervises agents with mostly-deterministic
+code, using the LLM only for high-level reasoning. Its
+Roses/Buds/Thorns diagnostic structure is similar to the post-mortem
+capture here.
 
 ### The combination: emerging, thin, and nobody's doing infrastructure
 
@@ -83,23 +84,23 @@ called "Sentinel" that uses local LLMs for Linux self-healing, but it
 has no revert mechanism, no multi-agent architecture, and no
 deterministic evaluation.
 
-### Did we make the right choices?
+### Were the right choices made?
 
 **Deterministic evaluator: yes.** Anthropic's own "Demystifying Evals
 for AI Agents" (Jan 2026) explicitly recommends: "Choose deterministic
 graders where possible, LLM graders where necessary." For compliance,
 correctness is binary. OpenSCAP is exactly the right tool.
 
-**Snapshot-based revert: yes, and more novel than we thought.** A
+**Snapshot-based revert: yes, and more novel than I thought.** A
 March 2026 paper (ACRFence) identifies security risks in agent
 checkpoint-restore systems — semantic rollback attacks where agents
-re-synthesize different requests after restore. Our VM-level snapshot
-avoids this entire class because it's a full-state revert, not an
-agent-level checkpoint.
+re-synthesize different requests after restore. The VM-level snapshot
+here avoids this entire class because it's a full-state revert, not
+an agent-level checkpoint.
 
 **Fresh sessions per turn: yes.** The MAR paper confirms that
 Reflexion performance degrades when context gets polluted with stale
-history. Our fresh-session approach with episodic memory distillation
+history. The fresh-session approach with episodic memory distillation
 is the validated pattern.
 
 **Single open-weights model at the edge: a deployment story, not a
@@ -117,17 +118,17 @@ and conversation-history management, running on open-weights models
 at the edge. The application to infrastructure compliance is
 unexplored territory.
 
-The right framing: we're not inventing new AI techniques. We're
+The right framing: this isn't inventing new AI techniques. It's
 *combining established patterns* and applying them to a domain nobody
 else has tried, on hardware that makes it sovereign and air-gappable.
-That's the story for the presales audience.
+That's the story for a technical audience.
 
 ---
 
 ## The v4 architecture decision
 
-The research validated our patterns but the second overnight run
-analysis revealed something more important: **our harness is too
+The research validated the patterns, but the second overnight run
+analysis revealed something more important: **the harness is too
 tightly coupled to the STIG skill.**
 
 The evaluator calls OpenSCAP directly. The revert calls `virsh

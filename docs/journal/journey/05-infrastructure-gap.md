@@ -20,9 +20,9 @@ does not mean the surrounding inference infrastructure is ready on the
 same day. This is a structural property of open-source AI infrastructure,
 not a criticism of any vendor.
 
-## The specific gap we hit
+## The specific gap I hit
 
-Gemma 4 released **2026-04-02**. We started building **2026-04-08**.
+Gemma 4 released **2026-04-02**. I started building **2026-04-08**.
 One week after release:
 
 | Component | Status | Gap |
@@ -58,7 +58,7 @@ Air-gapped and sovereign edge deployments must plan for this gap because:
 
 ## How GemmaForge handles it
 
-Our approach: **maintain the ability to compose components at different
+The approach: **maintain the ability to compose components at different
 release cadences** rather than pinning to a single vendor's stack.
 
 - `gemma-forge/vllm:latest` is a derived Dockerfile that decouples the

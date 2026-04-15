@@ -8,18 +8,18 @@ related:
   - journey/01-inference-layer
   - journey/08-model-architecture-revision
   - gotchas/nvfp4-vram-math
-one_line: "We tried four different configurations of the Gemma 4 31B model on L4 GPUs before finding the one that actually works, and the answer turned out to be both the most practical AND the most compelling."
+one_line: "I tried four different configurations of the Gemma 4 31B model on L4 GPUs before finding the one that actually works, and the answer turned out to be both the most practical AND the most compelling."
 ---
 
 # Journey: The Model Strategy — bf16, NVFP4, and the VRAM Reality
 
 ## The story in one sentence
-We tried four different configurations of the Gemma 4 31B model on
+I tried four different configurations of the Gemma 4 31B model on
 L4 GPUs before finding the one that actually works, and the answer
 (NVFP4 + tp=2) turned out to be both the most practical AND the
 most compelling demo story.
 
-## What we planned (ADR-0015 original)
+## What I planned (ADR-0015 original)
 
 The original model lineup followed the official vLLM Gemma 4 recipe
 verbatim:
@@ -27,7 +27,7 @@ verbatim:
 - Auditor: Gemma 4 E4B, bf16
 - Sentry: Gemma 4 E2B, bf16
 
-The recipe says tp=2 for the 31B. We assumed this meant 2 L4s.
+The recipe says tp=2 for the 31B. I assumed this meant 2 L4s.
 
 ## The VRAM reality
 
@@ -48,8 +48,7 @@ work on L4 hardware.
 
 ## The NVFP4 discovery
 
-Ken asked about FP4 quantization: *"I didn't realize NVFP4 could
-actually run on my L4s."*
+The question was whether NVFP4 quantization could actually run on L4s.
 
 NVIDIA published `nvidia/Gemma-4-31B-IT-NVFP4` on HuggingFace,
 produced by modelopt v0.37.0. Key findings:
@@ -69,7 +68,7 @@ produced by modelopt v0.37.0. Key findings:
 
 ## The quality test
 
-We tested the NVFP4 31B with a STIG remediation prompt (V-257844: SSH
+I tested the NVFP4 31B with a STIG remediation prompt (V-257844: SSH
 FIPS key exchange). The model produced:
 - A structured remediation plan with backup, fix, rollback, validation
 - Knew FIPS-validated key exchange algorithms by name
@@ -82,9 +81,9 @@ attention-preservation strategy works.
 
 ## TP vs PP comparison
 
-Ken asked: *"are we doing the simple stretching of an LLM between two
-L4s, or the thing where so many layers get loaded on the first GPU and
-the other layers get loaded on the second?"*
+The question was: is this the simple stretching of an LLM between two
+L4s, or the approach where some layers load on the first GPU and the
+rest on the second?
 
 - **Tensor Parallelism (TP)**: every layer split across both GPUs,
   60 all-reduce operations per forward pass over PCIe

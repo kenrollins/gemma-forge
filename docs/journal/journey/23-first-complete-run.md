@@ -9,7 +9,7 @@ related:
   - journey/14-overnight-run-findings
   - journey/18-second-overnight-run
   - improvements/01-architect-reengagement
-one_line: "Run 1 processed all 270 STIG rules — 85 remediated, 157 escalated — and the forensics revealed both a catastrophic cascade (RPM DB corruption) and a deeper problem: the cross-run memory system we'd carefully designed wasn't actually wired up to learn."
+one_line: "Run 1 processed all 270 STIG rules — 85 remediated, 157 escalated — and the forensics revealed both a catastrophic cascade (RPM DB corruption) and a deeper problem: the cross-run memory system I'd carefully designed wasn't actually wired up to learn."
 ---
 
 # The First Complete Run
@@ -18,17 +18,16 @@ one_line: "Run 1 processed all 270 STIG rules — 85 remediated, 157 escalated �
 
 The v5 harness ran overnight, processed every single STIG rule without
 crashing, and the result was simultaneously a triumph (it finished!)
-and a wake-up call (the learning system we built isn't actually
+and a wake-up call (the learning system I built isn't actually
 learning).
 
 ## The overnight result
 
-We kicked off Run 1 at 5:38 PM on Saturday. When we checked Sunday
-morning at 7:07 AM — 13.5 hours later — it had finished. Every rule
-processed. No crashes, no hangs, no unrecoverable states. After weeks
-of runs that died mid-way through from context overflows, broken
-checkpoints, and infinite retry loops, just *finishing* felt like a
-milestone.
+Run 1 kicked off at 5:38 PM on Saturday. By the Sunday morning check at
+7:07 AM — 13.5 hours later — it had finished. Every rule processed.
+No crashes, no hangs, no unrecoverable states. After weeks of runs
+that died mid-way through from context overflows, broken checkpoints,
+and infinite retry loops, just *finishing* felt like a milestone.
 
 The numbers:
 
@@ -39,7 +38,7 @@ The numbers:
 | Skipped | 28 (10.4%) |
 
 11,518 events. 26.7 MB of structured JSONL. The biggest log file
-we've produced by an order of magnitude.
+this project has produced by an order of magnitude.
 
 ## The RPM cascade
 
@@ -56,11 +55,11 @@ Authentication rules? Perfect. Kernel sysctl rules? Mostly good.
 But audit and SSH — categories where the fixes were probably
 *correct* — cratered at 6%.
 
-We dug into the lessons table. The SQLite memory store had captured
+I dug into the lessons table. The SQLite memory store had captured
 644 lessons during the run. And 397 of them — sixty-two percent —
 mentioned the RPM database.
 
-The pattern was obvious once we saw it: somewhere early in the run,
+The pattern was obvious once it surfaced: somewhere early in the run,
 a remediation broke the RPM database on the target VM. After that,
 `oscap` (the STIG evaluator) couldn't verify *anything* that
 required package metadata. The fixes were going in correctly — the
@@ -86,12 +85,12 @@ behavior.
 ## The real problem: the learning loop was open
 
 This is where the morning turned from "analyze the run results"
-to "audit the entire cross-run architecture." We'd built a
+to "audit the entire cross-run architecture." I'd built a
 beautiful memory system — SQLite with WAL mode, four tables,
 lesson weights, category stats, the whole context graph from
 [entry 22](22-context-graphs-and-the-memory-question.md). But
-when we traced the actual data flow from storage through hydration
-to prompt injection, we found five gaps:
+tracing the actual data flow from storage through hydration to
+prompt injection surfaced five gaps:
 
 **1. Lesson weights never changed.** Every single lesson in the
 database had weight 0.5 — the default. The `update_lesson_weight()`
@@ -105,13 +104,13 @@ and Worker's prompts — showed the last 3 lessons. Not the best 3.
 Not the most relevant 3. The *last* 3, by insertion order. With 644
 lessons stored and 20 loaded at hydration, the agents saw... 3.
 
-**3. No per-item cross-run memory.** We built
+**3. No per-item cross-run memory.** I built
 `query_prior_attempts(item_id)` specifically so Run 2 could ask
 "what happened to this exact rule last time?" It was never called.
 When the Worker started on a rule that had been tried 3 times in
 Run 1 and escalated due to RPM corruption, it had no idea.
 
-**4. No category-specific lessons.** We built
+**4. No category-specific lessons.** I built
 `load_lessons(category)` so a Worker tackling a `kernel` rule
 would see kernel-specific insights. Never called. The Worker saw
 the same 3 generic lessons regardless of what it was working on.
@@ -130,11 +129,11 @@ weren't reading.
 
 ## The meta-question
 
-There was a moment where we paused and asked: is this cheating?
+There was a moment of pause: is this cheating?
 
-We could see the RPM DB problem. We could hardcode a
-`rpm --rebuilddb` recovery step. We could add a pre-flight check.
-But that would be *us* fixing a problem the system discovered —
+The RPM DB problem was visible. I could hardcode a
+`rpm --rebuilddb` recovery step. I could add a pre-flight check.
+But that would be *me* fixing a problem the system discovered —
 human intervention masquerading as machine learning.
 
 The better question: does the system have the *mechanism* to act
@@ -191,14 +190,14 @@ by being reprogrammed.
 If it doesn't improve, that's an equally important finding: maybe
 644 text lessons aren't the right representation, maybe the lessons
 are too specific to generalize, maybe the model can't act on
-injected historical context at this scale. Either way, we learn
-something real.
+injected historical context at this scale. Either way, that's a
+real learning.
 
-The honest-to-god truth: we're nervous. Not about whether the
-harness will crash — it proved it can finish. About whether the
-learning is real. There's a difference between a system that
-*stores* what it learned and a system that *uses* what it learned.
-Run 2 is the test.
+Honest truth: I'm nervous. Not about whether the harness will
+crash — it proved it can finish. About whether the learning is
+real. There's a difference between a system that *stores* what it
+learned and a system that *uses* what it learned. Run 2 is the
+test.
 
 ---
 

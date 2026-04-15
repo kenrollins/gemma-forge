@@ -9,16 +9,16 @@ related:
   - journey/20-the-interface-extraction
   - journey/21-task-graph-and-react-flow
   - architecture/01-reflexive-agent-harness-failure-modes
-one_line: "A Sunday afternoon research spiral — from a podcast memory about context graphs to Foundation Capital's trillion-dollar thesis to NIST audit requirements to 'do we even need a database?' to the answer that surprised us: SQLite, because the adaptive concurrency clutch demands concurrent read/write that JSON files can't provide."
+one_line: "A research spiral — from a podcast memory about context graphs to Foundation Capital's trillion-dollar thesis to NIST audit requirements to 'do we even need a database?' to the answer that surprised me: SQLite, because the adaptive concurrency clutch demands concurrent read/write that JSON files can't provide."
 ---
 
 # Context Graphs and the Memory Question
 
 ## The story in one sentence
 
-We almost added PostgreSQL, then almost went with plain JSON files,
+I almost added PostgreSQL, then almost went with plain JSON files,
 and ended up at SQLite — not because of the context graph, but because
-the adaptive concurrency controller we hadn't built yet required
+the adaptive concurrency controller I hadn't built yet required
 concurrent read/write that only a proper database can provide safely.
 
 ## Why this is its own entry
@@ -56,7 +56,7 @@ the context that makes autonomous agents trustworthy and improvable.
 
 ## The research validates the instinct
 
-We found convergent evidence from multiple directions:
+Convergent evidence from multiple directions:
 
 ### Academic: Trainable Graph Memory (arxiv 2511.07800)
 
@@ -72,8 +72,8 @@ learns which strategies are most valuable. The headline result: **a
 4B model with this graph memory outperformed a baseline 8B model.**
 The memory is worth more than the extra parameters.
 
-That's our thesis in a paper. Small edge model + right harness +
-accumulated knowledge = effective solutions.
+That's this project's thesis in a paper. Small edge model + right
+harness + accumulated knowledge = effective solutions.
 
 ### Regulatory: NIST AI Agent Standards Initiative (Feb 2026)
 
@@ -132,10 +132,10 @@ project on a home lab, that's heavy.
 
 ### Round 2: JSON files
 
-The devil's advocate: do we even need a database? The research says
-file-based memory works at our scale:
+The devil's advocate: does this even need a database? The research
+says file-based memory works at this scale:
 
-| What we need | File approach | Scale threshold |
+| What's needed | File approach | Scale threshold |
 |---|---|---|
 | Cross-run lessons | `memory/lessons.json` | Works under ~1,000 entries |
 | Banned patterns | `memory/banned.json` | Works indefinitely |
@@ -146,7 +146,7 @@ file-based memory works at our scale:
 [Industry analysis confirms](https://dev.to/imaginex/ai-agent-memory-management-when-markdown-files-are-all-you-need-5ekk):
 Manus, OpenClaw, and Claude Code all converge on "memory as
 documentation" — files in the workspace. The consensus threshold:
-files work under ~5MB of memory data. Our distilled memory
+files work under ~5MB of memory data. The distilled memory here
 (lessons, bans, difficulty model) would be well under 1MB.
 
 **The problem**: the adaptive concurrency controller.
@@ -174,7 +174,7 @@ write clobbers another. PostgreSQL can, but it's overkill.
 - SQL queries for aggregation and cross-run analysis
 - Portable — clone the repo, the DB creates itself on first run
 
-We didn't arrive at SQLite from the context graph. We arrived at it
+The SQLite decision didn't come from the context graph. It came
 from the clutch. The theoretical architecture (decision provenance
 graphs) is perfectly served by files. The practical mechanism
 (real-time adaptive concurrency) demands concurrent access that
@@ -184,10 +184,10 @@ only a proper database — even a lightweight one — can provide safely.
 
 ## The v5 architecture
 
-### What we're building
+### What I'm building
 
 1. **Decision graph schema** — node/edge types as Python dataclasses,
-   serialized to SQLite. The graph structure maps our existing JSONL
+   serialized to SQLite. The graph structure maps the existing JSONL
    event types into persistent, queryable relationships.
 
 2. **SQLite persistence** — `memory/gemma_forge.db` with tables for
@@ -232,7 +232,7 @@ swap SQLite for PostgreSQL. The harness never knows.
 
 It's worth stepping back and noticing what happened over the past
 week. The harness started as a retry loop. Then it learned to
-reflect. Then it learned to remember within a run. Then we made it
+reflect. Then it learned to remember within a run. Then it became
 skill-agnostic. And now it learns across runs — each execution
 leaving the next one smarter, with every decision traceable.
 
@@ -258,8 +258,8 @@ to itself.
 ## Related
 
 - [`journey/19`](19-research-and-v4-architecture.md) — the first
-  research pass that validated our v3→v4 choices.
+  research pass that validated the v3→v4 choices.
 - [`journey/20`](20-the-interface-extraction.md) — the interface
-  pattern we're extending to memory persistence.
+  pattern being extended to memory persistence.
 - [`journey/21`](21-task-graph-and-react-flow.md) — the task graph
   that the context graph enriches with decision provenance.

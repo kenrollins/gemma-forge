@@ -1,7 +1,7 @@
 ---
 id: journey-09-nemotron-experiment
 type: journey
-title: "The Nemotron Experiment: Cross-Model Architecture, and Why We Walked It Back"
+title: "The Nemotron Experiment: Cross-Model Architecture, and Why I Walked It Back"
 date: 2026-04-10
 tags: [L3-model, L4-orchestration, parallelism, refactor]
 related:
@@ -9,19 +9,19 @@ related:
   - journey/10-the-parallelism-maze
   - gotchas/nemotron-tool-parser
   - gotchas/nemotron-tp-tiling-error
-one_line: "We spent most of a day wiring up a cross-model architecture where Nemotron 30B MoE served as the Auditor role alongside Gemma 4, discovered it worked technically but fought the design, and walked it back to all-Gemma."
+one_line: "I spent most of a day wiring up a cross-model architecture where Nemotron 30B MoE served as the Auditor role alongside Gemma 4, discovered it worked technically but fought the design, and walked it back to all-Gemma."
 ---
 
-# The Nemotron Experiment: Cross-Model Architecture, and Why We Walked It Back
+# The Nemotron Experiment: Cross-Model Architecture, and Why I Walked It Back
 
 ## The story in one sentence
-We spent most of a day building a cross-model architecture where
+I spent most of a day building a cross-model architecture where
 Nemotron 30B MoE ran as the Auditor role — a second foundation model
 providing independent judgment — and discovered that while the
 technical integration worked, the architectural complexity wasn't
-earning its keep, so we walked it back to all-Gemma.
+earning its keep, so I walked it back to all-Gemma.
 
-## What we were trying to prove
+## What I was trying to prove
 
 The agentic architecture has multiple roles (Architect, Worker,
 Reflector, Auditor) and there's an open question about whether those
@@ -42,7 +42,7 @@ intuition for different-model is compelling:
 Nemotron 30B (NVIDIA's MoE model) was the natural pick for the
 second model. It's open-weights, served by vLLM, fits on 2× L4 via
 pipeline parallelism, and has a different architectural lineage
-from Gemma. If we wanted cross-model architecture to work, this
+from Gemma. If cross-model architecture was going to work, this
 was the test case.
 
 ## What worked
@@ -79,7 +79,7 @@ The complexity wasn't earning its keep. Several specific problems:
 
 The original intent was for the Auditor to independently judge the
 Worker's output — a second opinion on whether a fix was good. But
-once we actually looked at what the Auditor had to judge, the
+once I actually looked at what the Auditor had to judge, the
 judgment reduced to deterministic checks:
 
 - Did the STIG rule pass or fail an OpenSCAP rescan? (Deterministic.)
@@ -99,14 +99,13 @@ The Auditor role on a second model was visually compelling for a
 demo but didn't actually help solve the problem the loop was trying
 to solve. The architecture was doing work to *show something
 interesting* rather than work to *make the loop better*. That's a
-bad trade and we noticed it when Ken called out that the architecture
-was "hardware-first thinking" — assigning roles to models to make the
-GPU pie chart look balanced, not because the roles needed different
-models.
+bad trade, and it was clearly "hardware-first thinking" — assigning
+roles to models to make the GPU pie chart look balanced, not because
+the roles needed different models.
 
 ### The Nemotron TP=2 tiling bug
 
-A separate problem: we briefly tried Nemotron at TP=2 instead of
+A separate problem: I briefly tried Nemotron at TP=2 instead of
 PP=2 to see if it was faster. It crashed with a Marlin kernel
 tiling error — 5152 not divisible by 64 — because one of the
 intermediate dimensions didn't align for the TP=2 kernel. Switching
@@ -117,8 +116,8 @@ wouldn't exist with a single-model architecture.
 
 ## The reframe: roles are about judgment, not models
 
-The moment we recognized that the Auditor role was really a
-deterministic-evaluation role, the whole architecture clarified.
+The moment the Auditor role clarified as really a deterministic-
+evaluation role, the whole architecture clarified.
 Roles in this project are about *kinds of judgment*, not about
 *which model runs where*:
 
@@ -137,9 +136,9 @@ journal shows three permission errors"), not *probabilistic*
 facts ("an LLM thinks the fix was bad"). That's a much stronger
 foundation for reflexion.
 
-## Why we kept the Nemotron code around (but didn't use it)
+## Why the Nemotron code stayed around (but didn't get used)
 
-We didn't delete the Nemotron integration code after walking back
+I didn't delete the Nemotron integration code after walking back
 the cross-model architecture. It still works. The vLLM config for
 Nemotron PP=2 is still in the repo. The parser flags are
 documented as gotchas. If a future skill or a future iteration
@@ -147,7 +146,7 @@ wants to bring Nemotron back — for example, as a second Reflector
 that brings a different prior to failure analysis — the path is
 still open.
 
-What we *did* remove:
+What I *did* remove:
 
 - The four-GPU role assignment that put Gemma on two GPUs and
   Nemotron on two GPUs (that assignment was driven by hardware
@@ -156,7 +155,7 @@ What we *did* remove:
 - The cross-model orchestration in the default skill
   configuration (the stig-rhel9 skill now uses all Gemma)
 
-## What we took away from this experiment
+## What I took away from this experiment
 
 1. **Multi-model is not automatically better.** Adding a second
    model to a system should earn its keep. If the second model
@@ -181,13 +180,13 @@ What we *did* remove:
    it produces architectures that are more complex than the
    problem demands. The fix is to ask "what does this role
    actually need" first, and let the hardware assignment fall out
-   of that. On the XR7620 specifically, this meant we eventually
-   moved to bf16 TP=4 across all 4 GPUs for the single Gemma
-   model, which turned out to match NVFP4 TP=2 throughput and
-   simplify the whole inference plane. See
+   of that. On the XR7620 specifically, this led me to bf16 TP=4
+   across all 4 GPUs for the single Gemma model, which turned out
+   to match NVFP4 TP=2 throughput and simplify the whole inference
+   plane. See
    [`journey/12-bf16-tp4-full-precision`](12-bf16-tp4-full-precision.md).
 
-4. **It's okay to walk back complex ideas.** We spent ~8 hours on
+4. **It's okay to walk back complex ideas.** I spent ~8 hours on
    cross-model integration. That's not wasted time — the walk-back
    was as valuable as any feature work because it clarified what
    roles actually are in this architecture. The clearest

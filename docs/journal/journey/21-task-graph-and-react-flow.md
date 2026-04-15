@@ -8,7 +8,7 @@ related:
   - journey/20-the-interface-extraction
   - journey/12.5-structured-run-logger
   - improvements/07-rule-dependency-awareness
-one_line: "We replaced the flat work-item queue with a DAG-based task graph that tracks dependencies, detects resource conflicts, cascades escalations, and emits state snapshots — then visualized it with React Flow so the audience sees the architecture working at a glance."
+one_line: "I replaced the flat work-item queue with a DAG-based task graph that tracks dependencies, detects resource conflicts, cascades escalations, and emits state snapshots — then visualized it with React Flow so the audience sees the architecture working at a glance."
 ---
 
 # The Task Graph: From Flat Queue to Live DAG
@@ -24,9 +24,9 @@ green wash across 120 nodes as the harness grinds through them.
 
 This is where the frontend story and the harness story converge. The
 structured run logger ([`journey/12.5`](12.5-structured-run-logger.md))
-gave us events. The interface extraction
-([`journey/20`](20-the-interface-extraction.md)) gave us skill-agnostic
-work items. The task graph gives us *structure* — and structure is
+produced events. The interface extraction
+([`journey/20`](20-the-interface-extraction.md)) produced skill-agnostic
+work items. The task graph adds *structure* — and structure is
 what you can visualize.
 
 ---
@@ -117,14 +117,14 @@ whatever it receives, agnostic to the skill.
 
 ## What it looks like in practice
 
-The first time we connected the live stream, the grid started all
+The first time the live stream connected, the grid started all
 gray — 270 queued items. Then a cell lit up cyan and pulsed. A few
 seconds later, it turned green. Then another went cyan. Then green.
 Then a third went cyan... and stayed cyan for a long time. Then
 amber. Escalated.
 
-Within a minute we could see the pattern forming without reading a
-single number: authentication was a wall of green. Kernel was mixed.
+Within a minute the pattern was visible without reading a single
+number: authentication was a wall of green. Kernel was mixed.
 Integrity-monitoring was almost entirely amber. The categories told
 the story through color alone.
 

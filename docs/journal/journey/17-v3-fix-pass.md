@@ -12,7 +12,7 @@ related:
   - improvements/02-worker-single-action-enforcement
   - improvements/03-context-budget-assembly
   - improvements/04-snapshot-based-revert
-one_line: "After the overnight run revealed multiple architectural flaws, we implemented five fixes in sequence — Worker single-action enforcement, context budget assembler, semantic plateau detection, architect re-engagement, and snapshot-based revert with diagnostic capture — each one addressing a specific failure mode from the postmortem."
+one_line: "After the overnight run revealed multiple architectural flaws, I implemented five fixes in sequence — Worker single-action enforcement, context budget assembler, semantic plateau detection, architect re-engagement, and snapshot-based revert with diagnostic capture — each one addressing a specific failure mode from the postmortem."
 ---
 
 # The v3 Fix Pass: Five Architectural Changes in One Push
@@ -21,19 +21,19 @@ one_line: "After the overnight run revealed multiple architectural flaws, we imp
 Once the overnight run postmortem (see
 [`journey/14`](14-overnight-run-findings.md)) had surfaced four
 architectural flaws — and a fifth that emerged while fixing the first
-four — we stopped, renamed the loop revision "v3," and implemented the
+four — I stopped, renamed the loop revision "v3," and implemented the
 five changes in sequence, each one testable in isolation before moving
 on to the next.
 
 ## Why this is its own entry
 
 The individual fixes each have their own improvement document with
-design and rationale. This entry is the *narrative* — the order we
+design and rationale. This entry is the *narrative* — the order I
 worked in, the discoveries that came out of each fix, and the
 interactions between them. It's the layer of the story that the
 per-fix documents deliberately don't cover.
 
-## The five fixes and the order we did them
+## The five fixes in the order I did them
 
 ### Fix #1: Worker single-action enforcement
 
@@ -54,7 +54,7 @@ prompt overflowed.
 **Why the harness cap matters even with the prompt**: the prompt
 alone is a 90%-effective fix. The harness cap is defense in depth —
 it guarantees the invariant holds even if the LLM decides to ignore
-the prompt. In any production context, "we told the model not to"
+the prompt. In any production context, "the model was told not to"
 is not a safety argument.
 
 **Verified with**: a live LLM smoke test. A Worker agent given a
@@ -144,7 +144,7 @@ Noted for future: the keyword-set approach still has a calibration
 gap — it doesn't collapse stems like `config` vs `configuration`.
 For tighter accuracy, a small embedding model (e.g.,
 `sentence-transformers/all-MiniLM-L6-v2`, 6 MB local) with cosine
-similarity would be the next step. Deferred until we have evidence
+similarity would be the next step. Deferred until there's evidence
 the simpler version misses things it needs to catch.
 
 ### Fix #4: Architect re-engagement
@@ -154,10 +154,10 @@ the simpler version misses things it needs to catch.
 a row for the partition rule, and the Worker kept trying because
 the Worker's instructions were scoped to "fix this rule with a
 bash script," and there was no mechanism for the Reflector's
-insights to escalate up to the strategy layer. The Architect
-was never consulted between rule selection and rule completion,
-so its initial strategy persisted unchanged even when the
-Reflector knew it was wrong.
+insights to escalate up to the strategy layer. The Architect was
+never consulted between rule selection and rule completion, so
+its initial strategy persisted unchanged even when the Reflector
+knew it was wrong.
 
 **Change**: periodic architect re-engagement during the inner
 retry loop.
@@ -372,8 +372,8 @@ A few things explicitly deferred:
   currently CONTINUE/PIVOT/ESCALATE. There's a case for adding a
   fourth verdict like "SKIP_UNTIL_DEPS" for cases where the
   Architect wants to defer a rule until other rules have been
-  remediated first. Deferred until we see enough of the
-  dependency patterns to name them properly.
+  remediated first. Deferred until the dependency patterns are
+  clear enough to name properly.
 
 ## Reading list
 

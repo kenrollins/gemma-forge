@@ -8,18 +8,18 @@ related:
   - gotchas/libvirt-provider-v09-migration
   - gotchas/grub-acpi-apic
   - gotchas/apparmor-libvirt
-one_line: "We chose OpenTofu for Federal-credible IaC, hit a breaking API change in the libvirt provider v0.9.7, researched the correct API instead of falling back to shell scripts, then spent an hour debugging a GRUB hang and AppArmor denials."
+one_line: "I chose OpenTofu for Federal-credible IaC, hit a breaking API change in the libvirt provider v0.9.7, researched the correct API instead of falling back to shell scripts, then spent an hour debugging a GRUB hang and AppArmor denials."
 ---
 
 # Journey: VM Provisioning — OpenTofu, libvirt, and the GRUB Hang
 
 ## The story in one sentence
-We chose OpenTofu for Federal-credible IaC, hit a breaking API change
+I chose OpenTofu for Federal-credible IaC, hit a breaking API change
 in the libvirt provider v0.9.7, researched the correct API rather than
 falling back to shell scripts, then spent an hour debugging a GRUB hang
 caused by missing ACPI/APIC features and AppArmor denials.
 
-## What we planned (ADR-0004)
+## What I planned (ADR-0004)
 
 OpenTofu with the `dmacvicar/libvirt` provider for VM provisioning.
 Chosen over Terraform (HashiCorp BSL license concern), Vagrant (same
@@ -44,12 +44,12 @@ The OpenTofu config was initially written against the OLD provider API
 - `libvirt_domain` now requires `type = "kvm"` (was inferred)
 - `memory` defaults to KiB; use `memory_unit = "MiB"` to keep sane values
 
-**Ken explicitly rejected the "fall back to virt-install" shortcut.**
-His directive: *"Do it right, not quick. If we need to update API and
-documentation, let's do it for realsies."* This was saved as a core
-memory directive.
+The "fall back to virt-install" shortcut was explicitly off the table.
+The governing directive: do it right, not quick. If the API and
+documentation need to be updated, update them for real. This was saved
+as a core memory directive.
 
-We researched the correct v0.9.7 API by:
+I researched the correct v0.9.7 API by:
 1. Running `tofu providers schema -json` to dump the full schema
 2. Extracting nested type definitions for complex attributes
 3. Searching the provider's GitHub repo for v0.9.x examples
@@ -79,7 +79,7 @@ No kernel load, no network traffic, no DHCP lease.
 7. **Compared XML** — the working virt-install XML had:
    - `<features><acpi/><apic/></features>`
    - `<cpu mode='host-passthrough'/>`
-   - Our OpenTofu config had NEITHER
+   - The OpenTofu config had NEITHER
 8. **Root cause: missing ACPI/APIC.** Without ACPI, GRUB can
    initialize the hardware probe (EDD) but the kernel loader path
    relies on ACPI tables that don't exist. The kernel never loads.

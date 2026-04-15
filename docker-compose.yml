@@ -41,6 +41,90 @@ volumes:
 services:
 
   # ===========================================================================
+  # Memory tier — Phase 10 (post-Run 3 pivot)
+  #
+  # Postgres: Episodic, Semantic projection, run event history.
+  # Neo4j:    Reflective tier (Graphiti bi-temporal graph memory).
+  #
+  # Both services replace the per-skill SQLite files retired in this
+  # phase. See docs/adr/0016-graphiti-neo4j-postgres-memory-stack.md
+  # and docs/drafts/memory-refactor-plan.md.
+  #
+  # Ports are loopback-only. Data lives at /data/postgres and /data/neo4j
+  # following the /data/<service>/ convention (ADR-0012). Bring up with:
+  #     docker compose --profile memory up -d
+  # ===========================================================================
+
+  postgres:
+    image: postgres:16-alpine
+    profiles: ["memory"]
+    networks: [forge]
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER:-postgres}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}"
+      # pgvector is installed by the init script at first boot.
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    volumes:
+      # Host-path bind for durability, matching the /data/<service>/ convention.
+      - /data/postgres/data:/var/lib/postgresql/data
+      # Init scripts run ONCE on empty PGDATA and create the gemma_forge_stig
+      # database plus the 'forge' application role. Schema DDL comes later
+      # from tools/migrate_sqlite_to_postgres.py so it stays versioned.
+      - ./infra/memory/postgres-init:/docker-entrypoint-initdb.d:ro
+    ports:
+      # Host 5432 is occupied by the Supabase stack; GemmaForge binds 5433
+      # on localhost. Override POSTGRES_HOST_PORT in .env if the host
+      # layout differs. See infra/memory/README.md.
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5433}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  neo4j:
+    # 5-community has the features Graphiti needs (vector + fulltext indexes,
+    # APOC). Graphiti itself is installed as a Python dependency in the
+    # harness; Neo4j only needs to accept Bolt connections.
+    image: neo4j:5.26-community
+    profiles: ["memory"]
+    networks: [forge]
+    restart: unless-stopped
+    environment:
+      # Initial auth: the password comes from .env. Neo4j will refuse to
+      # start with the default "neo4j" password; NEO4J_AUTH below bootstraps
+      # the admin user on a fresh data directory.
+      NEO4J_AUTH: "neo4j/${NEO4J_PASSWORD:?NEO4J_PASSWORD must be set in .env}"
+      # APOC is shipped with 5.26 community as an optional plugin; enable
+      # the bundled version so Graphiti's schema helpers work out of the box.
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_apoc_export_file_enabled: "true"
+      NEO4J_apoc_import_file_enabled: "true"
+      # Modest sizing — revisit when the second skill lands and the
+      # working set grows.
+      NEO4J_server_memory_heap_initial__size: "${NEO4J_HEAP_INITIAL:-1G}"
+      NEO4J_server_memory_heap_max__size: "${NEO4J_HEAP_MAX:-2G}"
+      NEO4J_server_memory_pagecache_size: "${NEO4J_PAGECACHE:-1G}"
+    volumes:
+      - /data/neo4j/data:/data
+      - /data/neo4j/logs:/logs
+      - /data/neo4j/plugins:/plugins
+      - /data/neo4j/import:/var/lib/neo4j/import
+    ports:
+      # Defaults (7474 HTTP, 7687 Bolt) are free on the reference XR7620.
+      # Port 7688 is occupied by an unrelated service; confirmed no conflict
+      # on 7687 or 7474 at scaffold time.
+      - "127.0.0.1:${NEO4J_HTTP_HOST_PORT:-7474}:7474"
+      - "127.0.0.1:${NEO4J_BOLT_HOST_PORT:-7687}:7687"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7474 >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ===========================================================================
   # Observability — Phase 5
   # OTel-pure stack: instrumentation in the harness flows OTLP to a single
   # collector, which fans out to Jaeger (traces) and Prometheus (metrics).

@@ -18,6 +18,7 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
+  GpuState,
   RunEvent,
   SkillUI,
   DEFAULT_SKILL_UI,
@@ -28,6 +29,8 @@ import {
 import ChromeBar, { ReplaySpeed, SPEEDS } from "../components/ChromeBar";
 import HeroStrip from "../components/HeroStrip";
 import PulseRibbon from "../components/PulseRibbon";
+import ArchitecturePanel from "../components/ArchitecturePanel";
+import MemoryPulsePanel from "../components/MemoryPulsePanel";
 import TaskMap from "../components/TaskMap";
 import FocusPanel from "../components/FocusPanel";
 import EventLog from "../components/EventLog";
@@ -137,10 +140,19 @@ export default function Dashboard() {
   const eventBufferRef = useRef<RunEvent[]>([]);
   const flushFrameRef = useRef<number | null>(null);
 
-  // GPU state and the live nvidia-smi poll were previously wired here
-  // but were already dead code (Scoreboard was the only consumer and is
-  // not rendered after the prior refactor). UI-4's Architecture panel
-  // will re-add the polling and pass GPU data into the new component.
+  // GPU state for the ArchitecturePanel. Hydrated from (a) gpu_state
+  // snapshots embedded in stream events when the harness emits them
+  // and (b) /api/gpu polling in live mode so the panel shows real
+  // utilization during demos. Replay falls back to whatever the run
+  // log captured.
+  const defaultGpus: GpuState[] = [
+    { index: 0, name: "L4", memory_used_mib: 0, memory_total_mib: 23034, utilization_pct: 0, temperature_c: 0, power_w: 0, role: "gemma", model: "Gemma-4-31B-it bf16" },
+    { index: 1, name: "L4", memory_used_mib: 0, memory_total_mib: 23034, utilization_pct: 0, temperature_c: 0, power_w: 0, role: "gemma", model: "Gemma-4-31B-it bf16" },
+    { index: 2, name: "L4", memory_used_mib: 0, memory_total_mib: 23034, utilization_pct: 0, temperature_c: 0, power_w: 0, role: "gemma", model: "Gemma-4-31B-it bf16" },
+    { index: 3, name: "L4", memory_used_mib: 0, memory_total_mib: 23034, utilization_pct: 0, temperature_c: 0, power_w: 0, role: "gemma", model: "Gemma-4-31B-it bf16" },
+  ];
+  const [gpus, setGpus] = useState<GpuState[]>(defaultGpus);
+  const latestGpuStateRef = useRef<GpuState[] | null>(null);
 
   // ----- Initial load: fetch dashboard state + run list ---------------
   useEffect(() => {
@@ -193,6 +205,42 @@ export default function Dashboard() {
 
   // Track elapsed from events
   const elapsed = events.length > 0 ? events[events.length - 1].elapsed_s : 0;
+
+  // Lift GPU state from stream events when the harness embedded one
+  // (replay runs that logged gpu_state snapshots keep their GPU bars
+  // alive without needing the /api/gpu fallback).
+  useEffect(() => {
+    let latest: GpuState[] | null = null;
+    for (let i = events.length - 1; i >= 0; i--) {
+      if (events[i].gpu_state && events[i].gpu_state!.length > 0) {
+        latest = events[i].gpu_state!;
+        break;
+      }
+    }
+    if (latest && latest !== latestGpuStateRef.current) {
+      latestGpuStateRef.current = latest;
+      setGpus(latest.map((g) => ({ ...g, role: "gemma", model: "Gemma-4-31B-it bf16" })));
+    }
+  }, [events]);
+
+  // Live GPU polling (only in live mode — replay relies on embedded
+  // gpu_state in the event log above).
+  useEffect(() => {
+    if (mode !== "live") return;
+    const apiBase = getApiBase();
+    const t = setInterval(async () => {
+      try {
+        const res = await fetch(`${apiBase}/api/gpu`);
+        const data = await res.json();
+        if (Array.isArray(data) && data.length >= 4) {
+          setGpus(data.map((g: GpuState) => ({ ...g, role: "gemma", model: "Gemma-4-31B-it bf16" })));
+        }
+      } catch {
+        // transient — ignore
+      }
+    }, 5000);
+    return () => clearInterval(t);
+  }, [mode]);
 
   // Skill-UI hydration (unchanged from the prior version).
   const skillUI: SkillUI = (() => {
@@ -481,14 +529,18 @@ export default function Dashboard() {
               onSelectItem={setSelectedItemId}
               onClose={() => setSelectedItemId(null)}
             />
-            <div className="w-[340px] shrink-0 border-l border-[#1C1F26] overflow-hidden">
-              <TaskMap
-                events={events}
-                skillUI={skillUI}
-                selectedItemId={selectedItemId}
-                onSelectItem={setSelectedItemId}
-                crossRunData={crossRunData}
-              />
+            <div className="w-[340px] shrink-0 border-l border-[#1C1F26] overflow-y-auto flex flex-col">
+              <ArchitecturePanel gpus={gpus} events={events} connected={connected} />
+              <MemoryPulsePanel events={events} skillUI={skillUI} crossRunData={crossRunData} />
+              <div className="flex-1 min-h-0">
+                <TaskMap
+                  events={events}
+                  skillUI={skillUI}
+                  selectedItemId={selectedItemId}
+                  onSelectItem={setSelectedItemId}
+                  crossRunData={crossRunData}
+                />
+              </div>
             </div>
           </div>
         </>

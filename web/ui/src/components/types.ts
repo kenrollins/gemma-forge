@@ -25,6 +25,18 @@ export interface GpuState {
   model?: string;
 }
 
+// vLLM Prometheus metrics snapshot. Optional per-event — runs from
+// before the capture was wired up (Run 1–4) simply don't have it,
+// and the dashboard hides the Model-pressure row when absent.
+export interface VllmState {
+  running: number;
+  waiting: number;
+  kv_cache_pct: number; // already scaled to 0-100 server-side
+  prefix_hit_rate?: number; // 0-1, cumulative across vLLM server lifetime
+  prefix_queries_total?: number;
+  prefix_hits_total?: number;
+}
+
 export interface RunEvent {
   timestamp: string;
   elapsed_s: number;
@@ -33,6 +45,7 @@ export interface RunEvent {
   iteration: number;
   data: Record<string, any>;
   gpu_state?: GpuState[];
+  vllm_state?: VllmState;
 }
 
 export interface AgentMetrics {

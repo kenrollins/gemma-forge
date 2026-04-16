@@ -14,15 +14,16 @@
  */
 
 import { useMemo } from "react";
-import type { GpuState, RunEvent } from "./types";
+import type { GpuState, RunEvent, VllmState } from "./types";
 
 export interface ArchitecturePanelProps {
   gpus: GpuState[];
+  vllm?: VllmState | null;
   events: RunEvent[];
   connected: boolean;
 }
 
-export default function ArchitecturePanel({ gpus, events, connected }: ArchitecturePanelProps) {
+export default function ArchitecturePanel({ gpus, vllm, events, connected }: ArchitecturePanelProps) {
   // Derive service health signals from the event stream. All services
   // run on the same host as the harness, so if we're connected and
   // events are flowing they're nominal. A more thorough check could
@@ -118,6 +119,35 @@ export default function ArchitecturePanel({ gpus, events, connected }: Architect
       ) : (
         <div className="text-[10px] text-[#4B5563] italic mb-3 font-mono">
           GPU telemetry available in live mode
+        </div>
+      )}
+
+      {/* Model pressure (vLLM metrics). Optional — only present on
+          runs that were logged with vllm_state. Explains WHY tok/s
+          varies: high KV cache % means long contexts in flight;
+          queue depth > 0 means back-pressure; prefix hit rate
+          quantifies how much system-prompt reuse is saving us. */}
+      {vllm && (
+        <div className="flex items-center gap-3 text-[10px] font-mono mb-3">
+          <HwStat
+            label="KV Cache"
+            value={`${vllm.kv_cache_pct.toFixed(1)}%`}
+            pct={vllm.kv_cache_pct}
+            color="#A855F7"
+          />
+          <HwStat
+            label="Queue"
+            value={`${vllm.running} · ${vllm.waiting}w`}
+            color={vllm.waiting > 0 ? "#F59E0B" : "#22C55E"}
+          />
+          {vllm.prefix_hit_rate !== undefined && (
+            <HwStat
+              label="Prefix Hit"
+              value={`${Math.round(vllm.prefix_hit_rate * 100)}%`}
+              pct={vllm.prefix_hit_rate * 100}
+              color="#22C55E"
+            />
+          )}
         </div>
       )}
 

@@ -19,6 +19,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   GpuState,
+  VllmState,
   RunEvent,
   SkillUI,
   DEFAULT_SKILL_UI,
@@ -153,6 +154,10 @@ export default function Dashboard() {
   ];
   const [gpus, setGpus] = useState<GpuState[]>(defaultGpus);
   const latestGpuStateRef = useRef<GpuState[] | null>(null);
+  // vLLM model-pressure snapshot from run_logger (Run 5+). Old runs
+  // omit vllm_state so this stays null and the panel hides the row.
+  const [vllm, setVllm] = useState<VllmState | null>(null);
+  const latestVllmStateRef = useRef<VllmState | null>(null);
 
   // ----- Initial load: fetch dashboard state + run list ---------------
   useEffect(() => {
@@ -208,18 +213,35 @@ export default function Dashboard() {
 
   // Lift GPU state from stream events when the harness embedded one
   // (replay runs that logged gpu_state snapshots keep their GPU bars
-  // alive without needing the /api/gpu fallback).
+  // alive without needing the /api/gpu fallback). Same for the newer
+  // vllm_state snapshot — both piggyback on the same include_gpu=True
+  // event sites on the backend.
   useEffect(() => {
-    let latest: GpuState[] | null = null;
-    for (let i = events.length - 1; i >= 0; i--) {
-      if (events[i].gpu_state && events[i].gpu_state!.length > 0) {
-        latest = events[i].gpu_state!;
-        break;
+    let latestGpu: GpuState[] | null = null;
+    let latestVllm: VllmState | null = null;
+    for (let i = events.length - 1; i >= 0 && (!latestGpu || !latestVllm); i--) {
+      const ev = events[i];
+      if (!latestGpu && ev.gpu_state && ev.gpu_state.length > 0) {
+        latestGpu = ev.gpu_state;
+      }
+      if (!latestVllm && ev.vllm_state) {
+        latestVllm = ev.vllm_state;
       }
     }
-    if (latest && latest !== latestGpuStateRef.current) {
-      latestGpuStateRef.current = latest;
-      setGpus(latest.map((g) => ({ ...g, role: "gemma", model: "Gemma-4-31B-it bf16" })));
+    if (latestGpu && latestGpu !== latestGpuStateRef.current) {
+      latestGpuStateRef.current = latestGpu;
+      setGpus(latestGpu.map((g) => ({ ...g, role: "gemma", model: "Gemma-4-31B-it bf16" })));
+    }
+    if (latestVllm && latestVllm !== latestVllmStateRef.current) {
+      latestVllmStateRef.current = latestVllm;
+      setVllm(latestVllm);
+    }
+    // If we've moved to a stream that has no vllm_state at all (e.g.
+    // replaying an old run), clear the stale state so the panel hides
+    // the model row instead of lingering with Run 5's numbers.
+    if (!latestVllm && events.length > 50 && latestVllmStateRef.current) {
+      latestVllmStateRef.current = null;
+      setVllm(null);
     }
   }, [events]);
 
@@ -534,7 +556,7 @@ export default function Dashboard() {
                   height and the whole column scrolls. Avoids the
                   flex-col trap where TaskMap's own internal scroll
                   competes with the sidebar scroll and neither wins. */}
-              <ArchitecturePanel gpus={gpus} events={events} connected={connected} />
+              <ArchitecturePanel gpus={gpus} vllm={vllm} events={events} connected={connected} />
               <MemoryPulsePanel events={events} skillUI={skillUI} crossRunData={crossRunData} />
               <TaskMap
                 events={events}

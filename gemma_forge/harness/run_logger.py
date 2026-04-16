@@ -16,6 +16,7 @@ Each line is a JSON object with:
 """
 
 import json
+import os
 import subprocess
 import time
 from datetime import datetime, timezone
@@ -57,8 +58,17 @@ class RunLogger:
             "data": data,
         }
 
+        # Environmental snapshots piggyback on the same cadence — every
+        # iteration_start / scan_complete / rule_complete / escalated /
+        # revert / run_complete emits BOTH gpu_state and vllm_state so
+        # the dashboard's Architecture panel can narrate model pressure
+        # alongside hardware utilization. Older runs have gpu_state but
+        # no vllm_state; the UI degrades gracefully.
         if include_gpu:
             entry["gpu_state"] = self._capture_gpu_state()
+            vllm = self._capture_vllm_metrics()
+            if vllm is not None:
+                entry["vllm_state"] = vllm
 
         self._file.write(json.dumps(entry) + "\n")
         self._file.flush()
@@ -96,6 +106,86 @@ class RunLogger:
     def log_summary(self, data: dict) -> None:
         self.log("run_complete", "system", data, include_gpu=True)
         self._file.close()
+
+    # vLLM Prometheus endpoint — configurable via env var so a relocated
+    # serving layer doesn't require a code change. Defaults to the port
+    # the Gemma 4 31B director runs on in the reference deployment.
+    _VLLM_METRICS_URL = os.environ.get("VLLM_METRICS_URL", "http://localhost:8050/metrics")
+
+    # The four gauges we actually care about for a snapshot. Each line
+    # in the /metrics output looks like:
+    #   vllm:kv_cache_usage_perc{engine="0",model_name="..."} 0.23
+    # so we extract the value after the closing brace.
+    _VLLM_GAUGE_NAMES = {
+        "num_requests_running": "running",
+        "num_requests_waiting": "waiting",
+        "kv_cache_usage_perc": "kv_cache_pct",
+    }
+
+    # Prefix-cache hit rate is derived from two cumulative counters.
+    _VLLM_CUM_NAMES = {
+        "prefix_cache_queries_total": "prefix_queries",
+        "prefix_cache_hits_total": "prefix_hits",
+    }
+
+    def _capture_vllm_metrics(self) -> Optional[dict]:
+        """Snapshot of vLLM's /metrics endpoint.
+
+        Returns ``None`` if vLLM isn't reachable — the caller treats
+        the absent field as "no telemetry available," same convention
+        as a failed nvidia-smi. Does NOT pull a full Prometheus parse;
+        just greps the handful of lines we care about so this stays
+        subsecond and adds negligible overhead to each logged event.
+        """
+        try:
+            import urllib.request
+            with urllib.request.urlopen(self._VLLM_METRICS_URL, timeout=2) as resp:
+                body = resp.read().decode("utf-8", errors="replace")
+        except Exception:
+            return None
+
+        gauges: dict[str, float] = {}
+        cumul: dict[str, float] = {}
+        for line in body.splitlines():
+            if not line.startswith("vllm:"):
+                continue
+            # Strip the "vllm:" prefix to match against our short names,
+            # then parse: name{labels} value
+            prefixed, _, rest = line.partition("{")
+            if not rest:
+                continue
+            name = prefixed[len("vllm:"):]
+            _, _, tail = rest.partition("}")
+            parts = tail.strip().split()
+            if not parts:
+                continue
+            try:
+                val = float(parts[0])
+            except ValueError:
+                continue
+            if name in self._VLLM_GAUGE_NAMES:
+                gauges[self._VLLM_GAUGE_NAMES[name]] = val
+            elif name in self._VLLM_CUM_NAMES:
+                cumul[self._VLLM_CUM_NAMES[name]] = val
+
+        if not gauges and not cumul:
+            return None
+
+        snap: dict = {
+            "running": int(gauges.get("running", 0)),
+            "waiting": int(gauges.get("waiting", 0)),
+            # vLLM reports kv_cache_usage_perc as a FRACTION in [0, 1],
+            # not a percent. Convert to % once here so the dashboard
+            # doesn't have to guess.
+            "kv_cache_pct": round(gauges.get("kv_cache_pct", 0.0) * 100, 1),
+        }
+        q = cumul.get("prefix_queries", 0)
+        h = cumul.get("prefix_hits", 0)
+        if q > 0:
+            snap["prefix_hit_rate"] = round(h / q, 3)
+            snap["prefix_queries_total"] = int(q)
+            snap["prefix_hits_total"] = int(h)
+        return snap
 
     def _capture_gpu_state(self) -> list[dict]:
         """Snapshot GPU state via nvidia-smi."""

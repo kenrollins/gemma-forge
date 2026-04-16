@@ -295,11 +295,19 @@ export default function Dashboard() {
           : `${apiBase}/api/runs/${run}/stream?speed=${speed}` +
             (seek > 0 ? `&start_from=${seek}` : "");
 
-      // On demo-loop restart we want a smooth transition — the old
-      // run's visual state stays on screen until the new run's
-      // run_start event arrives, at which point we swap atomically.
-      // Without this, fast replays flash blank for 1-2s between loops.
-      let swapOnNext = !!opts?.swapOnFirstEvent;
+      // Loop-transition buffer. When swapOnFirstEvent is true, we
+      // accumulate the new stream's events into `swapBuf` instead of
+      // showing them, keeping the OLD run's final state on screen.
+      // The atomic swap fires once the new stream has produced enough
+      // substance for the ribbon + hero to render meaningfully —
+      // specifically, once we've seen a graph_state (gives total rule
+      // count) OR accumulated a safety threshold. Swapping on the
+      // very first event (usually run_start) produced a visible flash
+      // where the ribbon briefly rendered with zero cells before real
+      // data arrived; this waits until there's actual state to show.
+      let swapPending = !!opts?.swapOnFirstEvent;
+      let swapBuf: RunEvent[] = [];
+      const SWAP_THRESHOLD_EVENTS = 40;
 
       const evtSource = new EventSource(url);
       evtSourceRef.current = evtSource;
@@ -312,10 +320,17 @@ export default function Dashboard() {
             evtSource.close();
             evtSourceRef.current = null;
             setConnected(false);
-            // Demo loop: when a replay finishes, kick off the next
-            // round with swapOnFirstEvent=true so the ribbon stays
-            // frozen on the ending state until the new run's first
-            // event arrives. No more blank flash between loops.
+            // If a swap was still pending when the stream ended early
+            // (e.g. a tiny run), commit whatever we buffered rather
+            // than losing it on the next loop.
+            if (swapPending && swapBuf.length > 0) {
+              setEvents(swapBuf);
+              swapBuf = [];
+              swapPending = false;
+            }
+            // Demo loop: kick off the next round with
+            // swapOnFirstEvent so the page never shows an empty
+            // transition frame.
             if (m === "replay") {
               setTimeout(
                 () =>
@@ -325,12 +340,18 @@ export default function Dashboard() {
             }
             return;
           }
-          // Atomic swap: clear the old run's events the instant the
-          // new run's first event lands, and emit that event as the
-          // start of the fresh state.
-          if (swapOnNext) {
-            swapOnNext = false;
-            setEvents([event]);
+          if (swapPending) {
+            swapBuf.push(event);
+            // Swap once we have real substance: either a graph_state
+            // (knows the total rule count) or enough events to have
+            // rebuilt the skill manifest + initial counts.
+            const hasGraphState = event.event_type === "graph_state";
+            if (hasGraphState || swapBuf.length >= SWAP_THRESHOLD_EVENTS) {
+              const frozen = swapBuf;
+              swapBuf = [];
+              swapPending = false;
+              setEvents(frozen);
+            }
             return;
           }
           eventBufferRef.current.push(event);

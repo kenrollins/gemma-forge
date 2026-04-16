@@ -254,6 +254,39 @@ infrastructure** on a shared host. This distinction should be pulled
 into a future ADR-0012 revision when the pattern is exercised by the
 second project.
 
+### Amendment 3: Neo4j per-skill isolation via `group_id`, not named databases (2026-04-16, Phase B)
+
+The original ADR text and the first amendment described per-skill
+isolation as **one Neo4j named database per skill**. Phase B exposed
+a constraint we missed: **Neo4j Community Edition supports exactly
+one user database (`neo4j`) plus the `system` database**. Multiple
+named user databases are an Enterprise-only feature.
+
+Switching to Enterprise is incompatible with the open-source posture
+the project depends on. The right fit is Graphiti's native
+`group_id` partitioning: every node and edge carries a `group_id`
+attribute, every retrieval scopes to that group, and the `Community`
+/ `Entity` / `Episodic` indexes Graphiti creates already include
+`group_id` for fast filtering. One Neo4j instance, one underlying
+database, logical per-skill partition.
+
+Concretely:
+
+- Episodes are added with `group_id="stig"`. A future skill uses
+  `group_id="<skill>"` and never sees the stig data unless we
+  explicitly cross-query.
+- `Skill` marker nodes (one per skill) are written by
+  `tools/graphiti_init.py` so the partition is visible from a Cypher
+  shell without the application running.
+- Cross-skill queries (e.g., dashboard "total runs across all
+  skills") are still possible by omitting the `group_id` filter, and
+  remain auditable by the same query pattern that filters them.
+
+This is the same conclusion the relational side reached in
+Amendment 1 (one database, per-skill schemas with scoped roles):
+**logical per-skill isolation inside one shared instance**. The
+two stores now align on the same isolation model.
+
 ### What these amendments do not change
 
 - The dream pass, credit assignment, supersession, abstraction-loss

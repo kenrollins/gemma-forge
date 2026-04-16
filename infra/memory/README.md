@@ -113,9 +113,14 @@ event ingestion tables) is applied by the Phase C migration tool
 `tools/migrate_sqlite_to_postgres.py`, so schema changes live under
 version control without requiring re-running bootstrap.
 
-Neo4j's per-skill named database (`stig`) is created by
-`tools/graphiti_init.py --skill stig` (Phase C) along with the
-Graphiti schema extensions.
+Neo4j's per-skill partitioning is implemented via Graphiti's native
+`group_id` mechanism — Neo4j Community Edition is single-database,
+so we run one instance with the default `neo4j` database and isolate
+skills by `group_id` on every node and edge. `tools/graphiti_init.py
+--skill stig` (Phase B) creates the Graphiti indices and writes a
+`Skill` marker node so the partition is visible from a Cypher shell.
+Future skills run the same script with their own `--skill` value.
+See ADR-0016 amendment 3 for the rationale.
 
 ## Teardown
 

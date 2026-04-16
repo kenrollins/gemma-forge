@@ -79,6 +79,7 @@ is meant to be readable on its own.
 ### Phase 10 — The memory-architecture pivot
 - [**26. Dreaming, and When the Little Engine Needs Real Databases**](26-dreaming-and-real-databases.md) — catching up to the 2026 memory-systems frontier: Graphiti-on-Neo4j for Reflective, Postgres replacing SQLite, and a dream pass between runs as the distinctive contribution.
 - [**27. Building the Dream Pass**](27-building-the-dream-pass.md) — one session, four bugs, a closed loop: Postgres + Neo4j + dream pass built end-to-end, progressive testing caught every crash before Run 4.
+- [**28. Run 4: When the Dream Pass Passes the Wrong Test**](28-run-4-and-the-coarseness-problem.md) — DRAFT (Run 4 in flight): the V1 algorithm worked as plumbing but produced no aggregate gain; the per-rule analysis exposed three compounding architectural failures that V2 must address.
 
 ## Related
 

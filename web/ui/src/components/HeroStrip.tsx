@@ -19,6 +19,23 @@ function formatTime(s: number): string {
 // Pipeline stage detection from recent events
 type PipelineStage = "architect" | "worker" | "eval" | "reflector" | "idle";
 
+// Pipeline stage detection. Walks the most recent events backward and
+// returns the first stage that matches. The order matters: more
+// specific signals win over coarser ones.
+//
+// Notes for next maintainer:
+//   - `attempt_start` is a HARNESS event (it just marks "we are about
+//     to ask the worker to act"). We do NOT advance the stage on it,
+//     because the worker hasn't actually done anything yet — the
+//     prompt is still being assembled. Without this, the indicator
+//     reads "Worker active" while the visible event log shows
+//     "Starting attempt 1 — HARNESS", which is jarring.
+//     The stage stays at architect (from the rule_selected event)
+//     until the worker emits a real signal (agent_response or
+//     tool_call). That matches what the audience sees in the timeline.
+//   - Same logic applies to other harness-only bookkeeping events
+//     (cross_run_hydration, clutch_initialized, snapshot_preflight,
+//     etc.) — they don't advance the stage either.
 function detectPipelineStage(events: RunEvent[]): { stage: PipelineStage; evalPassed?: boolean } {
   for (let i = events.length - 1; i >= Math.max(0, events.length - 8); i--) {
     const e = events[i];
@@ -30,7 +47,10 @@ function detectPipelineStage(events: RunEvent[]): { stage: PipelineStage; evalPa
     if (e.agent === "reflector" && e.event_type === "agent_response") return { stage: "reflector" };
     if (e.agent === "architect" && e.event_type === "agent_response") return { stage: "architect" };
     if (e.event_type === "rule_selected" || e.event_type === "architect_reengaged") return { stage: "architect" };
-    if (e.event_type === "attempt_start") return { stage: "worker" };
+    // Deliberately NOT matching attempt_start, cross_run_hydration,
+    // clutch_initialized, snapshot_preflight, etc. — those are
+    // harness-internal and the stage indicator should hold the most
+    // recent agent-driven stage instead of jumping back to the worker.
   }
   return { stage: "idle" };
 }

@@ -32,6 +32,7 @@ import HeroStrip from "../components/HeroStrip";
 import PulseRibbon from "../components/PulseRibbon";
 import ArchitecturePanel from "../components/ArchitecturePanel";
 import MemoryPulsePanel from "../components/MemoryPulsePanel";
+import RunsTab from "../components/RunsTab";
 import TaskMap from "../components/TaskMap";
 import FocusPanel from "../components/FocusPanel";
 import EventLog from "../components/EventLog";
@@ -578,9 +579,17 @@ export default function Dashboard() {
       )}
 
       {activeTab === "runs" && (
-        <TabPlaceholder
-          label="Runs"
-          body="A gallery of past runs with summary cards (date, fix rate, hero metric). Click into one to launch it as a replay. Coming next phase."
+        <RunsTab
+          runs={runs}
+          activeRun={activeRun}
+          onLaunch={(filename) => {
+            // Launching a past run from the gallery: switch to replay
+            // mode on that file and flip back to the Mission view so
+            // the presenter immediately sees the run playing.
+            setMode("replay");
+            setActiveRun(filename);
+            setActiveTab("live");
+          }}
         />
       )}
 

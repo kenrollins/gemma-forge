@@ -1,7 +1,7 @@
 """Adaptive concurrency controller — the "clutch."
 
 The clutch decides how many work items to process in parallel based on:
-1. Learned difficulty from prior runs (via SQLiteMemoryStore)
+1. Learned difficulty from prior runs (via the MemoryStore protocol)
 2. Resource conflict constraints (via TaskGraph)
 3. A configurable max concurrency ceiling
 
@@ -21,7 +21,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Optional
 
-from gemma_forge.harness.memory_store import CategoryStats, SQLiteMemoryStore
+from gemma_forge.harness.memory_store import CategoryStats, MemoryStoreProtocol
 from gemma_forge.harness.task_graph import TaskGraph
 
 logger = logging.getLogger(__name__)
@@ -64,7 +64,7 @@ class Clutch:
     """
 
     def __init__(self, config: ClutchConfig = None,
-                 mem_store: SQLiteMemoryStore = None):
+                 mem_store: MemoryStoreProtocol = None):
         self.config = config or ClutchConfig()
         self.mem_store = mem_store
         self.state = ClutchState()

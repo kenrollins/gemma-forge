@@ -1,38 +1,43 @@
-"""Persistent cross-run memory store — SQLite backend.
+"""Persistent cross-run memory store — Postgres backend.
 
 The MemoryStore persists decision traces, strategic lessons, and
-difficulty estimates across runs. It uses SQLite with WAL mode for
-safe concurrent access from parallel workers.
+difficulty estimates across runs. Phase C3 of the memory refactor
+(ADR-0016) replaced the prior SQLite implementation with a Postgres-
+backed one running against the shared Supabase Postgres on the host
+(database ``gemma_forge``, schema named after the skill).
 
-The database file lives at `memory/gemma_forge.db` and is created
-automatically on first use. No external dependencies — sqlite3 is
-in Python's standard library.
+Schema (per skill, in ``stig.*``):
+  runs             — one row per harness execution
+  work_items       — outcomes per work item per run
+  attempts         — decision traces: approach, evaluation, reflection
+  lessons_current  — cross-run lessons (legacy ``weight``; the dream
+                     pass writes ``confidence`` separately)
 
-Schema:
-  runs          — one row per harness execution
-  work_items    — outcomes per work item per run
-  attempts      — decision traces: approach, evaluation, reflection
-  lessons       — cross-run meta-cognitions with learned weights
-  difficulty    — per-category performance model for the clutch
-
-Design: the harness interacts through the MemoryStore protocol
-(defined in interfaces.py). This module provides the SQLite
-implementation. If someone needs PostgreSQL at enterprise scale,
-they implement the same protocol against a different backend.
+Design: the harness interacts through ``MemoryStoreProtocol``. This
+module provides the Postgres implementation. The Reflective tier
+(Neo4j + Graphiti) is the source of truth for lessons; the Postgres
+``lessons_current`` table is a fast read-side projection rebuilt by
+the dream pass between runs.
 """
+
+from __future__ import annotations
 
 import json
 import logging
-import sqlite3
 import time
 import uuid
-from dataclasses import dataclass, field, asdict
-from pathlib import Path
+from dataclasses import dataclass
 from typing import Optional, Protocol, runtime_checkable
+
+from psycopg_pool import ConnectionPool
+
+from gemma_forge.harness.db import get_pool
 
 logger = logging.getLogger(__name__)
 
-# -- Data types for the memory store -----------------------------------------
+
+# -- Data types --------------------------------------------------------------
+
 
 @dataclass
 class StoredLesson:
@@ -44,7 +49,8 @@ class StoredLesson:
     source_item_id: str = ""
     success_count: int = 0
     failure_count: int = 0
-    weight: float = 0.5  # learned importance — higher = more valuable
+    weight: float = 0.5  # frequency-driven; the dream pass adds confidence separately
+
 
 @dataclass
 class StoredAttempt:
@@ -60,6 +66,7 @@ class StoredAttempt:
     banned_pattern: str = ""
     wall_time_s: float = 0.0
 
+
 @dataclass
 class CategoryStats:
     """Aggregated performance stats for a category — feeds the clutch."""
@@ -73,11 +80,13 @@ class CategoryStats:
     total_runs_seen: int = 0
 
 
-# -- MemoryStore protocol ----------------------------------------------------
+# -- Protocol ----------------------------------------------------------------
+
 
 @runtime_checkable
 class MemoryStoreProtocol(Protocol):
-    """Abstract memory persistence — SQLite now, upgradeable later."""
+    """Abstract memory persistence — Postgres-backed in production,
+    pluggable for tests and future backends."""
 
     def initialize(self) -> None: ...
     def start_run(self, skill_name: str, config: dict) -> str: ...
@@ -105,135 +114,93 @@ class MemoryStoreProtocol(Protocol):
     def get_run_count(self) -> int: ...
 
 
-# -- SQLite implementation ---------------------------------------------------
-
-SCHEMA_SQL = """
-CREATE TABLE IF NOT EXISTS runs (
-    id TEXT PRIMARY KEY,
-    skill TEXT NOT NULL,
-    started_at REAL NOT NULL,
-    ended_at REAL,
-    config TEXT,
-    summary TEXT
-);
-
-CREATE TABLE IF NOT EXISTS work_items (
-    run_id TEXT NOT NULL,
-    item_id TEXT NOT NULL,
-    title TEXT,
-    category TEXT,
-    outcome TEXT,
-    attempts INTEGER DEFAULT 0,
-    wall_time_s REAL DEFAULT 0.0,
-    PRIMARY KEY (run_id, item_id),
-    FOREIGN KEY (run_id) REFERENCES runs(id)
-);
-
-CREATE TABLE IF NOT EXISTS attempts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    run_id TEXT NOT NULL,
-    item_id TEXT NOT NULL,
-    attempt_num INTEGER NOT NULL,
-    approach TEXT,
-    eval_passed INTEGER DEFAULT 0,
-    failure_mode TEXT,
-    reflection TEXT,
-    lesson TEXT,
-    banned_pattern TEXT,
-    wall_time_s REAL DEFAULT 0.0,
-    created_at REAL NOT NULL,
-    FOREIGN KEY (run_id, item_id) REFERENCES work_items(run_id, item_id)
-);
-
-CREATE TABLE IF NOT EXISTS lessons (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    category TEXT NOT NULL,
-    lesson TEXT NOT NULL,
-    source_run_id TEXT,
-    source_item_id TEXT,
-    success_count INTEGER DEFAULT 0,
-    failure_count INTEGER DEFAULT 0,
-    weight REAL DEFAULT 0.5,
-    created_at REAL NOT NULL,
-    FOREIGN KEY (source_run_id) REFERENCES runs(id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_work_items_category ON work_items(category);
-CREATE INDEX IF NOT EXISTS idx_attempts_item ON attempts(run_id, item_id);
-CREATE INDEX IF NOT EXISTS idx_lessons_category ON lessons(category);
-CREATE INDEX IF NOT EXISTS idx_lessons_weight ON lessons(weight DESC);
-"""
+# -- Postgres implementation -------------------------------------------------
 
 
-class SQLiteMemoryStore:
-    """SQLite-backed persistent memory store.
+class PostgresMemoryStore:
+    """Postgres-backed memory store, scoped to one skill schema.
 
-    Uses WAL mode for concurrent read/write safety — critical for the
-    adaptive concurrency clutch where workers read difficulty estimates
-    while other workers write completion results simultaneously.
+    Reuses the process-wide connection pool from ``gemma_forge.harness.db``.
+    The pool's role (``forge_<skill>``) has its ``search_path`` pinned at
+    bootstrap time so unqualified table names resolve into the skill schema.
     """
 
-    def __init__(self, db_path: str = "memory/gemma_forge.db"):
-        self.db_path = Path(db_path)
-        self._conn: Optional[sqlite3.Connection] = None
+    def __init__(self, skill: str = "stig", *, pool: Optional[ConnectionPool] = None):
+        self.skill = skill
+        self._role = f"forge_{skill}"
+        self._pool: Optional[ConnectionPool] = pool
+
+    # -- Lifecycle -----------------------------------------------------------
 
     def initialize(self) -> None:
-        """Create the database and schema if they don't exist."""
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(
-            str(self.db_path),
-            check_same_thread=False,  # safe with WAL mode
+        """Open / verify the connection pool. Schema is applied separately
+        by ``tools/apply_migrations.sh``; this method only proves we can talk."""
+        if self._pool is None:
+            self._pool = get_pool(self._role)
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT current_user, current_database(), current_setting('search_path')")
+                user, db, path = cur.fetchone()
+        logger.info(
+            "Memory store ready: user=%s db=%s search_path=%s skill=%s",
+            user, db, path, self.skill,
         )
-        self._conn.execute("PRAGMA journal_mode=WAL")
-        self._conn.execute("PRAGMA busy_timeout=5000")
-        self._conn.executescript(SCHEMA_SQL)
-        self._conn.commit()
-        logger.info("Memory store initialized: %s", self.db_path)
-
-    def _get_conn(self) -> sqlite3.Connection:
-        if self._conn is None:
-            self.initialize()
-        return self._conn
 
     def close(self) -> None:
-        if self._conn:
-            self._conn.close()
-            self._conn = None
+        """Pool lifetime is process-wide; nothing to close per-store."""
+        self._pool = None
+
+    def _conn(self):
+        if self._pool is None:
+            self.initialize()
+        return self._pool.connection()
 
     # -- Run lifecycle -------------------------------------------------------
 
     def start_run(self, skill_name: str, config: dict) -> str:
         run_id = str(uuid.uuid4())[:12]
-        conn = self._get_conn()
-        conn.execute(
-            "INSERT INTO runs (id, skill, started_at, config) VALUES (?, ?, ?, ?)",
-            (run_id, skill_name, time.time(), json.dumps(config)),
-        )
-        conn.commit()
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO runs (id, skill, started_at, config) "
+                    "VALUES (%s, %s, to_timestamp(%s), %s::jsonb)",
+                    (run_id, skill_name, time.time(), json.dumps(config)),
+                )
+            conn.commit()
         logger.info("Memory store: run %s started (skill=%s)", run_id, skill_name)
         return run_id
 
     def end_run(self, run_id: str, summary: dict) -> None:
-        conn = self._get_conn()
-        conn.execute(
-            "UPDATE runs SET ended_at = ?, summary = ? WHERE id = ?",
-            (time.time(), json.dumps(summary), run_id),
-        )
-        conn.commit()
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE runs SET ended_at = to_timestamp(%s), summary = %s::jsonb WHERE id = %s",
+                    (time.time(), json.dumps(summary), run_id),
+                )
+            conn.commit()
 
     # -- Item outcomes -------------------------------------------------------
 
     def save_item_outcome(self, run_id: str, item_id: str, title: str,
                           category: str, outcome: str, attempts: int,
                           wall_time_s: float) -> None:
-        conn = self._get_conn()
-        conn.execute(
-            """INSERT OR REPLACE INTO work_items
-               (run_id, item_id, title, category, outcome, attempts, wall_time_s)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (run_id, item_id, title, category, outcome, attempts, wall_time_s),
-        )
-        conn.commit()
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO work_items
+                        (run_id, item_id, title, category, outcome, attempts, wall_time_s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (run_id, item_id) DO UPDATE SET
+                        title = EXCLUDED.title,
+                        category = EXCLUDED.category,
+                        outcome = EXCLUDED.outcome,
+                        attempts = EXCLUDED.attempts,
+                        wall_time_s = EXCLUDED.wall_time_s
+                    """,
+                    (run_id, item_id, title, category, outcome, attempts, wall_time_s),
+                )
+            conn.commit()
 
     # -- Attempt traces ------------------------------------------------------
 
@@ -241,135 +208,173 @@ class SQLiteMemoryStore:
                      approach: str, eval_passed: bool, failure_mode: str,
                      reflection: str, lesson: str, banned_pattern: str,
                      wall_time_s: float) -> None:
-        conn = self._get_conn()
-        conn.execute(
-            """INSERT INTO attempts
-               (run_id, item_id, attempt_num, approach, eval_passed,
-                failure_mode, reflection, lesson, banned_pattern,
-                wall_time_s, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (run_id, item_id, attempt_num, approach[:500],
-             1 if eval_passed else 0, failure_mode,
-             reflection[:500], lesson[:200], banned_pattern[:200],
-             wall_time_s, time.time()),
-        )
-        conn.commit()
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO attempts
+                        (run_id, item_id, attempt_num, approach, eval_passed,
+                         failure_mode, reflection, lesson, banned_pattern,
+                         wall_time_s, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now())
+                    """,
+                    (
+                        run_id, item_id, attempt_num, approach[:500],
+                        bool(eval_passed), failure_mode,
+                        reflection[:500], lesson[:200], banned_pattern[:200],
+                        wall_time_s,
+                    ),
+                )
+            conn.commit()
 
     # -- Lessons (cross-run meta-cognitions) ---------------------------------
 
     def save_lesson(self, category: str, lesson: str, run_id: str,
                     item_id: str) -> None:
-        conn = self._get_conn()
-        # Check for duplicate lessons (same text, same category)
-        existing = conn.execute(
-            "SELECT id FROM lessons WHERE category = ? AND lesson = ?",
-            (category, lesson),
-        ).fetchone()
-        if existing:
-            # Boost weight of repeated lessons — they're more likely valuable
-            conn.execute(
-                "UPDATE lessons SET weight = MIN(weight + 0.1, 1.0), "
-                "success_count = success_count + 1 WHERE id = ?",
-                (existing[0],),
-            )
-        else:
-            conn.execute(
-                """INSERT INTO lessons
-                   (category, lesson, source_run_id, source_item_id,
-                    created_at)
-                   VALUES (?, ?, ?, ?, ?)""",
-                (category, lesson, run_id, item_id, time.time()),
-            )
-        conn.commit()
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                # Deduplicate on (category, exact lesson text). Repeated lessons
+                # boost the legacy frequency weight; the dream pass owns confidence.
+                cur.execute(
+                    "SELECT id FROM lessons_current WHERE category = %s AND lesson = %s",
+                    (category, lesson),
+                )
+                row = cur.fetchone()
+                if row is not None:
+                    cur.execute(
+                        "UPDATE lessons_current SET "
+                        "    weight = LEAST(weight + 0.1, 1.0), "
+                        "    success_count = success_count + 1, "
+                        "    updated_at = now() "
+                        "WHERE id = %s",
+                        (row[0],),
+                    )
+                else:
+                    cur.execute(
+                        """
+                        INSERT INTO lessons_current
+                            (category, lesson, source_run_id, source_item_id, weight)
+                        VALUES (%s, %s, %s, %s, 0.5)
+                        """,
+                        (category, lesson, run_id, item_id),
+                    )
+            conn.commit()
 
     def update_lesson_weight(self, lesson_id: int, success: bool) -> None:
-        """Adjust a lesson's weight based on whether following it led to success."""
-        conn = self._get_conn()
-        if success:
-            conn.execute(
-                "UPDATE lessons SET weight = MIN(weight + 0.1, 1.0), "
-                "success_count = success_count + 1 WHERE id = ?",
-                (lesson_id,),
-            )
-        else:
-            conn.execute(
-                "UPDATE lessons SET weight = MAX(weight - 0.05, 0.0), "
-                "failure_count = failure_count + 1 WHERE id = ?",
-                (lesson_id,),
-            )
-        conn.commit()
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                if success:
+                    cur.execute(
+                        "UPDATE lessons_current SET "
+                        "    weight = LEAST(weight + 0.1, 1.0), "
+                        "    success_count = success_count + 1, "
+                        "    updated_at = now() "
+                        "WHERE id = %s",
+                        (lesson_id,),
+                    )
+                else:
+                    cur.execute(
+                        "UPDATE lessons_current SET "
+                        "    weight = GREATEST(weight - 0.05, 0.0), "
+                        "    failure_count = failure_count + 1, "
+                        "    updated_at = now() "
+                        "WHERE id = %s",
+                        (lesson_id,),
+                    )
+            conn.commit()
 
-    # -- Read path (cross-run retrieval) -------------------------------------
+    # -- Read path -----------------------------------------------------------
 
     def load_lessons(self, category: str, min_weight: float = 0.0,
                      limit: int = 10) -> list[StoredLesson]:
-        conn = self._get_conn()
-        rows = conn.execute(
-            """SELECT id, category, lesson, source_run_id, source_item_id,
-                      success_count, failure_count, weight
-               FROM lessons
-               WHERE category = ? AND weight >= ?
-               ORDER BY weight DESC
-               LIMIT ?""",
-            (category, min_weight, limit),
-        ).fetchall()
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id, category, lesson, source_run_id, source_item_id,
+                           success_count, failure_count, weight
+                    FROM lessons_current
+                    WHERE category = %s AND weight >= %s
+                    ORDER BY weight DESC, id
+                    LIMIT %s
+                    """,
+                    (category, min_weight, limit),
+                )
+                rows = cur.fetchall()
         return [
-            StoredLesson(id=r[0], category=r[1], lesson=r[2],
-                         source_run_id=r[3], source_item_id=r[4],
-                         success_count=r[5], failure_count=r[6], weight=r[7])
+            StoredLesson(
+                id=r[0], category=r[1], lesson=r[2],
+                source_run_id=r[3] or "", source_item_id=r[4] or "",
+                success_count=r[5] or 0, failure_count=r[6] or 0,
+                weight=float(r[7]) if r[7] is not None else 0.0,
+            )
             for r in rows
         ]
 
     def load_all_lessons(self, min_weight: float = 0.2,
                          limit: int = 30) -> list[StoredLesson]:
-        """Load top lessons across all categories."""
-        conn = self._get_conn()
-        rows = conn.execute(
-            """SELECT id, category, lesson, source_run_id, source_item_id,
-                      success_count, failure_count, weight
-               FROM lessons
-               WHERE weight >= ?
-               ORDER BY weight DESC
-               LIMIT ?""",
-            (min_weight, limit),
-        ).fetchall()
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id, category, lesson, source_run_id, source_item_id,
+                           success_count, failure_count, weight
+                    FROM lessons_current
+                    WHERE weight >= %s
+                    ORDER BY weight DESC, id
+                    LIMIT %s
+                    """,
+                    (min_weight, limit),
+                )
+                rows = cur.fetchall()
         return [
-            StoredLesson(id=r[0], category=r[1], lesson=r[2],
-                         source_run_id=r[3], source_item_id=r[4],
-                         success_count=r[5], failure_count=r[6], weight=r[7])
+            StoredLesson(
+                id=r[0], category=r[1], lesson=r[2],
+                source_run_id=r[3] or "", source_item_id=r[4] or "",
+                success_count=r[5] or 0, failure_count=r[6] or 0,
+                weight=float(r[7]) if r[7] is not None else 0.0,
+            )
             for r in rows
         ]
 
     def load_global_bans(self) -> list[str]:
-        """Load all banned patterns from prior runs."""
-        conn = self._get_conn()
-        rows = conn.execute(
-            """SELECT DISTINCT banned_pattern FROM attempts
-               WHERE banned_pattern IS NOT NULL AND banned_pattern != ''
-               ORDER BY created_at DESC
-               LIMIT 50""",
-        ).fetchall()
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT DISTINCT banned_pattern
+                    FROM attempts
+                    WHERE banned_pattern IS NOT NULL AND banned_pattern <> ''
+                    ORDER BY banned_pattern
+                    LIMIT 50
+                    """
+                )
+                rows = cur.fetchall()
         return [r[0] for r in rows]
 
     def query_prior_attempts(self, item_id: str,
                              limit: int = 10) -> list[StoredAttempt]:
-        conn = self._get_conn()
-        rows = conn.execute(
-            """SELECT run_id, item_id, attempt_num, approach, eval_passed,
-                      failure_mode, reflection, lesson, banned_pattern,
-                      wall_time_s
-               FROM attempts
-               WHERE item_id = ?
-               ORDER BY created_at DESC
-               LIMIT ?""",
-            (item_id, limit),
-        ).fetchall()
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT run_id, item_id, attempt_num, approach, eval_passed,
+                           failure_mode, reflection, lesson, banned_pattern, wall_time_s
+                    FROM attempts
+                    WHERE item_id = %s
+                    ORDER BY created_at DESC
+                    LIMIT %s
+                    """,
+                    (item_id, limit),
+                )
+                rows = cur.fetchall()
         return [
             StoredAttempt(
                 run_id=r[0], item_id=r[1], attempt_num=r[2],
-                approach=r[3], eval_passed=bool(r[4]), failure_mode=r[5],
-                reflection=r[6], lesson=r[7], banned_pattern=r[8],
-                wall_time_s=r[9],
+                approach=r[3] or "", eval_passed=bool(r[4]),
+                failure_mode=r[5] or "", reflection=r[6] or "",
+                lesson=r[7] or "", banned_pattern=r[8] or "",
+                wall_time_s=float(r[9]) if r[9] is not None else 0.0,
             )
             for r in rows
         ]
@@ -377,45 +382,57 @@ class SQLiteMemoryStore:
     # -- Difficulty model (for the clutch) -----------------------------------
 
     def get_category_stats(self) -> list[CategoryStats]:
-        """Aggregate performance stats by category across all runs."""
-        conn = self._get_conn()
-        rows = conn.execute(
-            """SELECT
-                 category,
-                 COUNT(*) as total,
-                 SUM(CASE WHEN outcome = 'completed' THEN 1 ELSE 0 END) as completed,
-                 SUM(CASE WHEN outcome = 'escalated' THEN 1 ELSE 0 END) as escalated,
-                 AVG(CASE WHEN outcome = 'completed' THEN 1.0 ELSE 0.0 END) as success_rate,
-                 AVG(attempts) as avg_attempts,
-                 AVG(wall_time_s) as avg_time,
-                 COUNT(DISTINCT run_id) as runs_seen
-               FROM work_items
-               WHERE outcome IN ('completed', 'escalated')
-               GROUP BY category
-               ORDER BY success_rate DESC""",
-        ).fetchall()
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT
+                        category,
+                        COUNT(*)::int                                                AS total,
+                        SUM(CASE WHEN outcome = 'completed' THEN 1 ELSE 0 END)::int  AS completed,
+                        SUM(CASE WHEN outcome = 'escalated' THEN 1 ELSE 0 END)::int  AS escalated,
+                        AVG(CASE WHEN outcome = 'completed' THEN 1.0 ELSE 0.0 END)   AS success_rate,
+                        AVG(attempts)                                                 AS avg_attempts,
+                        AVG(wall_time_s)                                              AS avg_time,
+                        COUNT(DISTINCT run_id)::int                                   AS runs_seen
+                    FROM work_items
+                    WHERE outcome IN ('completed', 'escalated')
+                    GROUP BY category
+                    ORDER BY success_rate DESC NULLS LAST
+                    """
+                )
+                rows = cur.fetchall()
         return [
             CategoryStats(
                 category=r[0], total_items=r[1], completed=r[2],
-                escalated=r[3], success_rate=r[4], avg_attempts=r[5],
-                avg_wall_time_s=r[6], total_runs_seen=r[7],
+                escalated=r[3],
+                success_rate=float(r[4]) if r[4] is not None else 0.0,
+                avg_attempts=float(r[5]) if r[5] is not None else 0.0,
+                avg_wall_time_s=float(r[6]) if r[6] is not None else 0.0,
+                total_runs_seen=r[7],
             )
             for r in rows
         ]
 
     def get_run_count(self) -> int:
-        conn = self._get_conn()
-        row = conn.execute("SELECT COUNT(*) FROM runs").fetchone()
-        return row[0] if row else 0
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) FROM runs")
+                row = cur.fetchone()
+        return int(row[0]) if row else 0
 
-    # -- Summary for logging -------------------------------------------------
+    # -- Summary -------------------------------------------------------------
 
     def summary(self) -> str:
-        """Human-readable summary of what's in the memory store."""
-        conn = self._get_conn()
-        runs = conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
-        items = conn.execute("SELECT COUNT(*) FROM work_items").fetchone()[0]
-        attempts = conn.execute("SELECT COUNT(*) FROM attempts").fetchone()[0]
-        lessons = conn.execute("SELECT COUNT(*) FROM lessons").fetchone()[0]
-        return (f"Memory store: {runs} runs, {items} items, "
-                f"{attempts} attempts, {lessons} lessons")
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) FROM runs")
+                runs = cur.fetchone()[0]
+                cur.execute("SELECT COUNT(*) FROM work_items")
+                items = cur.fetchone()[0]
+                cur.execute("SELECT COUNT(*) FROM attempts")
+                attempts = cur.fetchone()[0]
+                cur.execute("SELECT COUNT(*) FROM lessons_current")
+                lessons = cur.fetchone()[0]
+        return (f"Memory store (skill={self.skill}): "
+                f"{runs} runs, {items} items, {attempts} attempts, {lessons} lessons")

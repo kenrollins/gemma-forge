@@ -745,12 +745,14 @@ async def run_ralph(
         pass
 
     from gemma_forge.harness.run_logger import RunLogger
-    from gemma_forge.harness.memory_store import SQLiteMemoryStore
+    from gemma_forge.harness.memory_store import PostgresMemoryStore
     run_log = RunLogger()
-    # Per-skill memory DB — each skill accumulates its own cross-run knowledge.
-    # Path: memory/{skill_name}.db (e.g., memory/stig-rhel9.db)
-    skill_db_name = (skill_name or "default").replace("/", "-")
-    mem_store = SQLiteMemoryStore(db_path=f"memory/{skill_db_name}.db")
+    # Per-skill memory schema inside the shared `gemma_forge` Postgres DB
+    # (ADR-0016). One Postgres role per skill (forge_<skill>) with the
+    # search_path pinned at bootstrap. The skill-name → schema mapping
+    # collapses any '/' in the skill identifier to '_' for SQL safety.
+    skill_schema = (skill_name or "stig").replace("/", "_").replace("-", "_")
+    mem_store = PostgresMemoryStore(skill=skill_schema)
     mem_store.initialize()
     mem_run_id = mem_store.start_run(skill_name or "unknown", harness_cfg)
 

@@ -527,12 +527,22 @@ function AgentInsight({ events }: { events: RunEvent[] }) {
                   <span className="text-[9px] text-[#4B5563] ml-auto tabular-nums">{entry.elapsed_s.toFixed(0)}s</span>
                 </div>
                 {reasoning && (
-                  <div className="text-[12px] text-[#C9D1D9] leading-relaxed mb-2">{reasoning}</div>
+                  <div
+                    className="text-[12px] leading-relaxed mb-2"
+                    style={{ color: "color-mix(in srgb, #3B82F6 70%, #BFD4F7)" }}
+                  >
+                    {reasoning}
+                  </div>
                 )}
                 {plan && (
                   <div className="mt-2 pt-2 border-t border-[#2A2E38]">
                     <div className="text-[10px] uppercase tracking-wider text-[#6B7280] font-semibold mb-1">New Plan</div>
-                    <pre className="text-[12px] text-[#E8EAED] font-mono whitespace-pre-wrap leading-relaxed">{plan}</pre>
+                    <pre
+                      className="text-[12px] font-mono whitespace-pre-wrap leading-relaxed"
+                      style={{ color: "color-mix(in srgb, #3B82F6 70%, #BFD4F7)" }}
+                    >
+                      {plan}
+                    </pre>
                   </div>
                 )}
               </div>
@@ -591,12 +601,22 @@ function AgentInsight({ events }: { events: RunEvent[] }) {
                   {entry.elapsed_s.toFixed(0)}s
                 </span>
               </div>
-              {/* Content — colored per agent identity */}
+              {/* Content — colored per agent identity. Architect text
+                  needs more saturation than Worker/Reflector because
+                  blue mixed with light neutral washes out faster than
+                  amber or purple do. Boosting the agent-color mix from
+                  40% to 65% (and using a slightly cooler base for
+                  architect specifically) makes the visual separation
+                  between agents readable at a glance. */}
               {isResponse ? (
                 <pre
                   className={`font-mono whitespace-pre-wrap leading-relaxed overflow-y-auto
                     ${isArchitect ? "text-[12px] max-h-64" : "text-[11px] max-h-40"}`}
-                  style={{ color: `color-mix(in srgb, ${agentColor} 40%, #E8EAED)` }}
+                  style={{
+                    color: isArchitect
+                      ? `color-mix(in srgb, ${agentColor} 70%, #BFD4F7)`
+                      : `color-mix(in srgb, ${agentColor} 55%, #E8EAED)`,
+                  }}
                 >
                   {entry.text.split("\n").filter(l => l.trim()).join("\n")}
                 </pre>

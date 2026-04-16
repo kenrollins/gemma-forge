@@ -1,0 +1,24 @@
+# Dashboard configuration.
+#
+# Drives the home page's auto-connect behavior. The demo_run is what
+# the page replays when no live run is active — chosen deliberately,
+# not picked at random, so the demo experience stays consistent.
+#
+# To swap the demo loop:
+#   1. Pick a run filename from runs/ (must be a substantive one,
+#      ideally a complete overnight run with a good story).
+#   2. Update demo_run below.
+#   3. No restart required — the API reads this on each request.
+
+# Demo replay run. Set to null to fall back to "most recent completed
+# run with summary."
+demo_run: run-20260414-012052.jsonl
+
+# Speed at which the demo loops by default. Presenters can change
+# this from the UI; this is just the initial value.
+demo_speed: 20
+
+# Threshold (seconds) for considering a run "live": if the newest
+# JSONL file's mtime is within this many seconds of now, treat it
+# as actively writing.
+live_mtime_threshold_s: 30

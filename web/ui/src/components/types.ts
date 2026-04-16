@@ -1,3 +1,18 @@
+// Tab identity for the home dashboard. "live" stays as the key for
+// the mission-control view even though the chrome label says "Mission",
+// so older code (and any future event-tagged URLs) keep working.
+export type Tab = "live" | "memory" | "runs" | "events";
+
+// Server response from /api/state. Drives the auto-connect logic on
+// the home page so the dashboard never shows an empty "Disconnected"
+// page on first load.
+export interface DashboardState {
+  live: boolean;
+  live_run_filename: string | null;
+  demo_run: string | null;
+  demo_speed: number;
+}
+
 export interface GpuState {
   index: number;
   name: string;

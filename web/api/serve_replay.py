@@ -7,9 +7,13 @@ Usage:
     uvicorn web.api.serve_replay:app --host 0.0.0.0 --port 8080
 """
 
-import json
 import asyncio
+import json
+import os
+import time
 from pathlib import Path
+
+import yaml
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -24,6 +28,25 @@ app.add_middleware(
 )
 
 RUNS_DIR = Path("/data/code/gemma-forge/runs")
+DASHBOARD_CONFIG = Path("/data/code/gemma-forge/config/dashboard.yaml")
+
+
+def _load_dashboard_config() -> dict:
+    """Read dashboard config on each request so changes take effect
+    without an API restart. Returns sensible defaults if the file is
+    missing or malformed."""
+    defaults = {
+        "demo_run": None,
+        "demo_speed": 20,
+        "live_mtime_threshold_s": 30,
+    }
+    if not DASHBOARD_CONFIG.is_file():
+        return defaults
+    try:
+        loaded = yaml.safe_load(DASHBOARD_CONFIG.read_text()) or {}
+    except yaml.YAMLError:
+        return defaults
+    return {**defaults, **loaded}
 
 
 @app.get("/api/runs")
@@ -130,6 +153,57 @@ async def stream_live(poll_interval: float = Query(default=2.0)):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@app.get("/api/state")
+def get_dashboard_state():
+    """What should the dashboard show right now?
+
+    Returns the live status (is a run actively writing?) and the
+    designated demo run for replay-when-idle. The frontend uses this
+    on page load to decide between auto-connecting to live or starting
+    the demo replay loop — there is no "disconnected empty page" state
+    by design (see journey/N for the rationale).
+    """
+    cfg = _load_dashboard_config()
+    threshold = cfg["live_mtime_threshold_s"]
+
+    jsonl_files = sorted(RUNS_DIR.glob("run-*.jsonl"), reverse=True)
+    most_recent = jsonl_files[0] if jsonl_files else None
+
+    live = False
+    live_run_filename = None
+    if most_recent is not None:
+        age = time.time() - most_recent.stat().st_mtime
+        if age < threshold:
+            live = True
+            live_run_filename = most_recent.name
+
+    # Demo run selection: explicit config wins; fall back to the most
+    # recent run that actually has a run_complete summary (so we don't
+    # accidentally pick a smoke test).
+    demo_run = cfg["demo_run"]
+    if demo_run is None:
+        for f in jsonl_files:
+            try:
+                last = json.loads(f.read_text().strip().split("\n")[-1])
+                if last.get("event_type") == "run_complete":
+                    demo_run = f.name
+                    break
+            except (json.JSONDecodeError, IndexError):
+                continue
+
+    # Validate the configured demo_run actually exists; if not, fall
+    # back so the frontend never hits a 404 on auto-replay.
+    if demo_run and not (RUNS_DIR / demo_run).is_file():
+        demo_run = most_recent.name if most_recent else None
+
+    return {
+        "live": live,
+        "live_run_filename": live_run_filename,
+        "demo_run": demo_run,
+        "demo_speed": cfg["demo_speed"],
+    }
 
 
 @app.get("/api/gpu")

@@ -141,7 +141,7 @@ function StageCard({
 
   return (
     <div
-      className="flex-1 px-5 py-3 rounded-md border transition-all duration-300 relative overflow-hidden"
+      className="flex-1 px-6 py-4 rounded-md border transition-all duration-300 relative overflow-hidden"
       style={{
         background: bg,
         borderColor,
@@ -181,7 +181,7 @@ function StageCard({
 
         {/* Stage title */}
         <span
-          className="text-[11px] font-bold uppercase tracking-[0.2em] truncate"
+          className="text-[12px] font-bold uppercase tracking-[0.2em] truncate"
           style={{ color: titleColor }}
         >
           {meta.label}
@@ -190,7 +190,7 @@ function StageCard({
 
       {/* Sub-label (verb form) — fixed line height to prevent reflow at 100x */}
       <div
-        className="relative text-[10px] font-mono mt-1.5 truncate leading-none h-3"
+        className="relative text-[11px] font-mono mt-2 truncate leading-none h-3.5"
         style={{ color: subColor }}
       >
         {subText}

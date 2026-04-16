@@ -315,13 +315,18 @@ class PostgresMemoryStore:
                      limit: int = 10) -> list[StoredLesson]:
         with self._conn() as conn:
             with conn.cursor() as cur:
+                # Composite ranking: weight × confidence_multiplier.
+                # confidence [-1,+1] maps to multiplier [0,1] via (conf+1)/2.
+                # NULL confidence (pre-dream-pass lessons) treated as neutral (0.5×).
+                # A lesson with weight=1.0 and confidence=-1.0 scores 0.0;
+                # a lesson with weight=0.5 and confidence=+1.0 scores 0.5.
                 cur.execute(
                     """
                     SELECT id, category, lesson, source_run_id, source_item_id,
                            success_count, failure_count, weight
                     FROM lessons_current
                     WHERE category = %s AND weight >= %s
-                    ORDER BY weight DESC, id
+                    ORDER BY weight * COALESCE((confidence + 1.0) / 2.0, 0.5) DESC, id
                     LIMIT %s
                     """,
                     (category, min_weight, limit),
@@ -347,7 +352,7 @@ class PostgresMemoryStore:
                            success_count, failure_count, weight
                     FROM lessons_current
                     WHERE weight >= %s
-                    ORDER BY weight DESC, id
+                    ORDER BY weight * COALESCE((confidence + 1.0) / 2.0, 0.5) DESC, id
                     LIMIT %s
                     """,
                     (min_weight, limit),

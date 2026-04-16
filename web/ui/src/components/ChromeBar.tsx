@@ -18,12 +18,24 @@
  * or the literal character. We use the literal characters here.
  */
 
+import { useEffect, useRef, useState } from "react";
 import type { Tab } from "./types";
 
 export type ChromeMode = "live" | "replay";
 
 export const SPEEDS = [1, 5, 20, 100] as const;
 export type ReplaySpeed = typeof SPEEDS[number];
+
+/** Shape the ChromeBar needs from each available run — a subset of
+    the server's `RunInfo` type so callers can pass that list in
+    directly without mapping. */
+export interface RunOption {
+  filename: string;
+  events: number;
+  start: string;
+  elapsed_s: number;
+  summary: Record<string, unknown>;
+}
 
 export interface ChromeBarProps {
   mode: ChromeMode;
@@ -37,6 +49,11 @@ export interface ChromeBarProps {
   // Optional human-readable name of what's currently being replayed,
   // shown next to the speed control (e.g. "20260414 · 13.5h").
   replayLabel?: string;
+  // Run picker — when all three are provided, the chrome shows a
+  // clickable summary that opens a dropdown of available runs.
+  runs?: RunOption[];
+  activeRun?: string;
+  setActiveRun?: (filename: string) => void;
 }
 
 const MODE = {
@@ -63,6 +80,9 @@ export default function ChromeBar({
   activeTab,
   setActiveTab,
   replayLabel,
+  runs,
+  activeRun,
+  setActiveRun,
 }: ChromeBarProps) {
   const speedActive = mode === "replay";
   const palette = MODE[mode];
@@ -130,12 +150,21 @@ export default function ChromeBar({
           ))}
         </div>
         {replayLabel && speedActive && (
-          <span
-            className="text-[10px] font-mono text-[#6B7280] ml-1 truncate max-w-[180px]"
-            title={replayLabel}
-          >
-            {replayLabel}
-          </span>
+          runs && activeRun && setActiveRun ? (
+            <RunPicker
+              runs={runs}
+              activeRun={activeRun}
+              setActiveRun={setActiveRun}
+              label={replayLabel}
+            />
+          ) : (
+            <span
+              className="text-[10px] font-mono text-[#6B7280] ml-1 truncate max-w-[180px]"
+              title={replayLabel}
+            >
+              {replayLabel}
+            </span>
+          )
         )}
       </div>
 
@@ -189,6 +218,134 @@ export default function ChromeBar({
           50% { opacity: 0.55; }
         }
       `}</style>
+    </div>
+  );
+}
+
+/**
+ * RunPicker — clickable summary that opens a floating list of past
+ * runs. Replaces the old bare <select> with a pattern that fits the
+ * demo aesthetic: the chrome shows "20260414 · 13.5h ▾" and clicking
+ * it drops a panel of run cards to pick from. Each card shows the
+ * date, duration, event count, and (if available) the run's fix
+ * rate so the presenter can land on the right run quickly.
+ */
+function RunPicker({
+  runs,
+  activeRun,
+  setActiveRun,
+  label,
+}: {
+  runs: RunOption[];
+  activeRun: string;
+  setActiveRun: (f: string) => void;
+  label: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative ml-1">
+      <button
+        onClick={() => setOpen(!open)}
+        title="Pick a different run to replay"
+        className="flex items-center gap-1.5 px-2 py-1 rounded-sm text-[10px] font-mono text-[#9CA3AF] hover:text-[#E8EAED] hover:bg-[#13161D] transition-colors"
+      >
+        <span className="truncate max-w-[180px]">{label}</span>
+        <span className="text-[#6B7280]">▾</span>
+      </button>
+      {open && (
+        <div
+          className="absolute z-50 top-full left-0 mt-1 w-[340px] max-h-[400px] overflow-y-auto rounded-md border border-[#2A2F38] bg-[#0A0C10] shadow-2xl"
+          style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.6)" }}
+        >
+          <div className="px-3 py-1.5 text-[9px] font-semibold uppercase tracking-[0.2em] text-[#4B5563] border-b border-[#1C1F26]">
+            Pick a run to replay
+          </div>
+          {runs.map((r) => {
+            const isActive = r.filename === activeRun;
+            const summary = r.summary || {};
+            const fixed = summary["remediated"] as number | undefined;
+            const esc = summary["escalated"] as number | undefined;
+            const fixRate =
+              fixed !== undefined && esc !== undefined && fixed + esc > 0
+                ? Math.round((fixed / (fixed + esc)) * 100)
+                : null;
+            const stamp = r.filename.replace(/^run-|\.jsonl$/g, "");
+            const durH = r.elapsed_s / 3600;
+            const durLabel =
+              durH >= 1
+                ? `${durH.toFixed(1)}h`
+                : `${Math.round(r.elapsed_s / 60)}m`;
+            return (
+              <button
+                key={r.filename}
+                onClick={() => {
+                  setActiveRun(r.filename);
+                  setOpen(false);
+                }}
+                className="w-full text-left px-3 py-2 border-b border-[#141820] last:border-b-0 transition-colors block"
+                style={{
+                  background: isActive ? "rgba(59,130,246,0.08)" : "transparent",
+                }}
+                onMouseEnter={(e) => {
+                  if (!isActive) e.currentTarget.style.background = "#13161D";
+                }}
+                onMouseLeave={(e) => {
+                  if (!isActive) e.currentTarget.style.background = "transparent";
+                }}
+              >
+                <div className="flex items-center gap-2">
+                  <span
+                    className="text-[11px] font-mono font-semibold"
+                    style={{ color: isActive ? "#60A5FA" : "#E8EAED" }}
+                  >
+                    {stamp}
+                  </span>
+                  <span className="text-[10px] font-mono text-[#6B7280]">
+                    · {durLabel}
+                  </span>
+                  {fixRate !== null && (
+                    <span
+                      className="ml-auto text-[10px] font-mono tabular-nums"
+                      style={{
+                        color:
+                          fixRate >= 60
+                            ? "#22C55E"
+                            : fixRate >= 40
+                            ? "#F59E0B"
+                            : "#EF4444",
+                      }}
+                    >
+                      {fixRate}% fix
+                    </span>
+                  )}
+                </div>
+                <div className="text-[9px] text-[#4B5563] mt-0.5 tabular-nums">
+                  {r.events.toLocaleString()} events
+                  {fixed !== undefined && esc !== undefined && (
+                    <>
+                      <span className="mx-1.5 text-[#2A2F38]">·</span>
+                      <span className="text-[#22C55E]">{fixed}</span>r
+                      <span className="mx-0.5">/</span>
+                      <span className="text-[#F59E0B]">{esc}</span>e
+                    </>
+                  )}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

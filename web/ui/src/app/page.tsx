@@ -235,17 +235,33 @@ export default function Dashboard() {
     setConnected(false);
   }, []);
 
+  // Track current elapsed_s in a ref so the speed-change handler can
+  // read it without going through the effect dependency chain.
+  const currentElapsedRef = useRef(0);
+  useEffect(() => {
+    currentElapsedRef.current = events.length > 0 ? events[events.length - 1].elapsed_s : 0;
+  }, [events]);
+
   const openStream = useCallback(
-    (m: "live" | "replay", run: string, speed: ReplaySpeed) => {
-      // Always start with a clean slate so the new stream's events
-      // don't get appended to the prior stream's tail.
+    (
+      m: "live" | "replay",
+      run: string,
+      speed: ReplaySpeed,
+      opts?: { seekSeconds?: number; preserveEvents?: boolean },
+    ) => {
+      // `preserveEvents` = true means this is a resume/seek (e.g. speed
+      // change) — keep the existing state, reconnect at the seek point.
+      // Otherwise clear state so a new run/mode starts fresh.
+      const preserve = opts?.preserveEvents ?? false;
+      const seek = opts?.seekSeconds ?? 0;
+
       if (evtSourceRef.current) evtSourceRef.current.close();
       eventBufferRef.current = [];
       if (flushFrameRef.current !== null) {
         cancelAnimationFrame(flushFrameRef.current);
         flushFrameRef.current = null;
       }
-      setEvents([]);
+      if (!preserve) setEvents([]);
 
       const scheduleFlush = () => {
         if (flushFrameRef.current !== null) return;
@@ -262,7 +278,8 @@ export default function Dashboard() {
       const url =
         m === "live"
           ? `${apiBase}/api/live-stream?poll_interval=1`
-          : `${apiBase}/api/runs/${run}/stream?speed=${speed}`;
+          : `${apiBase}/api/runs/${run}/stream?speed=${speed}` +
+            (seek > 0 ? `&start_from=${seek}` : "");
 
       const evtSource = new EventSource(url);
       evtSourceRef.current = evtSource;
@@ -278,7 +295,6 @@ export default function Dashboard() {
             // Demo loop: when a replay finishes, kick off another
             // round of the same run so the page stays alive.
             if (m === "replay") {
-              // Brief pause so the user sees the run "end" before it loops.
               setTimeout(() => openStream("replay", run, speed), 1500);
             }
             return;
@@ -298,13 +314,36 @@ export default function Dashboard() {
     [],
   );
 
-  // ----- Auto-connect: open the right stream whenever mode/run/speed changes
+  // ----- Auto-connect: open a fresh stream whenever mode or run changes.
+  // Speed changes are handled separately (see setReplaySpeedPreserving
+  // below) so that bumping speed during a demo doesn't reset the run
+  // back to the beginning.
   useEffect(() => {
     if (!initialized.current) return;
     if (!activeRun && mode === "replay") return;
     openStream(mode, activeRun, replaySpeed);
     return () => disconnect();
-  }, [mode, activeRun, replaySpeed, openStream, disconnect]);
+    // intentionally NOT depending on replaySpeed — the speed handler
+    // reconnects with `start_from` so the position is preserved.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, activeRun, openStream, disconnect]);
+
+  // Speed change during a replay: reconnect at the current elapsed_s
+  // so the event stream resumes at the new speed from exactly where
+  // we are on screen. No visual reset, no event loss.
+  const setReplaySpeedPreserving = useCallback(
+    (s: ReplaySpeed) => {
+      setReplaySpeed(s);
+      if (mode === "replay" && activeRun) {
+        const seek = Math.max(0, currentElapsedRef.current - 0.5);
+        openStream("replay", activeRun, s, {
+          seekSeconds: seek,
+          preserveEvents: true,
+        });
+      }
+    },
+    [mode, activeRun, openStream],
+  );
 
   // ----- Cross-run hydration data passed into TaskMap ------------------
   const crossRunData: CrossRunData | null = useMemo(() => {
@@ -351,11 +390,19 @@ export default function Dashboard() {
         setMode={handleSetMode}
         liveAvailable={liveAvailable}
         replaySpeed={replaySpeed}
-        setReplaySpeed={(s) => setReplaySpeed(s)}
+        setReplaySpeed={setReplaySpeedPreserving}
         connected={connected}
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         replayLabel={replayLabel}
+        runs={runs}
+        activeRun={activeRun}
+        setActiveRun={(r: string) => {
+          setActiveRun(r);
+          // Explicit run change — clear and restart from zero.
+          // The openStream call inside the mode/run effect handles this
+          // automatically when activeRun changes.
+        }}
       />
 
       {mode === "replay" && activeTab === "live" && (

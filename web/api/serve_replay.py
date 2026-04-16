@@ -81,10 +81,21 @@ def get_run_events(filename: str):
 
 
 @app.get("/api/runs/{filename}/stream")
-async def stream_run(filename: str, speed: float = Query(default=5.0)):
+async def stream_run(
+    filename: str,
+    speed: float = Query(default=5.0),
+    start_from: float = Query(default=0.0, description="Skip to this elapsed_s mark before streaming"),
+    resync: bool = Query(default=False, description="If true, emit skipped events instantly (no delay) up to start_from so the frontend can fast-forward its state"),
+):
     """Stream run events as SSE at accelerated speed.
 
     Speed multiplier: 1.0 = real-time, 5.0 = 5x faster, etc.
+
+    `start_from` and `resync` exist so the frontend can change the
+    replay speed mid-stream without visually resetting the run: it
+    passes the current elapsed_s and gets the new stream picking up
+    at exactly that point. Without this, a speed change would restart
+    the replay from the beginning (jarring during a demo).
     """
     path = RUNS_DIR / filename
     if not path.exists():
@@ -96,9 +107,23 @@ async def stream_run(filename: str, speed: float = Query(default=5.0)):
             events.append(json.loads(line))
 
     async def event_generator():
-        last_elapsed = 0.0
+        # Two phases:
+        # 1. Skip (or burst-send) events before start_from.
+        # 2. Resume normal speed-paced streaming from start_from onward.
+        last_elapsed = start_from
+        started = False
         for event in events:
             elapsed = event.get("elapsed_s", 0)
+            if elapsed < start_from:
+                if resync:
+                    # Emit the skipped history so the client can rebuild state.
+                    yield f"data: {json.dumps(event)}\n\n"
+                continue
+            if not started:
+                started = True
+                last_elapsed = elapsed
+                yield f"data: {json.dumps(event)}\n\n"
+                continue
             delay = (elapsed - last_elapsed) / speed
             if delay > 0 and delay < 10:  # cap max delay at 10s even at 1x
                 await asyncio.sleep(delay)

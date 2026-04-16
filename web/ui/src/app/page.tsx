@@ -33,6 +33,7 @@ import PulseRibbon from "../components/PulseRibbon";
 import ArchitecturePanel from "../components/ArchitecturePanel";
 import MemoryPulsePanel from "../components/MemoryPulsePanel";
 import RunsTab from "../components/RunsTab";
+import MemoryTab from "../components/MemoryTab";
 import TaskMap from "../components/TaskMap";
 import FocusPanel from "../components/FocusPanel";
 import EventLog from "../components/EventLog";
@@ -97,24 +98,6 @@ function DemoBanner({ replayLabel, onSwitchLive, liveAvailable }: {
           Switch to live ●
         </button>
       )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Tab placeholder views. Live (Mission) tab is the existing dashboard
-// content. The other three are stubbed for now and will fill in over
-// subsequent UI phases.
-// ---------------------------------------------------------------------------
-function TabPlaceholder({ label, body }: { label: string; body: string }) {
-  return (
-    <div className="flex-1 flex items-center justify-center bg-[#0B0D11]">
-      <div className="text-center max-w-md">
-        <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#3F4451] mb-2">
-          {label} tab
-        </div>
-        <div className="text-sm text-[#6B7280] leading-relaxed">{body}</div>
-      </div>
     </div>
   );
 }
@@ -572,10 +555,7 @@ export default function Dashboard() {
       )}
 
       {activeTab === "memory" && (
-        <TabPlaceholder
-          label="Memory"
-          body="The Memory view will live here in UI-6: a force-directed graph of lessons, attempts, and rules with retrievals lighting up edges as they happen. Coming after V2 ships per-prompt tip logging."
-        />
+        <MemoryTab events={events} skillUI={skillUI} />
       )}
 
       {activeTab === "runs" && (

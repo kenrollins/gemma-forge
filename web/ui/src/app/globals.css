@@ -34,11 +34,16 @@
   --font-mono: var(--font-geist-mono);
 }
 
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
+/*
+ * NOTE: do NOT add a top-level `* { padding: 0; margin: 0 }` reset here.
+ * Tailwind v4 already provides one inside `@layer base`. An UNLAYERED
+ * universal selector beats every Tailwind utility in the cascade
+ * (unlayered styles always win over `@layer` styles), which silently
+ * nukes every `px-*`, `py-*`, `m-*` etc. anywhere in the app — that
+ * was the cause of the cramped chrome bar + AgentFlow cards. The
+ * classes were in the DOM but their padding resolved to 0. Don't
+ * reintroduce.
+ */
 
 body {
   background: var(--bg-void);

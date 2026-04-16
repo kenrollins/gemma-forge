@@ -749,9 +749,11 @@ async def run_ralph(
     run_log = RunLogger()
     # Per-skill memory schema inside the shared `gemma_forge` Postgres DB
     # (ADR-0016). One Postgres role per skill (forge_<skill>) with the
-    # search_path pinned at bootstrap. The skill-name → schema mapping
-    # collapses any '/' in the skill identifier to '_' for SQL safety.
-    skill_schema = (skill_name or "stig").replace("/", "_").replace("-", "_")
+    # search_path pinned at bootstrap. The skill family is the first
+    # segment of the skill name (e.g., "stig" from "stig-rhel9"), and
+    # maps to the schema name (stig) and role (forge_stig) created by
+    # tools/bootstrap_skill.sh.
+    skill_schema = (skill_name or "stig").split("-")[0].split("/")[0]
     mem_store = PostgresMemoryStore(skill=skill_schema)
     mem_store.initialize()
     mem_run_id = mem_store.start_run(skill_name or "unknown", harness_cfg)

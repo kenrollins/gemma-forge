@@ -61,6 +61,15 @@ interface Summarized extends RunOption {
   isDemoCandidate: boolean; // has a run_complete summary
 }
 
+// Threshold above which a run is "substantial enough" for the default
+// gallery view. The current STIG skill has 270 work items; runs below
+// this floor are overwhelmingly smoke tests, interrupted dev sessions,
+// or scoped reproductions that don't represent the architecture's
+// actual performance. They misread visually because the fix-rate
+// tier coloring rewards small 100%-success samples with the same
+// bright green as a full 60%+ overnight.
+const SHORT_RUN_THRESHOLD_ITEMS = 100;
+
 function summarize(r: RunOption): Summarized {
   const stamp = r.filename.replace(/^run-|\.jsonl$/g, "");
   const { date, time } = formatDate(stamp);
@@ -80,7 +89,9 @@ function summarize(r: RunOption): Summarized {
     escalated,
     skipped,
     fixRate,
-    isDemoCandidate: fixRate !== null && (remediated + escalated + skipped) >= 20,
+    isDemoCandidate:
+      fixRate !== null &&
+      (remediated + escalated + skipped) >= SHORT_RUN_THRESHOLD_ITEMS,
   };
 }
 
@@ -116,7 +127,7 @@ export default function RunsTab({ runs, activeRun, onLaunch }: RunsTabProps) {
               {rows.length} <span className="text-[#6B7280] font-normal">on record</span>
               {hideSmoke && smokeCount > 0 && (
                 <span className="text-[11px] font-normal text-[#4B5563] ml-2">
-                  ({smokeCount} smoke tests hidden)
+                  ({smokeCount} short runs hidden)
                 </span>
               )}
             </div>
@@ -130,7 +141,7 @@ export default function RunsTab({ runs, activeRun, onLaunch }: RunsTabProps) {
                 onChange={(e) => setHideSmoke(e.target.checked)}
                 className="accent-[#3B82F6]"
               />
-              <span>hide smoke tests</span>
+              <span>hide short runs (&lt; {SHORT_RUN_THRESHOLD_ITEMS} items)</span>
             </label>
             <span className="text-[#3F4451]">·</span>
             <span className="text-[#4B5563] uppercase tracking-wider">Sort</span>
@@ -156,7 +167,7 @@ export default function RunsTab({ runs, activeRun, onLaunch }: RunsTabProps) {
             <div className="text-[12px] uppercase tracking-[0.2em] mb-2">No runs</div>
             <div className="text-[11px]">
               {hideSmoke
-                ? "Every record so far is under 20 work items — untick \"hide smoke tests\" to show them."
+                ? `Every record so far is under ${SHORT_RUN_THRESHOLD_ITEMS} work items — untick "hide short runs" to show them.`
                 : "Launch a run from the harness CLI to start populating history."}
             </div>
           </div>

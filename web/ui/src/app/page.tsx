@@ -529,18 +529,20 @@ export default function Dashboard() {
               onSelectItem={setSelectedItemId}
               onClose={() => setSelectedItemId(null)}
             />
-            <div className="w-[340px] shrink-0 border-l border-[#1C1F26] overflow-y-auto flex flex-col">
+            <div className="w-[340px] shrink-0 border-l border-[#1C1F26] overflow-y-auto">
+              {/* Plain vertical stack — each child takes its natural
+                  height and the whole column scrolls. Avoids the
+                  flex-col trap where TaskMap's own internal scroll
+                  competes with the sidebar scroll and neither wins. */}
               <ArchitecturePanel gpus={gpus} events={events} connected={connected} />
               <MemoryPulsePanel events={events} skillUI={skillUI} crossRunData={crossRunData} />
-              <div className="flex-1 min-h-0">
-                <TaskMap
-                  events={events}
-                  skillUI={skillUI}
-                  selectedItemId={selectedItemId}
-                  onSelectItem={setSelectedItemId}
-                  crossRunData={crossRunData}
-                />
-              </div>
+              <TaskMap
+                events={events}
+                skillUI={skillUI}
+                selectedItemId={selectedItemId}
+                onSelectItem={setSelectedItemId}
+                crossRunData={crossRunData}
+              />
             </div>
           </div>
         </>

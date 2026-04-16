@@ -3,15 +3,14 @@
 /**
  * ArchitecturePanel — "this is all running on one box" at a glance.
  *
- * Four GPU bars with live utilization + service indicator lights for
- * the components that make the sovereign-edge story concrete: vLLM,
- * the VM target, Postgres (semantic memory), Neo4j (reflective
- * memory). When a presenter says "no cloud, no phone-home, everything
- * local," they can gesture at this panel and the audience sees the
- * stack.
- *
- * Deliberately compact: fits inside the right sidebar (340px) above
- * the TaskMap without stealing vertical real estate.
+ * Four L4 GPUs serving Gemma 4 + four local services. The earlier
+ * version rendered per-GPU utilization bars, but in practice those
+ * bars sit near 100% whenever the harness is actively generating
+ * tokens (which is most of the run), so they conveyed no information
+ * and took real estate. Replaced with aggregate hardware stats
+ * (VRAM, power, temp) that actually vary, plus a service row that
+ * reinforces the sovereignty story (vLLM + VM + Postgres + Neo4j
+ * all local).
  */
 
 import { useMemo } from "react";
@@ -26,16 +25,13 @@ export interface ArchitecturePanelProps {
 export default function ArchitecturePanel({ gpus, events, connected }: ArchitecturePanelProps) {
   // Derive service health signals from the event stream. All services
   // run on the same host as the harness, so if we're connected and
-  // events are flowing, they're nominal. A more thorough check could
+  // events are flowing they're nominal. A more thorough check could
   // ask /api/health per service, but that's overkill for a demo panel
   // — if vLLM is down the whole harness stalls and tok/s drops to 0.
   const health = useMemo(() => {
     const last = events.length > 0 ? events[events.length - 1] : null;
     const lastEventAgeMs = last ? Date.now() - new Date(last.timestamp).getTime() : Infinity;
 
-    // Any recent tok/s signal from the last agent_response tells us
-    // vLLM is answering. Stale signal = stale harness, not necessarily
-    // a down service, but we mark it as idle either way.
     let recentTokPerSec = 0;
     for (let i = events.length - 1; i >= Math.max(0, events.length - 20); i--) {
       const e = events[i];
@@ -45,8 +41,6 @@ export default function ArchitecturePanel({ gpus, events, connected }: Architect
       }
     }
 
-    // SSH activity on the VM: tool_call or tool_result events imply
-    // the VM responded.
     let recentVmActivity = false;
     for (let i = events.length - 1; i >= Math.max(0, events.length - 12); i--) {
       const e = events[i];
@@ -59,14 +53,31 @@ export default function ArchitecturePanel({ gpus, events, connected }: Architect
     return {
       vllm: { ok: connected && (recentTokPerSec > 0 || lastEventAgeMs < 30_000) },
       vm: { ok: connected && recentVmActivity },
-      // Postgres and Neo4j are touched at hydration + dream-pass time,
-      // not continuously. If the run hydrated (we can see the event)
-      // then Postgres is up. Neo4j is nominal as long as the dashboard
-      // itself is up — it's where the dream pass writes.
       postgres: { ok: events.some((e) => e.event_type === "cross_run_hydration") },
-      neo4j: { ok: true }, // TODO: wire a real health check when the reflective tier is queried at prompt time
+      neo4j: { ok: true }, // TODO: real health check when the reflective tier is queried at prompt time
     };
   }, [events, connected]);
+
+  // Aggregate hardware stats across the 4 GPUs. VRAM usage and power
+  // draw are the stats that actually vary from moment to moment —
+  // per-GPU utilization sits at 100% whenever the model is generating
+  // and 0% between turns, which flips fast enough to be useless.
+  const agg = useMemo(() => {
+    const n = gpus.length || 1;
+    const vramUsed = gpus.reduce((s, g) => s + (g.memory_used_mib || 0), 0);
+    const vramTotal = gpus.reduce((s, g) => s + (g.memory_total_mib || 0), 0);
+    const powerW = gpus.reduce((s, g) => s + (g.power_w || 0), 0);
+    const avgTemp = gpus.reduce((s, g) => s + (g.temperature_c || 0), 0) / n;
+    const hasTelemetry = gpus.some((g) => g.memory_used_mib > 0 || g.power_w > 0);
+    return {
+      vramUsedGb: vramUsed / 1024,
+      vramTotalGb: vramTotal / 1024,
+      vramPct: vramTotal > 0 ? (vramUsed / vramTotal) * 100 : 0,
+      powerW,
+      avgTemp: Math.round(avgTemp),
+      hasTelemetry,
+    };
+  }, [gpus]);
 
   return (
     <div className="border-b border-[#1C1F26] bg-[#0A0C10] px-4 py-3">
@@ -84,46 +95,68 @@ export default function ArchitecturePanel({ gpus, events, connected }: Architect
         </span>
       </div>
 
-      {/* GPU grid — one row per L4 with utilization and role */}
-      <div className="flex flex-col gap-1.5 mb-3">
-        {gpus.map((g) => {
-          const pct = g.utilization_pct || 0;
-          const memPct = g.memory_total_mib > 0 ? (g.memory_used_mib / g.memory_total_mib) * 100 : 0;
-          const util = pct > 0;
-          return (
-            <div key={g.index} className="flex items-center gap-2">
-              <span className="text-[9px] text-[#4B5563] font-mono shrink-0 w-10">
-                GPU {g.index}
-              </span>
-              <div className="flex-1 h-1.5 rounded-full bg-[#151921] overflow-hidden relative">
-                <div
-                  className="h-full transition-all duration-500"
-                  style={{
-                    width: `${Math.min(pct, 100)}%`,
-                    background: util ? "#F59E0B" : "#23262E",
-                    boxShadow: util ? "0 0 6px rgba(245,158,11,0.4)" : undefined,
-                  }}
-                  title={`Compute: ${pct}% · Mem: ${Math.round(memPct)}%`}
-                />
-              </div>
-              <span
-                className="text-[9px] font-mono tabular-nums shrink-0 w-8 text-right"
-                style={{ color: util ? "#E8EAED" : "#4B5563" }}
-              >
-                {pct}%
-              </span>
-            </div>
-          );
-        })}
+      {/* Single row: what's loaded, not how busy it is right now. */}
+      <div className="flex items-baseline gap-2 mb-2">
+        <span className="text-[11px] font-bold text-[#E8EAED]">Gemma 4 31B</span>
+        <span className="text-[9px] font-mono text-[#6B7280] uppercase tracking-wider">
+          bf16 · TP=4 · 96 GiB VRAM pool
+        </span>
       </div>
+
+      {/* Aggregate hardware stats that actually vary during a run. */}
+      {agg.hasTelemetry ? (
+        <div className="flex items-center gap-3 text-[10px] font-mono mb-3">
+          <HwStat
+            label="VRAM"
+            value={`${agg.vramUsedGb.toFixed(1)} / ${agg.vramTotalGb.toFixed(0)} GiB`}
+            pct={agg.vramPct}
+            color="#3B82F6"
+          />
+          <HwStat label="Power" value={`${Math.round(agg.powerW)} W`} color="#F59E0B" />
+          <HwStat label="Temp" value={`${agg.avgTemp}°C`} color="#22D3EE" />
+        </div>
+      ) : (
+        <div className="text-[10px] text-[#4B5563] italic mb-3 font-mono">
+          GPU telemetry available in live mode
+        </div>
+      )}
 
       {/* Service indicator lights */}
       <div className="flex items-center gap-3 text-[9px] font-mono uppercase tracking-wider">
-        <ServiceDot label="vLLM" ok={health.vllm.ok} title="Gemma 4 31B via vLLM on all 4 GPUs" />
-        <ServiceDot label="VM" ok={health.vm.ok} title="Target Rocky 9 VM (via libvirt)" />
+        <ServiceDot label="vLLM" ok={health.vllm.ok} title="Gemma 4 31B served locally via vLLM" />
+        <ServiceDot label="VM" ok={health.vm.ok} title="Target Rocky 9 VM via libvirt" />
         <ServiceDot label="Postgres" ok={health.postgres.ok} title="Shared Supabase — episodic + semantic memory" />
         <ServiceDot label="Neo4j" ok={health.neo4j.ok} title="Reflective tier (Graphiti) for the dream pass" />
       </div>
+    </div>
+  );
+}
+
+function HwStat({
+  label,
+  value,
+  pct,
+  color,
+}: {
+  label: string;
+  value: string;
+  pct?: number;
+  color: string;
+}) {
+  return (
+    <div className="flex flex-col gap-0.5 flex-1 min-w-0">
+      <span className="text-[8px] uppercase tracking-wider text-[#4B5563]">{label}</span>
+      <span className="tabular-nums text-[#E8EAED] truncate" title={value}>
+        {value}
+      </span>
+      {pct !== undefined && (
+        <div className="h-0.5 rounded-full bg-[#151921] overflow-hidden">
+          <div
+            className="h-full transition-all duration-500"
+            style={{ width: `${Math.min(pct, 100)}%`, background: color }}
+          />
+        </div>
+      )}
     </div>
   );
 }

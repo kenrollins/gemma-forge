@@ -27,6 +27,7 @@ import {
 } from "../components/types";
 import ChromeBar, { ReplaySpeed, SPEEDS } from "../components/ChromeBar";
 import HeroStrip from "../components/HeroStrip";
+import PulseRibbon from "../components/PulseRibbon";
 import TaskMap from "../components/TaskMap";
 import FocusPanel from "../components/FocusPanel";
 import EventLog from "../components/EventLog";
@@ -416,6 +417,7 @@ export default function Dashboard() {
       {activeTab === "live" && (
         <>
           <HeroStrip events={events} skillUI={skillUI} connected={connected} elapsed={elapsed} />
+          <PulseRibbon events={events} skillUI={skillUI} />
 
           <div className="flex-1 flex overflow-hidden min-h-0">
             <FocusPanel

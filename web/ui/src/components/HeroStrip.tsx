@@ -1,6 +1,7 @@
 "use client";
 
 import { RunEvent, SkillUI, DEFAULT_SKILL_UI, AGENT_COLORS, GraphNode } from "./types";
+import AgentFlow, { Stage } from "./AgentFlow";
 
 function shortId(id: string, prefix: string): string {
   if (!id) return "\u2014";
@@ -14,6 +15,68 @@ function formatTime(s: number): string {
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
   return `${h}h ${m}m`;
+}
+
+/**
+ * Derive a one-line narrative describing what is happening right now,
+ * derived from the most recent meaningful event. Color reflects the
+ * outcome category so the eye picks up state at a glance even before
+ * reading the words. Used by the AgentFlow widget below the cards.
+ */
+function deriveNarrative(events: RunEvent[], stage: Stage): { text: string; color: string } | undefined {
+  for (let i = events.length - 1; i >= Math.max(0, events.length - 12); i--) {
+    const e = events[i];
+    const d = e.data || {};
+    switch (e.event_type) {
+      case "tool_call": {
+        const fn = (d.tool || d.name || "tool") as string;
+        return { text: `Worker called ${fn}`, color: AGENT_COLORS.worker };
+      }
+      case "tool_result": {
+        return { text: "Worker received tool result", color: AGENT_COLORS.worker };
+      }
+      case "evaluation": {
+        const passed = d.passed as boolean | undefined;
+        if (passed === true) return { text: "Scan passed — rule satisfied", color: "#22C55E" };
+        if (passed === false) return { text: "Scan failed — rule still failing", color: "#EF4444" };
+        return { text: "Running OScap scan...", color: "#22D3EE" };
+      }
+      case "remediated": {
+        return { text: `Remediated after ${d.attempt || "?"} attempt${(d.attempt as number) === 1 ? "" : "s"}`, color: "#22C55E" };
+      }
+      case "escalated": {
+        return { text: `Escalated after ${d.attempts || "?"} attempts`, color: "#F59E0B" };
+      }
+      case "reflection": {
+        return { text: "Reflector identified a new pattern", color: AGENT_COLORS.reflector };
+      }
+      case "ban_added": {
+        return { text: "Reflector banned a failed approach", color: AGENT_COLORS.reflector };
+      }
+      case "agent_response": {
+        if (e.agent === "architect") return { text: "Architect is reasoning about the plan", color: AGENT_COLORS.architect };
+        if (e.agent === "worker") return { text: "Worker is preparing a fix", color: AGENT_COLORS.worker };
+        if (e.agent === "reflector") return { text: "Reflector is analyzing the failure", color: AGENT_COLORS.reflector };
+        break;
+      }
+      case "rule_selected":
+        return { text: `Architect selected ${d.title || d.rule_id || "next rule"}`, color: AGENT_COLORS.architect };
+      case "architect_reengaged":
+        return { text: `Architect re-engaged: verdict ${d.verdict || "?"}`, color: AGENT_COLORS.architect };
+      case "scanner_gap_detected":
+        return { text: "Scanner-gap detected — multiple approaches rejected", color: "#F59E0B" };
+      case "revert":
+        return { text: "Reverting to last known-good snapshot", color: "#EF4444" };
+      case "attempt_start":
+        return { text: `Starting attempt ${d.attempt}`, color: "#9CA3AF" };
+    }
+  }
+  // Fallback: stage-only hint
+  if (stage === "architect") return { text: "Architect is reasoning about the plan", color: AGENT_COLORS.architect };
+  if (stage === "worker") return { text: "Worker is preparing a fix", color: AGENT_COLORS.worker };
+  if (stage === "reflector") return { text: "Reflector is analyzing the failure", color: AGENT_COLORS.reflector };
+  if (stage === "eval") return { text: "Evaluating outcome", color: "#22D3EE" };
+  return undefined;
 }
 
 // Pipeline stage detection from recent events
@@ -54,21 +117,6 @@ function detectPipelineStage(events: RunEvent[]): { stage: PipelineStage; evalPa
   }
   return { stage: "idle" };
 }
-
-function getStageColor(key: PipelineStage, evalPassed?: boolean): string {
-  if (key === "eval") return evalPassed === false ? "#EF4444" : "#22C55E";
-  if (key === "architect") return AGENT_COLORS.architect;
-  if (key === "worker") return AGENT_COLORS.worker;
-  if (key === "reflector") return AGENT_COLORS.reflector;
-  return "#6B7280";
-}
-
-const STAGES: { key: PipelineStage; label: string }[] = [
-  { key: "architect", label: "Arch" },
-  { key: "worker", label: "Work" },
-  { key: "eval", label: "Eval" },
-  { key: "reflector", label: "Refl" },
-];
 
 export default function HeroStrip({
   events,
@@ -141,8 +189,9 @@ export default function HeroStrip({
     }
   }
 
-  // Pipeline stage
+  // Pipeline stage + the prose narrative for AgentFlow
   const { stage, evalPassed } = detectPipelineStage(events);
+  const narrative = deriveNarrative(events, stage as Stage);
 
   // Progress bar percentages
   const pctCompleted = total > 0 ? (completed / total) * 100 : 0;
@@ -215,66 +264,56 @@ export default function HeroStrip({
         </div>
       </div>
 
-      {/* Bottom row: Current item + pipeline dots */}
+      {/* Rule headline + AgentFlow widget — the visual centerpiece.
+          The rule name reads as a real headline (large, prominent),
+          and the four-stage AgentFlow below it conveys what is
+          happening RIGHT NOW. At 100x replay this is what carries
+          the story — the rule name slot-machines through and the
+          glowing stage chases the work across the page. */}
       {showCurrentItem && (
-        <div className="px-4 pb-2 flex items-center gap-3 text-[11px]">
-          <span className="text-[9px] uppercase tracking-wider text-[#4B5563] shrink-0">Now</span>
-          <span className="font-mono font-bold text-[#E8EAED] truncate max-w-[240px]">
-            {shortId(currentRuleId, skillUI.id_prefix_strip)}
-          </span>
-          {currentCategory && (
-            <span
-              className="px-1.5 py-0.5 rounded-sm text-[9px] font-semibold shrink-0"
-              style={{
-                background: "rgba(59, 130, 246, 0.15)",
-                color: "#60A5FA",
-              }}
-            >
-              {currentCategory}
+        <div className="px-4 pb-3 pt-1 border-t border-[#15181F] bg-[#0A0C10]">
+          {/* Rule headline */}
+          <div className="flex items-baseline gap-3 mb-2.5">
+            <span className="text-[10px] uppercase tracking-[0.2em] text-[#4B5563] shrink-0 mt-1">
+              Now working
             </span>
-          )}
-
-          {/* Pipeline dots */}
-          <div className="flex items-center gap-1 shrink-0 ml-auto">
-            {STAGES.map((s, idx) => {
-              const isActive = stage === s.key;
-              const isPast = STAGES.findIndex(x => x.key === stage) > idx;
-              const dotColor = getStageColor(s.key, evalPassed);
-              return (
-                <div key={s.key} className="flex items-center">
-                  {idx > 0 && (
-                    <div
-                      className="w-3 h-px mx-0.5"
-                      style={{ background: isPast || isActive ? dotColor + "60" : "#2A2E38" }}
-                    />
-                  )}
-                  <div className="flex flex-col items-center">
-                    <div
-                      className={`w-2.5 h-2.5 rounded-full ${isActive ? "animate-pulse ring-2 ring-offset-1 ring-offset-[#0D0F14]" : ""}`}
-                      style={{
-                        background: isActive ? dotColor : isPast ? dotColor : "#2A2E38",
-                        opacity: isPast ? 0.6 : 1,
-                      }}
-                      title={s.label}
-                    />
-                    <span
-                      className="text-[8px] mt-0.5"
-                      style={{ color: isActive ? dotColor : "#4B5563" }}
-                    >
-                      {s.label}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
+            <span
+              className="text-[16px] font-bold text-[#E8EAED] truncate font-mono leading-tight"
+              title={currentTitle || currentRuleId}
+            >
+              {currentTitle || shortId(currentRuleId, skillUI.id_prefix_strip)}
+            </span>
+            {currentCategory && (
+              <span
+                className="px-2 py-0.5 rounded-sm text-[9px] font-bold uppercase tracking-wider shrink-0"
+                style={{
+                  background: "rgba(59, 130, 246, 0.15)",
+                  color: "#60A5FA",
+                }}
+                title={`Rule category: ${currentCategory}`}
+              >
+                {currentCategory}
+              </span>
+            )}
+            {currentAttempt > 0 && (
+              <span
+                className="text-[11px] text-[#9CA3AF] tabular-nums shrink-0 ml-auto"
+                style={{ minWidth: 110, textAlign: "right" }}
+                title="Current attempt and elapsed time on this rule"
+              >
+                attempt <span className="text-[#E8EAED] font-bold">{currentAttempt}</span>
+                <span className="text-[#3F4451] mx-1.5">·</span>
+                {formatTime(ruleElapsed)}
+              </span>
+            )}
           </div>
 
-          {/* Attempt + elapsed */}
-          {currentAttempt > 0 && (
-            <span className="text-[10px] text-[#6B7280] tabular-nums shrink-0">
-              att {currentAttempt} · {Math.round(ruleElapsed)}s
-            </span>
-          )}
+          {/* AgentFlow — handoff cards with active-stage pulse + narrative */}
+          <AgentFlow
+            stage={stage as Stage}
+            evalPassed={evalPassed}
+            narrative={narrative}
+          />
         </div>
       )}
     </div>

@@ -250,7 +250,7 @@ function TabButton({
     <button
       onClick={onClick}
       title={`Switch to ${label}`}
-      className="relative px-5 py-2 text-[11px] font-semibold rounded-md border transition-all duration-150"
+      className="relative px-6 py-2.5 text-[11px] font-semibold rounded-md border transition-all duration-150"
       style={{
         color: isActive ? "#E8EAED" : "#9CA3AF",
         background: isActive ? "#1A1E27" : "#0F1217",

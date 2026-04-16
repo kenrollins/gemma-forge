@@ -43,45 +43,23 @@ services:
   # ===========================================================================
   # Memory tier — Phase 10 (post-Run 3 pivot)
   #
-  # Postgres: Episodic, Semantic projection, run event history.
-  # Neo4j:    Reflective tier (Graphiti bi-temporal graph memory).
+  # Neo4j: Reflective tier (Graphiti bi-temporal graph memory).
   #
-  # Both services replace the per-skill SQLite files retired in this
-  # phase. See docs/adr/0016-graphiti-neo4j-postgres-memory-stack.md
-  # and docs/drafts/memory-refactor-plan.md.
+  # The relational tiers (Episodic, Semantic projection, run event history)
+  # live in a `gemma_forge` database INSIDE the existing Supabase Postgres
+  # on this host, with per-skill schemas (stig, <next>, ...) and
+  # per-skill roles. That database is NOT managed by this compose file —
+  # it is created once by tools/bootstrap_database.sh against the running
+  # Supabase instance, and per-skill schemas are added by
+  # tools/bootstrap_skill.sh. This matches the "be a client, don't
+  # duplicate" host-services principle (see docs/adr/0016-*.md).
   #
-  # Ports are loopback-only. Data lives at /data/postgres and /data/neo4j
-  # following the /data/<service>/ convention (ADR-0012). Bring up with:
+  # Only Neo4j is net-new infrastructure. Data lives at
+  # /data/neo4j/gemma-forge/ following the service-typed / project-scoped
+  # convention (/data/<service>/<project>/, same shape as /data/vm/gemma-forge).
+  # Port bindings are loopback-only. Bring up with:
   #     docker compose --profile memory up -d
   # ===========================================================================
-
-  postgres:
-    image: postgres:16-alpine
-    profiles: ["memory"]
-    networks: [forge]
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: "${POSTGRES_USER:-postgres}"
-      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}"
-      # pgvector is installed by the init script at first boot.
-      POSTGRES_INITDB_ARGS: "--data-checksums"
-    volumes:
-      # Host-path bind for durability, matching the /data/<service>/ convention.
-      - /data/postgres/data:/var/lib/postgresql/data
-      # Init scripts run ONCE on empty PGDATA and create the gemma_forge_stig
-      # database plus the 'forge' application role. Schema DDL comes later
-      # from tools/migrate_sqlite_to_postgres.py so it stays versioned.
-      - ./infra/memory/postgres-init:/docker-entrypoint-initdb.d:ro
-    ports:
-      # Host 5432 is occupied by the Supabase stack; GemmaForge binds 5433
-      # on localhost. Override POSTGRES_HOST_PORT in .env if the host
-      # layout differs. See infra/memory/README.md.
-      - "127.0.0.1:${POSTGRES_HOST_PORT:-5433}:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
   neo4j:
     # 5-community has the features Graphiti needs (vector + fulltext indexes,
@@ -107,10 +85,13 @@ services:
       NEO4J_server_memory_heap_max__size: "${NEO4J_HEAP_MAX:-2G}"
       NEO4J_server_memory_pagecache_size: "${NEO4J_PAGECACHE:-1G}"
     volumes:
-      - /data/neo4j/data:/data
-      - /data/neo4j/logs:/logs
-      - /data/neo4j/plugins:/plugins
-      - /data/neo4j/import:/var/lib/neo4j/import
+      # Project-scoped path under the service-typed root. Same shape as
+      # /data/vm/gemma-forge/. A future demo on this host gets its own
+      # Neo4j instance at /data/neo4j/<their-project>/ with its own port.
+      - /data/neo4j/gemma-forge/data:/data
+      - /data/neo4j/gemma-forge/logs:/logs
+      - /data/neo4j/gemma-forge/plugins:/plugins
+      - /data/neo4j/gemma-forge/import:/var/lib/neo4j/import
     ports:
       # Defaults (7474 HTTP, 7687 Bolt) are free on the reference XR7620.
       # Port 7688 is occupied by an unrelated service; confirmed no conflict

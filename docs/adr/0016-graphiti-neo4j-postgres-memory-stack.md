@@ -1,6 +1,6 @@
 # ADR-0016: Graphiti-on-Neo4j for Reflective memory; Postgres for Episodic/Semantic; SQLite retired
 
-- **Status:** Accepted
+- **Status:** Accepted (amended 2026-04-16 — Postgres pivot to shared Supabase; per-skill schemas; Neo4j path moved to `/data/neo4j/gemma-forge/`)
 - **Date:** 2026-04-15
 - **Deciders:** Ken Rollins
 - **Related:** [ADR-0012](0012-data-host-layout-convention.md), [ADR-0014](0014-triton-vllm-director-shared-host-service.md), [Journey 22](../journal/journey/22-context-graphs-and-the-memory-question.md), [Journey 26](../journal/journey/26-dreaming-and-real-databases.md)
@@ -187,6 +187,84 @@ from the current frontier.
   [Journey 22](../journal/journey/22-context-graphs-and-the-memory-question.md).
   That decision (SQLite) was correct for its time and is replaced,
   not invalidated, by the scale and shape changes since.
+
+## Amendment — 2026-04-16 (during Phase A bring-up)
+
+Two changes landed during Phase A bring-up, both small-scope and
+fully consistent with the original decision's intent. Recorded here
+rather than as a superseding ADR because neither reverses a prior
+call; they refine where the services live.
+
+### Amendment 1: Postgres pivot to shared Supabase, per-skill schemas
+
+The original decision called for a **GemmaForge-scoped Postgres
+instance** at `/data/postgres/`, with **one database per skill**
+(`gemma_forge_stig`, etc.). During Phase A implementation, two
+points were raised and accepted:
+
+1. A Supabase Postgres is already running on the reference host
+   (`supabase-db` container, Postgres 15.8.1, with `pgvector` 0.8.0
+   and `pgcrypto` both available). The existing-services inventory
+   memory ("be a client, don't duplicate") specifically applies.
+   Duplicating Postgres was a violation of that principle the
+   original ADR text did not catch.
+2. Separate databases per skill in someone else's Postgres instance
+   enlarges the visible footprint and obstructs cross-skill queries
+   the dashboard and Run Analyst will eventually want. Per-skill
+   **schemas inside one database** give the same blast-radius
+   properties (via scoped roles with `USAGE` limited to their own
+   schema) without those costs.
+
+Revised shape:
+
+- **Database:** one `gemma_forge` database inside the existing
+  Supabase Postgres.
+- **Schemas:** one per skill (`stig` first, future skills add their
+  own via `tools/bootstrap_skill.sh`).
+- **Roles:** `forge_admin` owns the database (bootstrap + migration
+  use only); `forge_<skill>` has `USAGE` on its schema and CRUD on
+  current + future tables via `ALTER DEFAULT PRIVILEGES`. No
+  cross-skill grants by default; `PUBLIC` revoked on every skill
+  schema at creation.
+- **Connection path:** the harness connects through Supabase's
+  session-mode pooler at `127.0.0.1:5432` as `forge_<skill>`. The
+  superuser credentials (from `/data/docker/supabase/.env`) are
+  only read by the bootstrap scripts.
+- **Version pinning, restart independence, backup separation:** all
+  ride Supabase. The trade-offs were weighed and accepted; the
+  logical-isolation gains from a dedicated instance did not justify
+  duplicating a working service.
+
+### Amendment 2: Neo4j path moves to `/data/neo4j/gemma-forge/`
+
+The original decision placed Neo4j data at `/data/neo4j/` (i.e.,
+claiming the service root). That works in the short term but makes
+GemmaForge a bad host citizen: a second demo on this XR7620 that
+also wants Neo4j has to share this instance or install elsewhere.
+
+Revised path: `/data/neo4j/gemma-forge/`. Service-typed top-level,
+project-scoped underneath — the same shape as `/data/vm/gemma-forge/`.
+A future demo gets `/data/neo4j/<their-project>/` with its own port.
+
+This does not alter [ADR-0012](0012-data-host-layout-convention.md)'s
+convention; it clarifies that `/data/<service>/` is appropriate for
+**shared host services** (e.g., `/data/triton/`), while
+`/data/<service>/<project>/` is the right shape for **project-scoped
+infrastructure** on a shared host. This distinction should be pulled
+into a future ADR-0012 revision when the pattern is exercised by the
+second project.
+
+### What these amendments do not change
+
+- The dream pass, credit assignment, supersession, abstraction-loss
+  recovery, environment tagging, and semantic linking — all still
+  the distinctive contribution, unchanged.
+- Graphiti-on-Neo4j as the Reflective substrate — unchanged.
+- SQLite retirement — unchanged (still happens in Phase C migration).
+- The three-tier memory model — unchanged.
+- Sovereignty posture — arguably strengthened: one fewer redundant
+  service, one more demonstration of client-of-existing-infrastructure
+  discipline.
 
 ## References
 

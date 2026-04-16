@@ -89,7 +89,7 @@ def truncate_destination(cur: psycopg.Cursor) -> None:
 
 
 def migrate_sqlite(conn: psycopg.Connection, sqlite_path: Path, dry_run: bool) -> dict[str, int]:
-    counts: dict[str, int] = {"runs": 0, "work_items": 0, "attempts": 0, "lessons": 0}
+    counts: dict[str, int] = {"runs": 0, "work_items": 0, "attempts": 0, "lessons": 0, "bans": 0}
     if not sqlite_path.is_file():
         print(f"migrate: SQLite source {sqlite_path} not found, skipping legacy migration")
         return counts
@@ -213,6 +213,31 @@ def migrate_sqlite(conn: psycopg.Connection, sqlite_path: Path, dry_run: bool) -
                     r["weight"] or 0.5,
                     epoch_to_ts(r["created_at"]),
                 ),
+            )
+
+    # bans: SQLite stored these as `_global_ban` pseudo-attempts. The
+    # new schema has a dedicated bans table; route accordingly. Skip
+    # rows whose run_id isn't in the migrated runs (FK).
+    rows = sq.execute(
+        """
+        SELECT a.run_id, a.banned_pattern
+        FROM attempts a
+        WHERE a.item_id = '_global_ban'
+          AND a.banned_pattern IS NOT NULL
+          AND a.banned_pattern != ''
+          AND EXISTS (SELECT 1 FROM runs r WHERE r.id = a.run_id)
+        """
+    ).fetchall()
+    counts["bans"] = len(rows)
+    if not dry_run:
+        for r in rows:
+            cur.execute(
+                """
+                INSERT INTO stig.bans (run_id, pattern)
+                VALUES (%s, %s)
+                ON CONFLICT (run_id, pattern) DO NOTHING
+                """,
+                (r["run_id"], r["banned_pattern"]),
             )
 
     if not dry_run:
@@ -357,7 +382,7 @@ def main() -> None:
         print(
             f"migrate: SQLite plan/done — runs={sqlite_counts['runs']} "
             f"work_items={sqlite_counts['work_items']} attempts={sqlite_counts['attempts']} "
-            f"lessons={sqlite_counts['lessons']}"
+            f"lessons={sqlite_counts['lessons']} bans={sqlite_counts['bans']}"
         )
 
         # 2. JSONL event log import.
@@ -380,7 +405,7 @@ def main() -> None:
             print("migrate: commit.")
 
         # Final counts (read-only, also runs in dry-run for sanity).
-        for tbl in ("runs", "work_items", "attempts", "lessons_current", "run_events", "turns"):
+        for tbl in ("runs", "work_items", "attempts", "lessons_current", "run_events", "turns", "bans"):
             cur.execute(f"SELECT COUNT(*) FROM stig.{tbl}")
             print(f"  stig.{tbl}: {cur.fetchone()[0]}")
 

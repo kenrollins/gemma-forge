@@ -204,10 +204,20 @@ class PostgresMemoryStore:
 
     # -- Attempt traces ------------------------------------------------------
 
+    # Sentinel item_id used by ralph.py's end-of-run ban persistence
+    # (legacy SQLite pattern: bans were stored as pseudo-attempts on
+    # a fake work item). The new schema has a (run_id, item_id) FK on
+    # attempts -> work_items, so we route these writes to the dedicated
+    # bans table instead. ralph.py keeps its single save_attempt call.
+    _BAN_SENTINEL = "_global_ban"
+
     def save_attempt(self, run_id: str, item_id: str, attempt_num: int,
                      approach: str, eval_passed: bool, failure_mode: str,
                      reflection: str, lesson: str, banned_pattern: str,
                      wall_time_s: float) -> None:
+        if item_id == self._BAN_SENTINEL:
+            self._save_ban(run_id, banned_pattern)
+            return
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -224,6 +234,22 @@ class PostgresMemoryStore:
                         reflection[:500], lesson[:200], banned_pattern[:200],
                         wall_time_s,
                     ),
+                )
+            conn.commit()
+
+    def _save_ban(self, run_id: str, pattern: str) -> None:
+        """Upsert a banned pattern for this run. Empty patterns ignored."""
+        if not pattern:
+            return
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO bans (run_id, pattern)
+                    VALUES (%s, %s)
+                    ON CONFLICT (run_id, pattern) DO NOTHING
+                    """,
+                    (run_id, pattern[:200]),
                 )
             conn.commit()
 
@@ -338,15 +364,27 @@ class PostgresMemoryStore:
         ]
 
     def load_global_bans(self) -> list[str]:
+        """Distinct banned patterns across all runs.
+
+        Reads from the dedicated bans table (where ralph.py routes its
+        end-of-run ban persistence via the _global_ban sentinel) plus
+        any banned_pattern carried on real attempts (legacy field that
+        the harness no longer fills, but the migrated SQLite history
+        had it on a few rows).
+        """
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT DISTINCT banned_pattern
-                    FROM attempts
-                    WHERE banned_pattern IS NOT NULL AND banned_pattern <> ''
-                    ORDER BY banned_pattern
-                    LIMIT 50
+                    SELECT pattern FROM (
+                        SELECT pattern FROM bans
+                        UNION
+                        SELECT banned_pattern AS pattern FROM attempts
+                          WHERE banned_pattern IS NOT NULL
+                            AND banned_pattern <> ''
+                    ) AS u
+                    ORDER BY pattern
+                    LIMIT 200
                     """
                 )
                 rows = cur.fetchall()

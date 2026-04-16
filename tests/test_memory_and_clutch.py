@@ -38,7 +38,10 @@ from gemma_forge.harness.task_graph import TaskGraph
 from gemma_forge.harness.interfaces import WorkItem
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-MIGRATION_SQL = (REPO_ROOT / "migrations" / "stig" / "0001_base_schema.sql").read_text()
+MIGRATIONS_DIR = REPO_ROOT / "migrations" / "stig"
+MIGRATION_SQL = "\n".join(
+    p.read_text() for p in sorted(MIGRATIONS_DIR.glob("*.sql"))
+)
 
 
 def _adapt_for_test_schema(sql: str) -> str:

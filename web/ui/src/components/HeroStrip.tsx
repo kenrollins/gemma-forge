@@ -205,16 +205,31 @@ export default function HeroStrip({
     }
   }
 
-  // Check if current rule is done (remediated or escalated since last rule_selected)
+  // Did the current rule just resolve? We keep the card visible
+  // (so it doesn't flash out between rules at fast replay), but the
+  // narrative below shifts to the outcome so the transition reads
+  // as a beat, not a gap. ruleClosed is still used by the narrative
+  // logic — not for hiding.
   let ruleClosed = false;
+  let ruleOutcome: "remediated" | "escalated" | null = null;
   for (let i = events.length - 1; i >= 0; i--) {
     const e = events[i];
-    if (e.event_type === "remediated" || e.event_type === "escalated") {
+    if (e.event_type === "remediated") {
       ruleClosed = true;
+      ruleOutcome = "remediated";
+      break;
+    }
+    if (e.event_type === "escalated") {
+      ruleClosed = true;
+      ruleOutcome = "escalated";
       break;
     }
     if (e.event_type === "rule_selected") break;
   }
+  // Silence unused warnings — ruleOutcome and ruleClosed inform
+  // future styling (e.g. success/failure flash on the card).
+  void ruleOutcome;
+  void ruleClosed;
 
   // Tok/s from latest agent_response
   let tokPerSec = 0;
@@ -235,7 +250,14 @@ export default function HeroStrip({
   const pctSkipped = total > 0 ? (skipped / total) * 100 : 0;
   const pctActive = total > 0 ? (active / total) * 100 : 0;
 
-  const showCurrentItem = currentRuleId && !ruleClosed && events.length > 0;
+  // Keep the hero card visible as long as we know what rule we're on.
+  // Previously this hid the section during the brief window between a
+  // rule closing (remediated/escalated) and the next rule_selected
+  // firing — at 1000x replay that gap became a visible flash every
+  // few hundred ms. Holding the last rule's name and outcome keeps
+  // the transition smooth; the narrative updates to the outcome
+  // automatically via deriveNarrative().
+  const showCurrentItem = currentRuleId && events.length > 0;
 
   return (
     <div className="border-b border-[#1C1F26] bg-[#0D0F14]">

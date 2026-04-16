@@ -69,7 +69,7 @@ export default function ChromeBar({
 
   return (
     <div
-      className="flex items-center gap-6 px-5 py-2.5 border-b bg-[#0A0C10]"
+      className="flex items-center gap-10 px-7 py-3 border-b bg-[#0A0C10]"
       style={{ borderColor: palette.border, transition: "border-color 200ms" }}
     >
       {/* === Mode toggle ============================================ */}
@@ -141,13 +141,15 @@ export default function ChromeBar({
 
       {/* === Tabs ==================================================
            Read as clearly clickable: each tab is a discrete pill with
-           visible border and hover affordance. Active tab gets a
-           filled background + brighter text + a thin accent bar at
-           the bottom edge so the choice reads even at low contrast
-           or in peripheral vision. */}
-      <nav className="ml-auto flex items-center gap-2">
+           visible border + comfortable padding + hover affordance.
+           Active tab gets a filled background + brighter text + a
+           thin accent bar at the bottom edge so the choice reads
+           even at low contrast or in peripheral vision. The whole
+           group is pushed right with ml-auto and given its own
+           breathing room from the connection indicator. */}
+      <nav className="ml-auto flex items-center gap-3">
         <span
-          className="text-[9px] font-semibold tracking-[0.2em] uppercase mr-1"
+          className="text-[9px] font-semibold tracking-[0.2em] uppercase mr-2"
           style={{ color: "#4B5563" }}
         >
           View
@@ -164,7 +166,7 @@ export default function ChromeBar({
       </nav>
 
       {/* === Connection indicator =================================== */}
-      <div className="flex items-center gap-2 pl-2">
+      <div className="flex items-center gap-2.5 pl-6 ml-2 border-l border-[#1C1F26]">
         <div
           className="w-2 h-2 rounded-full"
           style={{
@@ -248,7 +250,7 @@ function TabButton({
     <button
       onClick={onClick}
       title={`Switch to ${label}`}
-      className="relative px-3.5 py-1.5 text-[11px] font-semibold rounded-md border transition-all duration-150"
+      className="relative px-5 py-2 text-[11px] font-semibold rounded-md border transition-all duration-150"
       style={{
         color: isActive ? "#E8EAED" : "#9CA3AF",
         background: isActive ? "#1A1E27" : "#0F1217",

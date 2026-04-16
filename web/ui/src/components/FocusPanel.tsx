@@ -408,8 +408,16 @@ function AgentInsight({ events }: { events: RunEvent[] }) {
               <span className="text-[#E8EAED] font-bold tabular-nums">Attempt {currentAttempt}</span>
             )}
             {timeBudgetS > 0 && (() => {
-              const remaining = Math.max(0, timeBudgetS - ruleElapsedS);
+              // Show ELAPSED time, not remaining. Reads intuitively as
+              // "we've been working on this rule for X" — matches the
+              // mental model viewers already have for "X of Y" patterns
+              // (video players, downloads, etc.). The progress bar
+              // still grows as the budget is consumed; the color shifts
+              // green → amber → red as urgency rises. The remaining
+              // value only surfaces as a small hint once we cross 80%
+              // of the budget so the audience sees the deadline pressure.
               const pct = ruleElapsedS / timeBudgetS;
+              const remaining = Math.max(0, timeBudgetS - ruleElapsedS);
               const timeColor = pct >= 0.8 ? "#EF4444" : pct >= 0.5 ? "#F59E0B" : "#22C55E";
               return (
                 <div className="flex items-center gap-1.5 flex-1">
@@ -420,9 +428,18 @@ function AgentInsight({ events }: { events: RunEvent[] }) {
                     />
                   </div>
                   <span className="tabular-nums font-bold shrink-0" style={{ color: timeColor }}>
-                    {formatTime(remaining)}
+                    {formatTime(ruleElapsedS)}
                   </span>
-                  <span className="text-[#4B5563] shrink-0">of {formatTime(timeBudgetS)}</span>
+                  <span className="text-[#4B5563] tabular-nums shrink-0">/ {formatTime(timeBudgetS)}</span>
+                  {pct >= 0.8 && (
+                    <span
+                      className="px-1.5 py-0.5 rounded-sm text-[9px] font-bold uppercase tracking-wider tabular-nums shrink-0"
+                      style={{ color: timeColor, background: `${timeColor}15` }}
+                      title="Time remaining before this rule auto-escalates"
+                    >
+                      {formatTime(remaining)} left
+                    </span>
+                  )}
                 </div>
               );
             })()}

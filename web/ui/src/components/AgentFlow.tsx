@@ -50,18 +50,18 @@ const STAGES: StageMeta[] = [
 ];
 
 // Eval color depends on whether we know the outcome yet:
-//   undefined → cyan (scan in progress, no verdict)
+//   undefined → neutral light gray (scan in progress, no verdict)
 //   true      → green (passed)
 //   false     → red (failed)
-// The old version defaulted to green when `evalPassed` was undefined,
-// which meant any in-progress evaluation got painted success colors
-// before we actually knew — misleading, especially at replay speed
-// where the pre-verdict moment is brief but visible.
+// Deliberately NOT cyan for the pending state — cyan is used
+// elsewhere for accent color (tok/s, live hydration) and the user
+// read it as a status signal, which is confusing. Neutral gray
+// reads correctly as "still working, outcome unknown."
 function stageColor(s: Stage, evalPassed?: boolean): string {
   if (s === "eval") {
     if (evalPassed === true) return "#22C55E";
     if (evalPassed === false) return "#EF4444";
-    return "#22D3EE"; // cyan — "evaluating, verdict pending"
+    return "#9CA3AF"; // neutral gray — "evaluating, verdict pending"
   }
   if (s === "architect") return AGENT_COLORS.architect;
   if (s === "worker") return AGENT_COLORS.worker;

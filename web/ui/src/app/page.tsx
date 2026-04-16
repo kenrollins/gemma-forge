@@ -260,8 +260,13 @@ export default function Dashboard() {
     ) => {
       // `preserveEvents` = true means this is a resume/seek (e.g. speed
       // change) — keep the existing state, reconnect at the seek point.
-      // Otherwise clear state so a new run/mode starts fresh.
+      // `swapOnFirstEvent` = true means this is a demo-loop restart —
+      // keep the existing state on screen until the new stream emits
+      // its first event, then swap atomically. Both cases skip the
+      // up-front setEvents([]) that would otherwise cause a blank
+      // frame between the old stream ending and the new one starting.
       const preserve = opts?.preserveEvents ?? false;
+      const swap = opts?.swapOnFirstEvent ?? false;
       const seek = opts?.seekSeconds ?? 0;
 
       if (evtSourceRef.current) evtSourceRef.current.close();
@@ -270,7 +275,7 @@ export default function Dashboard() {
         cancelAnimationFrame(flushFrameRef.current);
         flushFrameRef.current = null;
       }
-      if (!preserve) setEvents([]);
+      if (!preserve && !swap) setEvents([]);
 
       const scheduleFlush = () => {
         if (flushFrameRef.current !== null) return;

@@ -138,6 +138,9 @@ nav:
       - 26 - Dreaming and Real Databases: journal/journey/26-dreaming-and-real-databases.md
       - 27 - Building the Dream Pass: journal/journey/27-building-the-dream-pass.md
       - 28 - Run 4 and the Coarseness Problem: journal/journey/28-run-4-and-the-coarseness-problem.md
+  - Futures:
+      - Overview: journal/futures/index.md
+      - The Harness Is a Training Data Factory: journal/futures/harness-as-training-data-factory.md
   - Improvements:
       - 01 - Architect Re-engagement: journal/improvements/01-architect-reengagement.md
       - 02 - Worker Single-Action: journal/improvements/02-worker-single-action-enforcement.md

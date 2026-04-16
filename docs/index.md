@@ -1,11 +1,11 @@
 ---
-title: GemmaForge
+title: gemma-forge
 hide:
   - navigation
   - toc
 ---
 
-# GemmaForge
+# gemma-forge
 
 !!! quote ""
     **An exploration of Ralph loop architecture and Gemma 4 at the edge — building your own agentic harness, from scratch.**
@@ -22,8 +22,9 @@ saw an opportunity to explore a question that had been nagging me:
 **can a smaller open-weights model at the tactical edge solve real
 problems autonomously if you give it the right harness?**
 
-Not by throwing a bigger model at it. Not by calling a cloud API. By
-combining two architectures I hadn't really seen used together
+The bet: a smaller model can punch above its weight if the harness
+around it is doing the right work. Specifically, by combining two
+architectures I hadn't really seen used together
 before: [**Ralph loop persistence**](https://ghuntley.com/ralph/) —
 where an agent doesn't quit when it fails but keeps grinding, using
 external state to persist across context boundaries — with
@@ -124,7 +125,7 @@ hardware.
 
     ---
 
-    22 chronological field notes of how this was built. Honest,
+    Chronological field notes of how this was built. Honest,
     specific, and written as I went — failures included. Start at
     [the origin](journal/journey/00-origin.md) or jump to the
     [overnight run](journal/journey/14-overnight-run-findings.md)
@@ -146,7 +147,7 @@ hardware.
 
     ---
 
-    13 atomic "X breaks Y because Z" lessons that cost hours to
+    Atomic "X breaks Y because Z" lessons that cost hours to
     discover. If you're building something similar, start here to
     save yourself the pain.
 

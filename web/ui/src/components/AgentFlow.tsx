@@ -41,12 +41,28 @@ interface StageMeta {
 const STAGES: StageMeta[] = [
   { key: "architect", label: "Architect", activeLabel: "planning", completedLabel: "selected" },
   { key: "worker", label: "Worker", activeLabel: "applying fix", completedLabel: "applied" },
+  // `activeLabel` intentionally says "scanning" because the eval is
+  // in-flight when the card is active with evalPassed=undefined.
+  // When the verdict lands, the stage is no longer "active" — the
+  // pipeline has moved on to reflector (fail) or remediated (pass).
   { key: "eval", label: "Eval", activeLabel: "scanning", completedLabel: "checked" },
   { key: "reflector", label: "Reflector", activeLabel: "analyzing", completedLabel: "noted" },
 ];
 
+// Eval color depends on whether we know the outcome yet:
+//   undefined → cyan (scan in progress, no verdict)
+//   true      → green (passed)
+//   false     → red (failed)
+// The old version defaulted to green when `evalPassed` was undefined,
+// which meant any in-progress evaluation got painted success colors
+// before we actually knew — misleading, especially at replay speed
+// where the pre-verdict moment is brief but visible.
 function stageColor(s: Stage, evalPassed?: boolean): string {
-  if (s === "eval") return evalPassed === false ? "#EF4444" : "#22C55E";
+  if (s === "eval") {
+    if (evalPassed === true) return "#22C55E";
+    if (evalPassed === false) return "#EF4444";
+    return "#22D3EE"; // cyan — "evaluating, verdict pending"
+  }
   if (s === "architect") return AGENT_COLORS.architect;
   if (s === "worker") return AGENT_COLORS.worker;
   if (s === "reflector") return AGENT_COLORS.reflector;
@@ -131,13 +147,25 @@ function StageCard({
   const borderColor = active ? color : past ? `${color}40` : "#23262E";
   const titleColor = active ? color : past ? `${color}99` : "#4B5563";
   const subColor = active ? "#E8EAED" : past ? "#6B7280" : "#3F4451";
-  const subText = active
-    ? meta.activeLabel
-    : past
-    ? meta.key === "eval" && evalPassed === false
-      ? "failed"
-      : meta.completedLabel
-    : "—";
+  // Eval's active sub-label depends on the verdict state:
+  //   undefined → "scanning" (verdict in-flight)
+  //   true      → "passed"
+  //   false     → "failed"
+  // Everything else uses the canned active/past labels.
+  let subText: string;
+  if (active) {
+    if (meta.key === "eval") {
+      subText =
+        evalPassed === true ? "passed" : evalPassed === false ? "failed" : "scanning";
+    } else {
+      subText = meta.activeLabel;
+    }
+  } else if (past) {
+    subText =
+      meta.key === "eval" && evalPassed === false ? "failed" : meta.completedLabel;
+  } else {
+    subText = "—";
+  }
 
   return (
     <div

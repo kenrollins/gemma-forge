@@ -100,22 +100,58 @@ type PipelineStage = "architect" | "worker" | "eval" | "reflector" | "idle";
 //     (cross_run_hydration, clutch_initialized, snapshot_preflight,
 //     etc.) — they don't advance the stage either.
 function detectPipelineStage(events: RunEvent[]): { stage: PipelineStage; evalPassed?: boolean } {
+  // Find the current stage in one backward pass, and the most recent
+  // eval verdict in a second backward pass (so the past-eval card
+  // keeps its green/red color even after the pipeline has moved on
+  // to the reflector).
+  let stage: PipelineStage = "idle";
+  let evalInStage: boolean | undefined;
+  let latestEvalVerdict: boolean | undefined;
+
+  const recent = Math.max(0, events.length - 16);
+  // Pass 1: pin the current stage using the most recent events only.
+  // Same precedence rules as before.
   for (let i = events.length - 1; i >= Math.max(0, events.length - 8); i--) {
     const e = events[i];
-    if (e.event_type === "reflection") return { stage: "reflector" };
-    if (e.event_type === "evaluation") return { stage: "eval", evalPassed: e.data?.passed as boolean };
-    if (e.event_type === "post_mortem" || e.event_type === "revert") return { stage: "eval", evalPassed: false };
-    if (e.event_type === "tool_call" || e.event_type === "tool_result") return { stage: "worker" };
-    if (e.agent === "worker" && e.event_type === "agent_response") return { stage: "worker" };
-    if (e.agent === "reflector" && e.event_type === "agent_response") return { stage: "reflector" };
-    if (e.agent === "architect" && e.event_type === "agent_response") return { stage: "architect" };
-    if (e.event_type === "rule_selected" || e.event_type === "architect_reengaged") return { stage: "architect" };
+    if (e.event_type === "reflection") { stage = "reflector"; break; }
+    if (e.event_type === "evaluation") { stage = "eval"; evalInStage = e.data?.passed as boolean; break; }
+    if (e.event_type === "post_mortem" || e.event_type === "revert") { stage = "eval"; evalInStage = false; break; }
+    // tool_result = Worker has dispatched the fix and the harness is
+    // now running the evaluator (oscap scan). We're in the eval stage
+    // but don't know the outcome yet — evalPassed intentionally left
+    // undefined so AgentFlow paints it with the in-progress neutral
+    // color rather than the success/failure colors.
+    if (e.event_type === "tool_result") { stage = "eval"; evalInStage = undefined; break; }
+    if (e.event_type === "tool_call") { stage = "worker"; break; }
+    if (e.agent === "worker" && e.event_type === "agent_response") { stage = "worker"; break; }
+    if (e.agent === "reflector" && e.event_type === "agent_response") { stage = "reflector"; break; }
+    if (e.agent === "architect" && e.event_type === "agent_response") { stage = "architect"; break; }
+    if (e.event_type === "rule_selected" || e.event_type === "architect_reengaged") { stage = "architect"; break; }
     // Deliberately NOT matching attempt_start, cross_run_hydration,
     // clutch_initialized, snapshot_preflight, etc. — those are
     // harness-internal and the stage indicator should hold the most
     // recent agent-driven stage instead of jumping back to the worker.
   }
-  return { stage: "idle" };
+
+  // Pass 2: find the most recent evaluation verdict so the past-eval
+  // card (when stage has moved on to reflector) keeps the right color
+  // instead of defaulting to the in-progress cyan.
+  for (let i = events.length - 1; i >= recent; i--) {
+    const e = events[i];
+    if (e.event_type === "evaluation") {
+      latestEvalVerdict = e.data?.passed as boolean;
+      break;
+    }
+    if (e.event_type === "post_mortem" || e.event_type === "revert") {
+      latestEvalVerdict = false;
+      break;
+    }
+  }
+
+  // Prefer the in-stage verdict (current eval card) over the
+  // historical one (past eval card's color).
+  const evalPassed = evalInStage !== undefined ? evalInStage : latestEvalVerdict;
+  return { stage, evalPassed };
 }
 
 export default function HeroStrip({

@@ -125,7 +125,12 @@ async def stream_run(
                 yield f"data: {json.dumps(event)}\n\n"
                 continue
             delay = (elapsed - last_elapsed) / speed
-            if delay > 0 and delay < 10:  # cap max delay at 10s even at 1x
+            # Skip micro-sleeps (<1ms) — asyncio.sleep has meaningful
+            # scheduling overhead that dominates at high replay speeds
+            # (1000x+), and the client won't perceive the difference.
+            # Upper cap prevents a 1-hour-long real-time gap from
+            # stalling the stream.
+            if 0.001 < delay < 10:
                 await asyncio.sleep(delay)
             last_elapsed = elapsed
             yield f"data: {json.dumps(event)}\n\n"

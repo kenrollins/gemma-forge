@@ -123,7 +123,7 @@ export default function Dashboard() {
   const [mode, setMode] = useState<"live" | "replay">("replay");
   const [runs, setRuns] = useState<RunInfo[]>([]);
   const [activeRun, setActiveRun] = useState<string>("");
-  const [replaySpeed, setReplaySpeed] = useState<ReplaySpeed>(20);
+  const [replaySpeed, setReplaySpeed] = useState<ReplaySpeed>(100);
   const [liveAvailable, setLiveAvailable] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("live");
   const [eventLogExpanded, setEventLogExpanded] = useState(false);
@@ -248,7 +248,15 @@ export default function Dashboard() {
       m: "live" | "replay",
       run: string,
       speed: ReplaySpeed,
-      opts?: { seekSeconds?: number; preserveEvents?: boolean },
+      opts?: {
+        seekSeconds?: number;
+        preserveEvents?: boolean;
+        // swapOnFirstEvent: keep the old events on screen until the
+        // new stream's first event arrives, then replace them
+        // atomically. Used for demo-loop restart so the pulse ribbon
+        // doesn't flash blank between loops at fast speeds.
+        swapOnFirstEvent?: boolean;
+      },
     ) => {
       // `preserveEvents` = true means this is a resume/seek (e.g. speed
       // change) — keep the existing state, reconnect at the seek point.
@@ -282,6 +290,12 @@ export default function Dashboard() {
           : `${apiBase}/api/runs/${run}/stream?speed=${speed}` +
             (seek > 0 ? `&start_from=${seek}` : "");
 
+      // On demo-loop restart we want a smooth transition — the old
+      // run's visual state stays on screen until the new run's
+      // run_start event arrives, at which point we swap atomically.
+      // Without this, fast replays flash blank for 1-2s between loops.
+      let swapOnNext = !!opts?.swapOnFirstEvent;
+
       const evtSource = new EventSource(url);
       evtSourceRef.current = evtSource;
 
@@ -293,11 +307,25 @@ export default function Dashboard() {
             evtSource.close();
             evtSourceRef.current = null;
             setConnected(false);
-            // Demo loop: when a replay finishes, kick off another
-            // round of the same run so the page stays alive.
+            // Demo loop: when a replay finishes, kick off the next
+            // round with swapOnFirstEvent=true so the ribbon stays
+            // frozen on the ending state until the new run's first
+            // event arrives. No more blank flash between loops.
             if (m === "replay") {
-              setTimeout(() => openStream("replay", run, speed), 1500);
+              setTimeout(
+                () =>
+                  openStream("replay", run, speed, { swapOnFirstEvent: true }),
+                800,
+              );
             }
+            return;
+          }
+          // Atomic swap: clear the old run's events the instant the
+          // new run's first event lands, and emit that event as the
+          // start of the fresh state.
+          if (swapOnNext) {
+            swapOnNext = false;
+            setEvents([event]);
             return;
           }
           eventBufferRef.current.push(event);

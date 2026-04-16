@@ -15,8 +15,11 @@
 demo_run: run-20260414-012052.jsonl
 
 # Speed at which the demo loops by default. Presenters can change
-# this from the UI; this is just the initial value.
-demo_speed: 20
+# this from the UI; this is just the initial value. 100x on a
+# 12-hour run takes about 7 minutes to play out — comfortable for
+# someone reading the page. Bump to 1000 via the UI for the
+# whole-run-in-under-a-minute effect.
+demo_speed: 100
 
 # Threshold (seconds) for considering a run "live": if the newest
 # JSONL file's mtime is within this many seconds of now, treat it

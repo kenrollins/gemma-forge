@@ -23,7 +23,13 @@ import type { Tab } from "./types";
 
 export type ChromeMode = "live" | "replay";
 
-export const SPEEDS = [1, 5, 20, 100] as const;
+// Logarithmic scale so the ribbon actually plays out in seconds at
+// the fastest step. On a 12h run:
+//   1x    real-time (educational)
+//   10x   ~72 minutes (for watching a rule closely)
+//   100x  ~7 minutes (mid-demo overview)
+//   1000x ~43 seconds (full-run seismograph — the demo moment)
+export const SPEEDS = [1, 10, 100, 1000] as const;
 export type ReplaySpeed = typeof SPEEDS[number];
 
 /** Shape the ChromeBar needs from each available run — a subset of

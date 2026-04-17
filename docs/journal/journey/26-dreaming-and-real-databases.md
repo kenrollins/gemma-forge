@@ -1,7 +1,7 @@
 ---
 id: journey-26-dreaming-and-real-databases
 type: journey
-title: "Dreaming, and When the Little Engine Needs Real Databases"
+title: "Dreaming, and When the Little Engine That Could Needs Real Databases"
 date: 2026-04-15
 tags: [L4-orchestration, reflexion-loop, cross-run-learning, context-management, decision]
 related:
@@ -11,7 +11,7 @@ related:
 one_line: "After three runs and a diminishing-returns plateau, an hour-long discussion turned into two decisions: adopt the 2026 memory-systems frontier (Graphiti-on-Neo4j, with a dream pass on top) and retire SQLite in favor of Postgres. The honest discovery — we are catching up to a frontier that crystallized in the last six months, not charting new ground — made the architecture sharper, not smaller."
 ---
 
-# Dreaming, and When the Little Engine Needs Real Databases
+# Dreaming, and When the Little Engine That Could Needs Real Databases
 
 ## The story in one sentence
 
@@ -65,9 +65,9 @@ The coffee question was not "which optimization next." It was "what
 is my goal here, actually." The three goals on the table:
 
 1. Optimize Gemma 4 at the edge — largely done.
-2. Build a kickass harness — highest leverage, most of the
+2. Build the best harness we can — highest leverage, most of the
    differentiation lives here.
-3. Learn some shit — continuous, captured in the journal.
+3. Learn what actually works — continuous, captured in the journal.
 
 Given (2) is where the leverage is, the real question was whether to
 extend the harness or prove it generalizes. Both are defensible. The

@@ -93,7 +93,12 @@ export default function AgentFlow({ stage, evalPassed, narrative, details }: Age
     // display and read as a row of mostly-empty boxes. Centered so the
     // flow still lines up under the rule headline above.
     <div className="flex flex-col gap-2 max-w-[1280px] mx-auto w-full">
-      <div className="flex items-stretch gap-1.5">
+      {/* items-start (not items-stretch) so the inactive cards keep
+          their natural compact height. The ACTIVE card grows taller
+          because it's the one rendering the detail block; the height
+          asymmetry is intentional — it's the visual "you are here"
+          for the pipeline stage. */}
+      <div className="flex items-start gap-1.5">
         {STAGES.map((s, idx) => {
           const isActive = idx === activeIdx;
           const isPast = activeIdx >= 0 && idx < activeIdx;
@@ -244,29 +249,33 @@ function StageCard({
         {subText}
       </div>
 
-      {/* Detail block — the concrete signal for THIS agent. Gives each
-          card real information density so the strip isn't four sparse
-          labels. Fixed two-line slot so the card height is stable
-          whether we have a detail yet or not. */}
-      <div
-        className="relative mt-2 pt-2 border-t"
-        style={{ borderColor: active ? `${color}30` : past ? `${color}18` : "#15181F" }}
-      >
+      {/* Detail block — only shown on the currently ACTIVE stage card.
+          Past/upcoming cards stay compact so (a) the row doesn't steal
+          vertical space for stale info, and (b) the reader isn't
+          confused by Worker showing "apply_fix" while Eval is the
+          active turn. The active card grows taller than its siblings —
+          the height asymmetry deliberately draws the eye to the stage
+          actually doing work right now. */}
+      {active && (
         <div
-          className="text-[10.5px] font-mono truncate leading-tight h-[13px]"
-          style={{ color: active ? "#E8EAED" : past ? "#9CA3AF" : "#3F4451" }}
-          title={detail?.headline || ""}
+          className="relative mt-2 pt-2 border-t"
+          style={{ borderColor: `${color}30` }}
         >
-          {detail?.headline || "\u2014"}
+          <div
+            className="text-[10.5px] font-mono truncate leading-tight h-[13px] text-[#E8EAED]"
+            title={detail?.headline || ""}
+          >
+            {detail?.headline || "\u2014"}
+          </div>
+          <div
+            className="text-[9px] font-mono uppercase tracking-wider truncate leading-tight h-[12px] mt-0.5"
+            style={{ color: `${color}CC` }}
+            title={detail?.sub || ""}
+          >
+            {detail?.sub || "\u00a0"}
+          </div>
         </div>
-        <div
-          className="text-[9px] font-mono uppercase tracking-wider truncate leading-tight h-[12px] mt-0.5"
-          style={{ color: active ? `${color}CC` : "#4B5563" }}
-          title={detail?.sub || ""}
-        >
-          {detail?.sub || "\u00a0"}
-        </div>
-      </div>
+      )}
 
       <style jsx>{`
         @keyframes agentFlowPulse {

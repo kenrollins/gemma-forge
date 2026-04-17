@@ -3,27 +3,27 @@
 /**
  * MemoryTab — the Reflective tier surfaced as tangible artifacts.
  *
- * Previously rendered as a Category → Rule → Lesson graph, but that
- * painted rule outcomes (green/amber boxes) rather than memory
- * content. The three artifacts the system actually produces are:
+ * The three artifacts the system produces are:
  *
- *   1. BAN PATTERNS — regex-style strings the Reflector forbids after
- *      they fail. Carried as ban_added events, one per new pattern.
+ *   1. TIPS — the Reflector's typed memory writes. Today only `ban_added`
+ *      events are emitted (type = warning), but the V2 refactor
+ *      (docs/drafts/v2-architecture-plan.md) adds `tip_added` events with
+ *      four tip_types: strategy (green, "do this"), recovery (amber,
+ *      "when X fails, try Y"), optimization (blue, faster/better), and
+ *      warning (red, current bans). The left panel is already wired to
+ *      color-code by tip_type so the moment the refactor lands, strategy
+ *      and optimization tips will start rendering in their own colors
+ *      without a UI change.
  *   2. REFLECTIONS — prose observations the Reflector writes when a
  *      rule fails. Emitted as reflection events with a markdown
  *      "Pattern identified: X / Root cause: Y" structure.
  *   3. CROSS-RUN HYDRATION — counts of bans/lessons loaded from
  *      prior runs, plus per-category success rates.
  *
- * This layout puts those three front and center. The top strip is
- * "what the system brought into this run" (prior-run state). Below it,
- * two feeds grow as the Reflector writes: banned approaches on the
- * left, reflection insights on the right. Both highlight freshly
- * written entries with a pulsing accent so the eye tracks growth even
- * at 1000x replay.
- *
- * V2 (future) will fetch lesson provenance + hit-rate from the
- * Neo4j graph endpoint so we can show "this lesson helped N times."
+ * Top strip: what the system brought into this run. Below it, two
+ * feeds grow as the Reflector writes: typed tips on the left,
+ * reflection insights on the right. Freshest entry glows so the eye
+ * tracks growth even at 1000x replay.
  */
 
 import { useEffect, useMemo, useState } from "react";
@@ -33,14 +33,63 @@ import type { RunEvent, SkillUI, CrossRunData, CategoryStat } from "./types";
 // Types
 // ============================================================================
 
-interface BanEntry {
+/** V2 tip_type values per docs/drafts/v2-architecture-plan.md §2.1.
+ *  Unknown strings fall through to "warning" — the conservative default
+ *  also used for migrated V1 lessons.  */
+export type TipType = "strategy" | "recovery" | "optimization" | "warning";
+
+interface TipEntry {
   id: string;
-  pattern: string;
+  /** For warnings (ban_added): the regex string. For typed tips: the actionable advice. */
+  text: string;
+  tipType: TipType;
+  /** Whether the underlying signal is literally a ban regex — lets the
+   *  card render the text as monospace code vs. natural-language advice. */
+  isBanPattern: boolean;
   ruleId?: string;
   category?: string;
-  total: number;
+  triggerConditions?: string[];
+  /** Running count at the time this tip was written (ban_added carries
+   *  banned_patterns_total; tip_added will carry a similar total). */
+  total?: number;
   tsMs: number;
   elapsed_s: number;
+}
+
+const TIP_COLOR: Record<TipType, string> = {
+  strategy: "#22C55E",     // green — "do this, it worked"
+  optimization: "#3B82F6", // blue  — "do it faster / better"
+  recovery: "#F59E0B",     // amber — "when X fails, try Y"
+  warning: "#F87171",      // red   — "never do X" (current bans)
+};
+
+const TIP_BG: Record<TipType, string> = {
+  strategy: "rgba(34,197,94,0.08)",
+  optimization: "rgba(59,130,246,0.08)",
+  recovery: "rgba(245,158,11,0.08)",
+  warning: "rgba(248,113,113,0.08)",
+};
+
+const TIP_TEXT_COLOR: Record<TipType, string> = {
+  strategy: "#BBF7D0",
+  optimization: "#BFDBFE",
+  recovery: "#FDE68A",
+  warning: "#FECACA",
+};
+
+const TIP_LABEL: Record<TipType, string> = {
+  strategy: "strategy",
+  optimization: "optimization",
+  recovery: "recovery",
+  warning: "warning",
+};
+
+function normalizeTipType(raw: unknown): TipType {
+  const s = typeof raw === "string" ? raw.toLowerCase() : "";
+  if (s === "strategy" || s === "recovery" || s === "optimization" || s === "warning") {
+    return s;
+  }
+  return "warning";
 }
 
 interface ReflectionEntry {
@@ -105,17 +154,17 @@ function parseReflectionBlob(raw: string | undefined): {
 }
 
 function deriveMemory(events: RunEvent[]): {
-  bans: BanEntry[];
+  tips: TipEntry[];
   reflections: ReflectionEntry[];
   ruleCategoryMap: Map<string, string>;
   crossRun?: CrossRunData;
-  bansThisRun: number;
+  countsByType: Record<TipType, number>;
 } {
   const ruleCategoryMap = new Map<string, string>();
-  const bans: BanEntry[] = [];
+  const tips: TipEntry[] = [];
   const reflections: ReflectionEntry[] = [];
   let crossRun: CrossRunData | undefined;
-  let banCounter = 0;
+  let tipCounter = 0;
   let reflectionCounter = 0;
 
   for (const e of events) {
@@ -130,11 +179,17 @@ function deriveMemory(events: RunEvent[]): {
     if (e.event_type === "cross_run_hydration") {
       crossRun = d as unknown as CrossRunData;
     }
+
+    // V1: ban_added is a warning-type tip. The text IS a regex pattern,
+    // so cards render it as monospace code rather than natural-language
+    // advice.
     if (e.event_type === "ban_added") {
       const ruleId = d.rule_id as string | undefined;
-      bans.push({
-        id: `b${++banCounter}`,
-        pattern: (d.pattern as string) || "",
+      tips.push({
+        id: `t${++tipCounter}`,
+        text: (d.pattern as string) || "",
+        tipType: "warning",
+        isBanPattern: true,
         ruleId,
         category: ruleId ? ruleCategoryMap.get(ruleId) : undefined,
         total: (d.banned_patterns_total as number) || 0,
@@ -142,6 +197,34 @@ function deriveMemory(events: RunEvent[]): {
         elapsed_s: e.elapsed_s,
       });
     }
+
+    // V2: tip_added carries tip_type + actionable advice. Ready before
+    // the backend starts emitting it so the left panel colors update
+    // the moment the refactor lands.
+    if (e.event_type === "tip_added") {
+      const ruleId = d.rule_id as string | undefined;
+      const tipType = normalizeTipType(d.tip_type);
+      tips.push({
+        id: `t${++tipCounter}`,
+        text: (d.text as string) || (d.tip as string) || "",
+        tipType,
+        isBanPattern: tipType === "warning" && looksLikeRegex(d.text as string),
+        ruleId,
+        category:
+          (d.category as string) ||
+          (ruleId ? ruleCategoryMap.get(ruleId) : undefined),
+        triggerConditions: Array.isArray(d.trigger_conditions)
+          ? (d.trigger_conditions as string[])
+          : undefined,
+        total:
+          (d.tips_total as number) ||
+          (d.total as number) ||
+          undefined,
+        tsMs,
+        elapsed_s: e.elapsed_s,
+      });
+    }
+
     if (e.event_type === "reflection") {
       const ruleId = d.rule_id as string | undefined;
       const parsed = parseReflectionBlob(d.text as string | undefined);
@@ -161,8 +244,7 @@ function deriveMemory(events: RunEvent[]): {
     }
   }
 
-  // Second pass: categories referenced by rule_id that wasn't seen in a
-  // rule_selected (e.g. architect_reengaged carries category too). Cheap.
+  // Second pass: some categories only appear on architect_reengaged.
   for (const e of events) {
     const d = e.data || {};
     if (e.event_type === "architect_reengaged") {
@@ -171,11 +253,28 @@ function deriveMemory(events: RunEvent[]): {
       if (rid && cat && !ruleCategoryMap.has(rid)) ruleCategoryMap.set(rid, cat);
     }
   }
-  // Backfill category on entries that were captured before rule_selected.
-  for (const b of bans) if (!b.category && b.ruleId) b.category = ruleCategoryMap.get(b.ruleId);
+  // Backfill category on entries captured before rule_selected.
+  for (const t of tips) if (!t.category && t.ruleId) t.category = ruleCategoryMap.get(t.ruleId);
   for (const r of reflections) if (!r.category && r.ruleId) r.category = ruleCategoryMap.get(r.ruleId);
 
-  return { bans, reflections, ruleCategoryMap, crossRun, bansThisRun: bans.length };
+  const countsByType: Record<TipType, number> = {
+    strategy: 0,
+    optimization: 0,
+    recovery: 0,
+    warning: 0,
+  };
+  for (const t of tips) countsByType[t.tipType]++;
+
+  return { tips, reflections, ruleCategoryMap, crossRun, countsByType };
+}
+
+/** Heuristic: treat a V2 warning-type tip as a regex if it opens with
+ *  backtick-delimited content or contains escape sequences typical of
+ *  the current ban grammar. Pure safety net — V2 `tip_type: warning`
+ *  may carry natural-language advice too. */
+function looksLikeRegex(s: string | undefined): boolean {
+  if (!s) return false;
+  return /^`.*`/.test(s.trim()) || /\\[bswd]/.test(s);
 }
 
 // ============================================================================
@@ -196,14 +295,23 @@ function formatElapsed(s: number): string {
 
 function TopStrip({
   crossRun,
-  bansThisRun,
+  tipsThisRun,
+  countsByType,
   reflectionsThisRun,
 }: {
   crossRun?: CrossRunData;
-  bansThisRun: number;
+  tipsThisRun: number;
+  countsByType: Record<TipType, number>;
   reflectionsThisRun: number;
 }) {
   const cats: CategoryStat[] = crossRun?.category_stats || [];
+  // Show type chips only for types that have fired at least once. Keeps
+  // the strip honest — pre-V2 runs only have `warning`, so there's no
+  // point showing four zero pills. Post-V2, strategy/optimization appear
+  // automatically as the backend starts emitting them.
+  const activeTypes = (Object.keys(countsByType) as TipType[]).filter(
+    (t) => countsByType[t] > 0,
+  );
   return (
     <div className="border-b border-[#1C1F26] bg-[#0A0C10] px-5 py-3">
       <div className="flex items-baseline gap-4 mb-2">
@@ -224,7 +332,7 @@ function TopStrip({
           <Counter
             label="Loaded bans"
             value={crossRun?.loaded_bans ?? 0}
-            color={BAN_COLOR}
+            color={TIP_COLOR.warning}
             hint="Ban patterns hydrated from prior runs at startup"
           />
           <Counter
@@ -235,11 +343,11 @@ function TopStrip({
           />
           <span className="text-[#3F4451]">|</span>
           <Counter
-            label="Bans this run"
-            value={bansThisRun}
-            color={BAN_COLOR}
+            label="Tips this run"
+            value={tipsThisRun}
+            color="#E8EAED"
             glow
-            hint="New ban patterns the Reflector has added in this run"
+            hint="Typed memory writes (strategy, recovery, optimization, warning)"
           />
           <Counter
             label="Reflections"
@@ -250,6 +358,23 @@ function TopStrip({
           />
         </div>
       </div>
+
+      {activeTypes.length > 0 && (
+        <div className="flex items-center gap-1.5 flex-wrap mt-2 mb-2">
+          <span className="text-[9px] uppercase tracking-wider text-[#4B5563] shrink-0">
+            Tip breakdown:
+          </span>
+          {activeTypes.map((t) => (
+            <TipTypePill key={t} type={t} count={countsByType[t]} />
+          ))}
+          {activeTypes.length === 1 && activeTypes[0] === "warning" && (
+            <span className="text-[9px] text-[#4B5563] italic ml-1">
+              V2 refactor will add strategy &middot; recovery &middot; optimization tips
+            </span>
+          )}
+        </div>
+      )}
+
       {cats.length > 0 && (
         <div className="flex items-center gap-1.5 flex-wrap mt-2">
           <span className="text-[9px] uppercase tracking-wider text-[#4B5563] shrink-0">
@@ -261,6 +386,31 @@ function TopStrip({
         </div>
       )}
     </div>
+  );
+}
+
+function TipTypePill({ type, count }: { type: TipType; count: number }) {
+  const color = TIP_COLOR[type];
+  return (
+    <span
+      className="flex items-center gap-1 border rounded-sm px-1.5 py-0.5"
+      style={{
+        borderColor: `${color}55`,
+        background: TIP_BG[type],
+      }}
+      title={`${count} ${TIP_LABEL[type]} tip${count === 1 ? "" : "s"} this run`}
+    >
+      <span
+        className="inline-block w-1.5 h-1.5 rounded-full"
+        style={{ background: color, boxShadow: `0 0 4px ${color}` }}
+      />
+      <span className="text-[9px] font-mono tabular-nums" style={{ color }}>
+        {count}
+      </span>
+      <span className="text-[9px] font-mono uppercase tracking-wider text-[#9CA3AF]">
+        {TIP_LABEL[type]}
+      </span>
+    </span>
   );
 }
 
@@ -322,38 +472,38 @@ function CategoryBar({ stat }: { stat: CategoryStat }) {
 }
 
 // ============================================================================
-// Bans panel
+// Tips panel (unified, color-coded by tip_type)
 // ============================================================================
 
-function BansPanel({ bans, now }: { bans: BanEntry[]; now: number }) {
-  const sorted = useMemo(() => [...bans].reverse(), [bans]);
+function TipsPanel({ tips, now }: { tips: TipEntry[]; now: number }) {
+  const sorted = useMemo(() => [...tips].reverse(), [tips]);
   const latestTsMs = sorted.length > 0 ? sorted[0].tsMs : 0;
 
   return (
     <div className="flex-1 min-w-0 overflow-hidden flex flex-col bg-[#0B0D11]">
       <div className="px-5 py-2.5 border-b border-[#1C1F26] flex items-baseline gap-3 bg-[#0A0C10]">
-        <span className="text-[10px] font-semibold tracking-[0.2em] uppercase" style={{ color: BAN_COLOR }}>
-          Banned approaches
+        <span className="text-[10px] font-semibold tracking-[0.2em] uppercase text-[#E8EAED]">
+          Learned tips
         </span>
         <span className="text-[10px] font-mono text-[#6B7280]">
-          {bans.length} pattern{bans.length === 1 ? "" : "s"}
+          {tips.length} tip{tips.length === 1 ? "" : "s"}
         </span>
         <span className="ml-auto text-[9px] text-[#4B5563]">
-          the Reflector forbids these after they fail
+          strategies, recoveries, warnings &mdash; everything the Reflector commits to memory
         </span>
       </div>
       <div className="flex-1 overflow-y-auto px-4 py-3">
         {sorted.length === 0 ? (
           <div className="text-[11px] text-[#4B5563] italic py-8 text-center">
-            No bans written yet in this run. They appear here the instant the Reflector adds one.
+            No tips written yet in this run. They appear here the instant the Reflector adds one.
           </div>
         ) : (
           <div
             className="grid gap-2"
             style={{ gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))" }}
           >
-            {sorted.map((b) => (
-              <BanCard key={b.id} ban={b} now={now} isLatest={b.tsMs === latestTsMs} />
+            {sorted.map((t) => (
+              <TipCard key={t.id} tip={t} now={now} isLatest={t.tsMs === latestTsMs} />
             ))}
           </div>
         )}
@@ -362,22 +512,23 @@ function BansPanel({ bans, now }: { bans: BanEntry[]; now: number }) {
   );
 }
 
-function BanCard({ ban, now, isLatest }: { ban: BanEntry; now: number; isLatest: boolean }) {
-  const age = Math.max(0, now - ban.tsMs);
+function TipCard({ tip, now, isLatest }: { tip: TipEntry; now: number; isLatest: boolean }) {
+  const age = Math.max(0, now - tip.tsMs);
   const fresh = age < FRESH_WINDOW_MS;
   const freshFactor = fresh ? Math.max(0, 1 - age / FRESH_WINDOW_MS) : 0;
+  const color = TIP_COLOR[tip.tipType];
+  const borderColor = fresh ? color : "#2A2A2F";
+  const bg = fresh ? TIP_BG[tip.tipType] : "#0F1217";
   const glow =
     isLatest && fresh
-      ? `0 0 ${8 + 18 * freshFactor}px rgba(248,113,113,${0.3 + 0.5 * freshFactor})`
+      ? `0 0 ${8 + 18 * freshFactor}px ${color}${hexAlpha(0.3 + 0.5 * freshFactor)}`
       : "0 1px 2px rgba(0,0,0,0.4)";
-  const border = fresh ? "#F87171" : "#2A2A2F";
-  const bg = fresh ? "rgba(248,113,113,0.08)" : "#0F1217";
 
   return (
     <div
       className="rounded-md border px-3 py-2.5"
       style={{
-        borderColor: border,
+        borderColor,
         background: bg,
         boxShadow: glow,
         transition: "border-color 600ms, background 600ms, box-shadow 600ms",
@@ -387,38 +538,77 @@ function BanCard({ ban, now, isLatest }: { ban: BanEntry; now: number; isLatest:
         <span
           className="inline-block w-1.5 h-1.5 rounded-full"
           style={{
-            background: BAN_COLOR,
-            boxShadow: fresh ? `0 0 6px ${BAN_COLOR}` : undefined,
+            background: color,
+            boxShadow: fresh ? `0 0 6px ${color}` : undefined,
           }}
         />
-        {ban.category && (
+        <span
+          className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded-sm"
+          style={{ background: `${color}22`, color }}
+          title={`tip_type = ${tip.tipType}`}
+        >
+          {TIP_LABEL[tip.tipType]}
+        </span>
+        {tip.category && (
           <span
             className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded-sm"
             style={{ background: "rgba(96,165,250,0.12)", color: CATEGORY_ACCENT }}
           >
-            {ban.category}
+            {tip.category}
           </span>
         )}
         <span className="ml-auto text-[9px] font-mono tabular-nums text-[#6B7280]">
-          #{ban.total} &middot; at {formatElapsed(ban.elapsed_s)}
+          {tip.total ? `#${tip.total} \u00b7 ` : ""}at {formatElapsed(tip.elapsed_s)}
         </span>
       </div>
+
       <div
-        className="text-[11px] font-mono text-[#FECACA] leading-snug break-words"
-        title={ban.pattern}
+        className={
+          tip.isBanPattern
+            ? "text-[11px] font-mono leading-snug break-words"
+            : "text-[11.5px] leading-snug break-words"
+        }
+        style={{ color: TIP_TEXT_COLOR[tip.tipType] }}
+        title={tip.text}
       >
-        {ban.pattern}
+        {tip.text}
       </div>
-      {ban.ruleId && (
+
+      {tip.triggerConditions && tip.triggerConditions.length > 0 && (
+        <div className="flex flex-wrap gap-1 mt-1.5">
+          {tip.triggerConditions.slice(0, 4).map((tc, i) => (
+            <span
+              key={i}
+              className="text-[8px] font-mono px-1 py-0.5 rounded-sm"
+              style={{ background: "#15181F", color: "#9CA3AF", border: "1px solid #23262E" }}
+              title={tc}
+            >
+              {tc}
+            </span>
+          ))}
+          {tip.triggerConditions.length > 4 && (
+            <span className="text-[8px] text-[#6B7280]">
+              +{tip.triggerConditions.length - 4}
+            </span>
+          )}
+        </div>
+      )}
+
+      {tip.ruleId && (
         <div
           className="text-[9px] font-mono text-[#4B5563] mt-1.5 truncate"
-          title={ban.ruleId}
+          title={tip.ruleId}
         >
-          from {shortRuleId(ban.ruleId)}
+          from {shortRuleId(tip.ruleId)}
         </div>
       )}
     </div>
   );
+}
+
+function hexAlpha(a: number): string {
+  const v = Math.round(Math.max(0, Math.min(1, a)) * 255);
+  return v.toString(16).padStart(2, "0");
 }
 
 // ============================================================================
@@ -595,28 +785,32 @@ export interface MemoryTabProps {
 }
 
 export default function MemoryTab({ events }: MemoryTabProps) {
-  const { bans, reflections, crossRun } = useMemo(() => deriveMemory(events), [events]);
+  const { tips, reflections, crossRun, countsByType } = useMemo(
+    () => deriveMemory(events),
+    [events],
+  );
 
-  // Drive the fresh-glow animation for recent ban/reflection entries.
+  // Drive the fresh-glow animation for recent tip/reflection entries.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const anyFresh =
-      bans.some((b) => Date.now() - b.tsMs < FRESH_WINDOW_MS) ||
+      tips.some((t) => Date.now() - t.tsMs < FRESH_WINDOW_MS) ||
       reflections.some((r) => Date.now() - r.tsMs < FRESH_WINDOW_MS);
     if (!anyFresh) return;
     const t = setInterval(() => setNow(Date.now()), 500);
     return () => clearInterval(t);
-  }, [bans, reflections]);
+  }, [tips, reflections]);
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-[#0B0D11]">
       <TopStrip
         crossRun={crossRun}
-        bansThisRun={bans.length}
+        tipsThisRun={tips.length}
+        countsByType={countsByType}
         reflectionsThisRun={reflections.length}
       />
       <div className="flex-1 flex overflow-hidden min-h-0">
-        <BansPanel bans={bans} now={now} />
+        <TipsPanel tips={tips} now={now} />
         <ReflectionsPanel reflections={reflections} now={now} />
       </div>
     </div>

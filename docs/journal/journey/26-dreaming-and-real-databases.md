@@ -77,8 +77,8 @@ loudly.
 ## The research pass, and the part I had to admit
 
 I started with a half-remembered sense that "dreaming" was a useful
-metaphor and that Ken might be ahead of the frontier. A focused
-search pass killed both assumptions.
+metaphor and that the project might be ahead of the frontier. A
+focused search pass killed both assumptions.
 
 - **Dreaming is a named industry concept now.** OpenClaw has an
   explicit "Dreaming" system with Light/REM/Deep sleep stages and
@@ -139,11 +139,11 @@ deterministic evaluator.
 
 The conversation then turned to storage. The original plan for the
 /dream skill was still rooted in SQLite — one file per skill, same
-shape as today. Ken pushed on this: if we are making the pivot for
+shape as today. I pushed on this: if we are making the pivot for
 Reflective (graph), would we not want to do it for the relational
 tiers too? In for a penny, in for a pound.
 
-He was right, for reasons I had been hedging:
+That was right, for reasons worth spelling out:
 
 - Two skills are coming. Per-skill SQLite files scale badly — more
   files to back up, more migrations, more special cases. One Postgres
@@ -153,8 +153,8 @@ He was right, for reasons I had been hedging:
   wrestling with SQLite's concurrency model while the harness writes
   and the dashboard reads.
 - Once one real database is already running on the box (Neo4j), the
-  marginal cost of Postgres is small. And Ken already has operational
-  familiarity with Postgres via Supabase.
+  marginal cost of Postgres is small. Operational familiarity is
+  already there via Supabase.
 - The event logs (11,841 events in Run 3) want a queryable home
   anyway. JSONB in Postgres is the natural landing spot.
 
@@ -233,7 +233,7 @@ and the Reflective graph:
 Two reasons. First, the database decision re-opens
 [Journey 22](22-context-graphs-and-the-memory-question.md), which
 landed on SQLite specifically because of the adaptive concurrency
-clutch — a clutch that is *still* not wired in, eight weeks later.
+clutch — a clutch that is *still* not wired in, three days later.
 Entry 22 was right for its time, and it is important to record why
 the decision is being replaced now. Scale and shape changed: three
 runs of real data, two named failure modes, two skills coming, a

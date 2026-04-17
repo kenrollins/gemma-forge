@@ -260,9 +260,17 @@ def categorize_rule(rule_id: str) -> str:
     New code should use the skill runtime's categorization.
     """
     rid = rule_id.lower()
+    name = rid.split("content_rule_", 1)[-1]
     if "aide" in rid: return "integrity-monitoring"
     if any(k in rid for k in ("fips", "crypto", "hash", "cipher", "ssl", "tls")):
         return "cryptography"
+    # Partition/mount rules check before "audit" substring: rules like
+    # partition_for_var_log_audit are filesystem-shaped even though the
+    # path contains "audit". Audit rules (audit_rules_*, auditd_*) start
+    # with the audit prefix, never with partition_for_ / mount_option_,
+    # so they still fall through to the audit branch below.
+    if name.startswith("partition_for_") or name.startswith("mount_option_"):
+        return "filesystem"
     if "audit" in rid: return "audit"
     if "sudo" in rid or "nopasswd" in rid: return "privileged-access"
     if "partition" in rid or "mount" in rid: return "filesystem"

@@ -87,9 +87,11 @@ trace-*.json
 # - scratch/ is general personal scratch space — drafts, command snippets,
 #   anything you don't want to think twice about before scribbling.
 # - *.local.md is a per-file opt-out for "draft I'm not ready to commit yet."
+# - .claude/ is per-user Claude Code CLI config (permissions, local tweaks).
 docs/drafts/
 scratch/
 *.local.md
+.claude/
 
 # MkDocs build output (the rendered site is published via GitHub Actions,
 # not committed to the repo).

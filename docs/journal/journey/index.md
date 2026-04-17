@@ -77,9 +77,13 @@ is meant to be readable on its own.
 - [**25. Run 3 — When the Learning Curve Bends**](25-run-3-learning-plateaus.md) — 60% fix rate, diminishing returns, the environment fidelity problem showing up in real data.
 
 ### Phase 10 — The memory-architecture pivot
-- [**26. Dreaming, and When the Little Engine Needs Real Databases**](26-dreaming-and-real-databases.md) — catching up to the 2026 memory-systems frontier: Graphiti-on-Neo4j for Reflective, Postgres replacing SQLite, and a dream pass between runs as the distinctive contribution.
+- [**26. The Little Engine That Could Needs Real Databases (and a Nap)**](26-dreaming-and-real-databases.md) — catching up to the 2026 memory-systems frontier: Graphiti-on-Neo4j for Reflective, Postgres replacing SQLite, and a dream pass between runs as the distinctive contribution.
 - [**27. Building the Dream Pass**](27-building-the-dream-pass.md) — one session, four bugs, a closed loop: Postgres + Neo4j + dream pass built end-to-end, progressive testing caught every crash before Run 4.
-- [**28. Run 4: When the Dream Pass Passes the Wrong Test**](28-run-4-and-the-coarseness-problem.md) — DRAFT (Run 4 in flight): the V1 algorithm worked as plumbing but produced no aggregate gain; the per-rule analysis exposed three compounding architectural failures that V2 must address.
+- [**28. Run 4: When the Dream Pass Passes the Wrong Test**](28-run-4-and-the-coarseness-problem.md) — the V1 algorithm worked as plumbing but produced no aggregate gain; the per-rule analysis exposed three compounding architectural failures that V2 must address.
+
+### Phase 11 — The V2 memory rewrite
+- [**29. The Classifier Cheat and the Honesty Check**](29-the-classifier-cheat-and-the-honesty-check.md) — a near-miss methodology slice from Phase F: a prompt-tuned classifier that almost snuck a thumb-on-scale into the backfill, and why the fix was not a better prompt but no classifier at all.
+- [**30. Building V2 — The Memory Rewrite**](30-building-v2.md) — the seven-commit, one-day implementation of V2: structured tips, rule-prefix similarity, per-(tip, rule) hit-tracking, history-based eviction. Ships alongside V1 so Run 5 carries both rankings per prompt. Ends with seven graded bets for Run 5.
 
 ## Related
 

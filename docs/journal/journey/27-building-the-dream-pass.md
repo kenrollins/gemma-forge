@@ -123,7 +123,7 @@ Run 4 tonight is the validation point. If the dream-informed lessons produce a f
 
 Beyond Run 4:
 - **V2 dream pass:** supersession detection (Reflector text analysis), abstraction-loss recovery (re-hydrate from source attempt traces), A-MEM-style semantic linking. All deferred to V2 because they require LLM calls.
-- **Dashboard Dream tab:** the dream report is currently markdown; rendering it in the dashboard is the next UI work.
+- **Dashboard Memory tab:** the dream report is currently markdown; rendering it in the dashboard is the next UI work.
 - **Prompt logging:** the harness should log which lesson IDs were loaded into each rule's Worker prompt, enabling per-rule credit assignment in V2.
 - **Second skill:** the dream pass is harness-level, not skill-level. Adding a second skill now validates that the dream architecture transfers.
 

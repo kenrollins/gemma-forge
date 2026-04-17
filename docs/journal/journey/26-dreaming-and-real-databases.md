@@ -211,7 +211,7 @@ and the Reflective graph:
    becomes navigable.
 7. **Write a dream report.** Markdown: N lessons re-weighted, M
    superseded, K abstraction-loss repairs, L environment-tagged.
-   Surfaced in the dashboard Dream tab. Becomes raw material for
+   Surfaced in the dashboard Memory tab. Becomes raw material for
    future journey entries when something notable happens.
 
 ## What we are not doing

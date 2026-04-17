@@ -57,6 +57,11 @@ from gemma_forge.harness.interfaces import (
     WorkItem,
 )
 from gemma_forge.harness.task_graph import TaskGraph, NodeState
+from gemma_forge.memory.reflector_parser import (
+    TIPS_JSON_INSTRUCTIONS,
+    parse_tips_json,
+)
+from gemma_forge.memory.tip_writer import Tip, TipWriter
 from gemma_forge.models.vllm_llm import VllmLlm
 from gemma_forge.skills.base import Skill
 from gemma_forge.skills.loader import load_skill
@@ -765,6 +770,67 @@ async def run_ralph(
     mem_store = PostgresMemoryStore(skill=skill_schema)
     mem_store.initialize()
     mem_run_id = mem_store.start_run(skill_name or "unknown", harness_cfg)
+    # V2 Phase F-next: structured-tip writer. Shares the per-skill
+    # connection pool with mem_store. Running alongside V1 lessons
+    # during the transition — lessons still get saved, new tips also
+    # get saved in parallel.
+    tip_writer = TipWriter(skill=skill_schema)
+    tips_added_count = 0
+
+    def _persist_reflector_tips(
+        ref_output: str,
+        *,
+        rule_id: str,
+        category: str,
+        source_run_id: str,
+        source_rule_id: str,
+        outcome_value: float | None,
+        outcome_confidence: float | None,
+        phase: str,
+    ) -> int:
+        """Parse TIPS_JSON out of Reflector output, persist to stig.tips,
+        emit tip_added events. Returns count added. Never raises —
+        malformed output is just zero tips.
+        """
+        nonlocal tips_added_count
+        parsed = parse_tips_json(ref_output)
+        if not parsed:
+            return 0
+        added = 0
+        for p in parsed:
+            tip = Tip(
+                text=p["text"],
+                tip_type=p["tip_type"],
+                trigger_conditions=p.get("trigger_conditions"),
+                application_context=p.get("application_context") or [category],
+                source_attempt_id=None,   # attempts persisted at rule_complete, FK set later
+                source_run_id=source_run_id,
+                source_rule_id=source_rule_id,
+                outcome_at_source_value=outcome_value,
+                outcome_at_source_confidence=outcome_confidence,
+            )
+            try:
+                tip_id = tip_writer.write(tip)
+            except Exception as exc:  # noqa: BLE001 — tip-writer must not break the loop
+                logger.warning("tip_writer: write failed for %s/%s: %s",
+                               rule_id, p["tip_type"], exc)
+                continue
+            added += 1
+            tips_added_count += 1
+            run_log.log("tip_added", "reflector", {
+                "tip_id": tip_id,
+                "tip_type": p["tip_type"],
+                "text": p["text"],
+                "rule_id": rule_id,
+                "category": category,
+                "trigger_conditions": p.get("trigger_conditions") or [],
+                "application_context": p.get("application_context") or [category],
+                "phase": phase,            # 'failure_reflection' | 'success_reflection'
+                "tips_total": tips_added_count,
+            })
+        if added:
+            logger.info("  + %d tip(s) persisted to stig.tips (phase=%s)", added, phase)
+        return added
 
     logger.info("=" * 60)
     logger.info("RALPH LOOP — Skill-agnostic reflexion harness (v5)")
@@ -1241,6 +1307,58 @@ async def run_ralph(
                 for sl in mem_store.load_lessons(rule_category, min_weight=0.0, limit=50):
                     mem_store.update_lesson_weight(sl.id, success=True)
 
+                # V2 Phase F-next: success-mode Reflector. V1 only captured
+                # lessons on failure — 3 of 4 dac_modification wins in Run 3
+                # saved zero lessons because the Reflector never ran. Fire
+                # a short Reflector call on first-try successes to harvest
+                # the "what worked" strategy tip that V1 threw away. See
+                # docs/drafts/v2-architecture-plan.md §11 refinement 4.
+                if attempt == 1:
+                    succ_sections: list[tuple[int, str, str]] = []
+                    succ_sections.append((0, "rule_identity",
+                        f"Rule: {selected['rule_id']} ({selected['title']})\n"
+                        f"Category: {rule_category}\n"
+                        f"Outcome: PASSED on first attempt."))
+                    succ_sections.append((1, "worker_approach",
+                        f"Worker's approach (which worked):\n{work_resp[:800]}"))
+                    succ_sections.append((2, "instructions",
+                        "This attempt succeeded cleanly on the first try. Your job is NOT to "
+                        "re-analyze or critique — the approach worked. Your job is to extract "
+                        "the actionable knowledge future runs should remember.\n\n"
+                        "Do not emit BANNED/PREFERRED/LESSON/DISTILLED — those are failure-mode "
+                        "fields. Emit only the TIPS_JSON block, with one or two STRATEGY tips "
+                        "capturing what made this approach work. If the approach was obvious or "
+                        "rule-specific enough that no reusable knowledge is available, emit "
+                        "TIPS_JSON: {\"tips_to_save\": []} — an empty list is honest.\n\n"
+                        + TIPS_JSON_INSTRUCTIONS))
+
+                    succ_msg, succ_meta = assemble_prompt(succ_sections, budget_tokens=2000)
+                    run_log.log("prompt_assembled", "reflector", {
+                        "phase": "success_reflection",
+                        "rule_id": selected["rule_id"],
+                        "attempt": attempt,
+                        **succ_meta,
+                    })
+                    logger.info("  REFLECTOR success-mode: harvesting strategy tip(s) from first-try success...")
+                    t0 = time.time()
+                    try:
+                        succ_resp = await _run_agent_turn(reflector, session_service, succ_msg, run_log)
+                    except Exception as exc:  # noqa: BLE001 — must not break the loop
+                        logger.warning("  Success-mode Reflector failed: %s", exc)
+                        succ_resp = ""
+                    attempt_phase_timing["success_reflector_s"] = round(time.time() - t0, 2)
+
+                    _persist_reflector_tips(
+                        succ_resp,
+                        rule_id=selected["rule_id"],
+                        category=rule_category,
+                        source_run_id=mem_run_id,
+                        source_rule_id=selected["rule_id"],
+                        outcome_value=outcome_signal.value,
+                        outcome_confidence=outcome_signal.confidence,
+                        phase="success_reflection",
+                    )
+
                 break
 
             # FAIL — diagnose, then checkpoint-restore.
@@ -1359,7 +1477,8 @@ async def run_ralph(
                     "BANNED: <regex pattern to reject in future scripts>\n"
                     "PREFERRED: <alternative approach to try>\n"
                     "LESSON: <one-sentence strategic insight>\n"
-                    "DISTILLED: <one-sentence summary of this attempt and what was learned, <200 chars, for compact memory>"))
+                    "DISTILLED: <one-sentence summary of this attempt and what was learned, <200 chars, for compact memory>\n\n"
+                    + TIPS_JSON_INSTRUCTIONS))
 
                 ref_msg, ref_meta = assemble_prompt(ref_sections, budget_tokens=REFLECTOR_USER_BUDGET)
                 run_log.log("prompt_assembled", "reflector", {
@@ -1430,6 +1549,20 @@ async def run_ralph(
                     "plateaued": plateau,
                     "phase_timing": attempt_phase_timing,
                 })
+
+                # V2 Phase F-next: parse structured tips out of the Reflector
+                # response and persist to stig.tips. Silent on malformed
+                # output — the free-text path above already ran.
+                _persist_reflector_tips(
+                    ref_resp,
+                    rule_id=selected["rule_id"],
+                    category=rule_category,
+                    source_run_id=mem_run_id,
+                    source_rule_id=selected["rule_id"],
+                    outcome_value=outcome_signal.value,
+                    outcome_confidence=outcome_signal.confidence,
+                    phase="failure_reflection",
+                )
 
                 # --- ARCHITECT RE-ENGAGEMENT ---
                 # After N failed attempts, or when the Reflector plateaus, re-invoke the

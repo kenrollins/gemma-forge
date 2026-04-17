@@ -792,6 +792,7 @@ async def run_ralph(
         outcome_value: float | None,
         outcome_confidence: float | None,
         phase: str,
+        environment_tag: str | None = None,
     ) -> int:
         """Parse TIPS_JSON out of Reflector output, persist to stig.tips,
         emit tip_added events. Returns count added. Never raises —
@@ -813,6 +814,7 @@ async def run_ralph(
                 source_rule_id=source_rule_id,
                 outcome_at_source_value=outcome_value,
                 outcome_at_source_confidence=outcome_confidence,
+                environment_tag=environment_tag,
             )
             try:
                 tip_id = tip_writer.write(tip)
@@ -823,6 +825,7 @@ async def run_ralph(
             added += 1
             tips_added_count += 1
             run_log.log("tip_added", "reflector", {
+                # Core fields (already wired in the frontend)
                 "tip_id": tip_id,
                 "tip_type": p["tip_type"],
                 "text": p["text"],
@@ -832,6 +835,13 @@ async def run_ralph(
                 "application_context": p.get("application_context") or [category],
                 "phase": phase,            # 'failure_reflection' | 'success_reflection'
                 "tips_total": tips_added_count,
+                # Enriched from Tip columns — let the Memory tab surface
+                # provenance + confidence without a second query.
+                "outcome_at_source_value": outcome_value,
+                "outcome_at_source_confidence": outcome_confidence,
+                "environment_tag": environment_tag,
+                "source_attempt_id": None,           # FK set later by attempt bulk-save
+                "source_run_id": source_run_id,
             })
         if added:
             logger.info("  + %d tip(s) persisted to stig.tips (phase=%s)", added, phase)
@@ -974,6 +984,46 @@ async def run_ralph(
     else:
         logger.info("Cross-run memory: first run — no prior knowledge")
         run_log.log("cross_run_hydration", "system", {"prior_runs": 0})
+
+    # -- V2 tip-retirement catch-up: surface offline eviction activity ---------
+    # Eviction (Phase H) runs between runs via tools/evict_tips.py or the
+    # dream pass. The retirements land in stig.tips.retired_at but never
+    # reach a run's JSONL because they happen outside a run. At each
+    # harness startup, query for tips retired since the previous run's
+    # end_time and emit tip_retired events so the Memory tab can grey
+    # them out without a separate polling path.
+    try:
+        from gemma_forge.harness.db import get_pool as _gp
+        _pool = _gp(f"forge_{skill_schema}")
+        with _pool.connection() as _c, _c.cursor() as _cur:
+            _cur.execute(
+                """
+                SELECT t.id, t.retired_reason, t.superseded_by_id,
+                       t.source_rule_id, t.tip_type
+                  FROM tips t
+                 WHERE t.retired_at IS NOT NULL
+                   AND t.retired_at > COALESCE(
+                         (SELECT MAX(ended_at) FROM runs
+                          WHERE id != %s AND ended_at IS NOT NULL),
+                         'epoch'::timestamptz
+                       )
+                 ORDER BY t.retired_at ASC
+                """,
+                (mem_run_id,),
+            )
+            _retired_rows = _cur.fetchall()
+        for _tid, _reason, _sup, _src, _ttype in _retired_rows:
+            run_log.log("tip_retired", "system", {
+                "tip_id": _tid,
+                "reason": _reason,
+                "superseded_by_id": _sup,
+                "source_rule_id": _src,
+                "tip_type": _ttype,
+            })
+        if _retired_rows:
+            logger.info("Tip retirement catch-up: emitted %d tip_retired events", len(_retired_rows))
+    except Exception as _exc:  # noqa: BLE001 — telemetry, not load-bearing
+        logger.warning("tip_retired catch-up failed: %s", _exc)
 
     # -- Adaptive concurrency (the clutch) ------------------------------------
     from gemma_forge.harness.clutch import Clutch, ClutchConfig
@@ -1580,6 +1630,11 @@ async def run_ralph(
                                 "pattern": ban[:200],
                                 "attempt": attempt,
                                 "banned_patterns_total": len(state.semantic.banned_patterns),
+                                # Frontend treats bans as warning-type tips;
+                                # surface the evaluator's confidence in the
+                                # failure that triggered this ban so the UI
+                                # can scale visual weight.
+                                "outcome_at_source_confidence": outcome_signal.confidence,
                             })
                     elif line.upper().startswith("PREFERRED:"):
                         pref = line[10:].strip()

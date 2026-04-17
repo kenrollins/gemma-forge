@@ -16,9 +16,7 @@
 --
 -- Idempotent — every CREATE uses IF NOT EXISTS.
 
--- Include public in the search_path so the pgvector `vector` type resolves.
--- (Extension is installed in public; stig schema alone doesn't see it.)
-SET search_path TO stig, public;
+SET search_path TO stig;
 
 -- ---------------------------------------------------------------------------
 -- tips: structured memory unit. Replaces the free-text-only lessons_current
@@ -36,7 +34,7 @@ CREATE TABLE IF NOT EXISTS tips (
                                                           -- strategy | recovery | optimization | warning
     trigger_conditions            TEXT[],                 -- e.g. {'audit rule modification','augenrules present'}
     application_context           TEXT[],                 -- e.g. {'audit','audit_rules_*'}
-    embedding                     vector(768),            -- pgvector cosine similarity
+    embedding                     public.vector(768),     -- pgvector cosine similarity (type lives in public)
 
     -- Provenance: links back to the attempt that produced this tip
     source_attempt_id             BIGINT REFERENCES attempts(id) ON DELETE SET NULL,
@@ -73,7 +71,7 @@ CREATE INDEX IF NOT EXISTS tips_source_run
 -- index that will be efficient at our 270-rule × ~5 tips/rule scale either
 -- way; if the table grows materially we can REINDEX with a tuned lists value.
 CREATE INDEX IF NOT EXISTS tips_embedding_ivfflat
-    ON tips USING ivfflat (embedding vector_cosine_ops) WITH (lists = 32);
+    ON tips USING ivfflat (embedding public.vector_cosine_ops) WITH (lists = 32);
 
 -- ---------------------------------------------------------------------------
 -- tip_retrievals: every time a tip lands in a Worker prompt, record it

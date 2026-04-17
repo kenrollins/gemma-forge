@@ -129,6 +129,50 @@ def _fetch_hit_rates(pool: ConnectionPool, rule_id: str,
 _DEFAULT_CANDIDATE_POOL = 200   # pull top-N candidates from SQL; rank in Python
 _CATEGORY_BONUS = 0.30          # added to similarity when category matches
 _HIT_RATE_WEIGHT = 0.50         # weight of per-(tip, rule) hit rate in the composite
+_SOURCE_PRIOR_WEIGHT = 0.15     # weight of tip's own source-attempt outcome.
+                                # Coefficient intentionally lower than hit_rate:
+                                # source_prior is one data point; hit_rate is
+                                # aggregated evidence. Sample-size-weighted
+                                # priority: aggregate > single-sample.
+
+
+def score_tip(
+    rule_id: str,
+    category: str,
+    *,
+    tip_source_rule_id: Optional[str],
+    tip_source_run_id: Optional[str],
+    tip_application_context: Optional[list[str]],
+    tip_outcome_at_source_value: Optional[float],
+    tip_outcome_at_source_confidence: Optional[float],
+    hit_rate: float = 0.0,
+    exclude_run_id: Optional[str] = None,
+    same_run_damping: float = 0.5,
+) -> float:
+    """Return composite score for a single tip. Pure function — no DB.
+
+    See ``assemble_tips_for_rule`` for the algorithm narrative.
+    Extracted so the score formula can be unit-tested without a live
+    Postgres connection.
+    """
+    base = rule_prefix_similarity(rule_id, tip_source_rule_id or "")
+    cat_bonus = (
+        _CATEGORY_BONUS
+        if (category and category in (tip_application_context or []))
+        else 0.0
+    )
+    hit = hit_rate * _HIT_RATE_WEIGHT
+    src_prior = 0.0
+    if tip_outcome_at_source_value is not None and tip_outcome_at_source_confidence is not None:
+        src_prior = (
+            float(tip_outcome_at_source_value)
+            * float(tip_outcome_at_source_confidence)
+            * _SOURCE_PRIOR_WEIGHT
+        )
+    composite = base + cat_bonus + hit + src_prior
+    if exclude_run_id and tip_source_run_id == exclude_run_id:
+        composite *= same_run_damping
+    return composite
 
 
 def assemble_tips_for_rule(
@@ -149,12 +193,18 @@ def assemble_tips_for_rule(
        ``application_context`` overlaps ``[category]`` or whose
        ``source_rule_id`` shares any tokens with ``rule_id``.
     2. For each candidate, compute a composite score:
-         base      = rule_prefix_similarity(rule_id, source_rule_id)
-         category  = +_CATEGORY_BONUS if category ∈ application_context
-         hit_rate  = + _HIT_RATE_WEIGHT × per-(tip, rule) hit rate (if any data)
-         same-run  = × same_run_damping if tip came from the current run
-                      (§11 refinement 5: damp, don't exclude — some wins
-                      come from within-run lesson accumulation)
+         base         = rule_prefix_similarity(rule_id, source_rule_id)
+         category     = +_CATEGORY_BONUS if category ∈ application_context
+         hit_rate     = + _HIT_RATE_WEIGHT × per-(tip, rule) hit rate
+                        (aggregate downstream utility; 0 with no data)
+         source_prior = + _SOURCE_PRIOR_WEIGHT × (outcome_at_source_value
+                        × outcome_at_source_confidence). Success-derived
+                        tips get up to +0.15; failure-derived or backfill
+                        (NULL) get 0 (§11 refinement 2 — plan §2.1's
+                        "tips from success start with stronger prior").
+         same-run     = × same_run_damping if tip came from the current run
+                        (§11 refinement 5: damp, don't exclude — some wins
+                        come from within-run lesson accumulation)
     3. Sort by composite desc, return top ``k`` as RetrievedTip.
 
     ``exclude_run_id`` is not an exclusion — it is the current run_id
@@ -172,7 +222,8 @@ def assemble_tips_for_rule(
         cur.execute(
             """
             SELECT id, text, tip_type, trigger_conditions, application_context,
-                   source_rule_id, source_run_id
+                   source_rule_id, source_run_id,
+                   outcome_at_source_value, outcome_at_source_confidence
             FROM tips
             WHERE retired_at IS NULL
               AND (
@@ -193,13 +244,20 @@ def assemble_tips_for_rule(
 
     scored: list[tuple[float, float, tuple]] = []  # (composite, base_sim, row)
     for row in rows:
-        tip_id, _text, _tip_type, _triggers, app_ctx, src_rule, src_run = row
+        tip_id, _text, _tip_type, _triggers, app_ctx, src_rule, src_run, \
+            src_val, src_conf = row
         base = rule_prefix_similarity(rule_id, src_rule or "")
-        cat_bonus = _CATEGORY_BONUS if (category and category in (app_ctx or [])) else 0.0
-        hit = hit_rates.get(tip_id, 0.0) * _HIT_RATE_WEIGHT
-        composite = base + cat_bonus + hit
-        if exclude_run_id and src_run == exclude_run_id:
-            composite *= same_run_damping
+        composite = score_tip(
+            rule_id, category,
+            tip_source_rule_id=src_rule,
+            tip_source_run_id=src_run,
+            tip_application_context=app_ctx,
+            tip_outcome_at_source_value=src_val,
+            tip_outcome_at_source_confidence=src_conf,
+            hit_rate=hit_rates.get(tip_id, 0.0),
+            exclude_run_id=exclude_run_id,
+            same_run_damping=same_run_damping,
+        )
         # Drop tips with 0 similarity AND 0 category-match AND no hit history —
         # those are just noise (random tips from other rule families with no
         # prior evidence they help here).

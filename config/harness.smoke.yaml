@@ -1,0 +1,25 @@
+# Smoke-test config for Phase F/G/H verification.
+#
+# Caps the run at 3 rules — enough to likely exercise both Reflector
+# paths (success-mode on at least one first-try remediation, failure-mode
+# on at least one fail). Short time budgets so a stuck rule doesn't
+# drag the smoke out.
+#
+# Usage:
+#   .venv/bin/python -m gemma_forge.harness.ralph --config config/harness.smoke.yaml
+loop:
+  max_iterations: 3
+  max_rules_per_run: 3
+  max_retries_per_rule: 5
+  max_wall_time_per_rule_s: 300   # 5 minutes per rule, not 20
+  architect_reengage_every_n_attempts: 3
+  architect_reengage_on_plateau: true
+stig:
+  datastream: /usr/share/xml/scap/ssg/content/ssg-rl9-ds.xml
+  profile: xccdf_org.ssgproject.content_profile_stig
+  results_dir: /tmp/gemma-forge-stig
+vm:
+  healthcheck_cmd: /usr/local/bin/mission-healthcheck.sh
+  ip: 192.168.122.43
+  ssh_key: /data/vm/gemma-forge/keys/adm-forge
+  user: adm-forge

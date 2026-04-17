@@ -68,7 +68,10 @@ function buildOutcomes(events: RunEvent[]): Array<{ type: string; ruleId: string
 }
 
 // Given the latest events, summarize what's happening RIGHT NOW in one punchy phrase
-function describeCurrentAction(events: RunEvent[]): { text: string; agent: string; icon: string } | null {
+function describeCurrentAction(
+  events: RunEvent[],
+  skillUI: SkillUI,
+): { text: string; agent: string; icon: string } | null {
   if (events.length === 0) return null;
 
   // Walk back up to 5 events to find the most informative action
@@ -96,10 +99,10 @@ function describeCurrentAction(events: RunEvent[]): { text: string; agent: strin
     if (e.event_type === "evaluation") {
       const d = e.data;
       if (d.passed) {
-        return { text: "PASSED — rule remediated, mission app healthy", agent: "harness", icon: "✓" };
+        return { text: `PASSED \u2014 ${skillUI.work_item} ${skillUI.fixed_label.toLowerCase()}, mission app healthy`, agent: "harness", icon: "✓" };
       }
       return {
-        text: `FAILED — health=${d.health_ok ? "✓" : "✗"} rule=${d.rule_ok ? "✓" : "✗"} journal=${d.journal_clean ? "✓" : "✗"}`,
+        text: `FAILED \u2014 health=${d.health_ok ? "✓" : "✗"} ${skillUI.work_item}=${d.rule_ok ? "✓" : "✗"} journal=${d.journal_clean ? "✓" : "✗"}`,
         agent: "harness",
         icon: "✗",
       };
@@ -114,7 +117,7 @@ function describeCurrentAction(events: RunEvent[]): { text: string; agent: strin
     }
 
     if (e.event_type === "remediated") {
-      return { text: `Rule remediated on attempt ${e.data.attempt || "?"}`, agent: "harness", icon: "✓" };
+      return { text: `${skillUI.work_item} ${skillUI.fixed_label.toLowerCase()} on attempt ${e.data.attempt || "?"}`, agent: "harness", icon: "✓" };
     }
 
     if (e.event_type === "escalated") {
@@ -122,7 +125,7 @@ function describeCurrentAction(events: RunEvent[]): { text: string; agent: strin
     }
 
     if (e.event_type === "rule_selected") {
-      return { text: "Architect selected a new rule to work on", agent: "architect", icon: "◉" };
+      return { text: `Architect selected a new ${skillUI.work_item} to work on`, agent: "architect", icon: "◉" };
     }
 
     if (e.event_type === "attempt_start") {
@@ -151,7 +154,7 @@ export default function Mission({ events, skillUI = DEFAULT_SKILL_UI }: { events
   const outcomes = buildOutcomes(events);
   const recentOutcomes = outcomes.slice(-24);
 
-  const currentAction = describeCurrentAction(events);
+  const currentAction = describeCurrentAction(events, skillUI);
   const actionColor = currentAction ? (AGENT_COLORS[currentAction.agent] || "#6B7280") : "#6B7280";
 
   if (events.length === 0) {

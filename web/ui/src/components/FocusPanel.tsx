@@ -9,6 +9,67 @@ function shortId(id: string, prefix: string): string {
   return id;
 }
 
+/**
+ * Small section header used across the FocusPanel and ItemDetail so
+ * the three sub-sections (Approaches / Reflections / Verdicts) read
+ * with consistent density and don't drift from the HeroStrip / MemoryTab
+ * polish. The optional `accent` color lights the left tick + count.
+ */
+function SubHeader({
+  label,
+  count,
+  accent = "#6B7280",
+}: {
+  label: string;
+  count?: number;
+  accent?: string;
+}) {
+  return (
+    <div className="flex items-center gap-2 mb-2">
+      <span
+        className="inline-block w-1 h-3 rounded-sm"
+        style={{ background: accent }}
+      />
+      <span
+        className="text-[10px] uppercase tracking-[0.2em] font-semibold"
+        style={{ color: accent }}
+      >
+        {label}
+      </span>
+      {count !== undefined && (
+        <span className="text-[9px] font-mono tabular-nums text-[#6B7280]">
+          ({count})
+        </span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Look up the color for a terminal outcome, preferring skillUI.outcomes
+ * so a non-STIG skill can swap the palette. Falls back to the canonical
+ * STIG colors when the skill config hasn't filled that outcome in.
+ */
+function outcomeColor(
+  type: string,
+  skillUI: SkillUI,
+  fallback = "#6B7280",
+): string {
+  const match = skillUI.outcomes?.find((o) => o.type === type);
+  if (match?.color) return match.color;
+  if (type === "fixed" || type === "completed" || type === "remediated") return "#22C55E";
+  if (type === "escalated") return "#F59E0B";
+  if (type === "skipped" || type === "queued") return "#6B7280";
+  if (type === "active") return "#22D3EE";
+  return fallback;
+}
+
+function outcomeLabel(type: string, skillUI: SkillUI): string {
+  const match = skillUI.outcomes?.find((o) => o.type === type);
+  if (match?.label) return match.label;
+  return type;
+}
+
 function formatTime(s: number): string {
   if (s < 60) return `${Math.round(s)}s`;
   if (s < 3600) return `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`;
@@ -181,7 +242,13 @@ function buildItemDetail(itemId: string, events: RunEvent[], skillUI: SkillUI): 
 
 // -- Sub-components --
 
-function AgentInsight({ events }: { events: RunEvent[] }) {
+function AgentInsight({
+  events,
+  skillUI,
+}: {
+  events: RunEvent[];
+  skillUI: SkillUI;
+}) {
   // Find the current rule being worked on
   let currentRuleId = "";
   let currentTitle = "";
@@ -330,8 +397,8 @@ function AgentInsight({ events }: { events: RunEvent[] }) {
 
   if (conversation.length === 0 && !action) {
     return (
-      <div className="px-4 py-4 text-[11px] text-[#4B5563] italic border-b border-[#1C1F26]">
-        Waiting for activity\u2026
+      <div className="px-4 py-8 text-center text-[12px] text-[#4B5563] italic border-b border-[#1C1F26]">
+        Waiting for activity\u2026 the conversation fills in as agents start working.
       </div>
     );
   }
@@ -435,7 +502,7 @@ function AgentInsight({ events }: { events: RunEvent[] }) {
                     <span
                       className="px-1.5 py-0.5 rounded-sm text-[9px] font-bold uppercase tracking-wider tabular-nums shrink-0"
                       style={{ color: timeColor, background: `${timeColor}15` }}
-                      title="Time remaining before this rule auto-escalates"
+                      title={`Time remaining before this ${skillUI.work_item} auto-escalates`}
                     >
                       {formatTime(remaining)} left
                     </span>
@@ -747,16 +814,15 @@ function OutcomeFeed({
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto px-3 py-2">
-      <div className="text-[9px] uppercase tracking-wider text-[#4B5563] mb-1.5">
-        Outcomes ({outcomes.length} total)
-      </div>
+      <SubHeader label="Outcomes" count={outcomes.length} />
       {recent.length === 0 ? (
-        <div className="text-[10px] text-[#4B5563] italic">Awaiting first outcome\u2026</div>
+        <div className="text-[11px] text-[#4B5563] italic py-6 text-center">
+          Awaiting first outcome\u2026 the feed fills in as {skillUI.work_item_plural} resolve.
+        </div>
       ) : (
         <div className="space-y-1">
           {recent.map((o, i) => {
-            const outcomeDef = skillUI.outcomes.find(x => x.type === o.type);
-            const color = outcomeDef?.color || (o.type === "fixed" ? "#22C55E" : o.type === "escalated" ? "#F59E0B" : "#6B7280");
+            const color = outcomeColor(o.type, skillUI);
             const icon = o.type === "fixed" ? "\u2713" : o.type === "escalated" ? "\u2717" : "\u2298";
             return (
               <button
@@ -804,15 +870,9 @@ function ItemDetail({
   skillUI: SkillUI;
   onClose: () => void;
 }) {
-  const stateColors: Record<string, string> = {
-    completed: "#22C55E",
-    remediated: "#22C55E",
-    escalated: "#F59E0B",
-    skipped: "#6B7280",
-    active: "#22D3EE",
-    queued: "#4B5563",
-  };
-  const color = stateColors[detail.state] || "#6B7280";
+  const color = outcomeColor(detail.state, skillUI);
+  const avgAttemptS =
+    detail.attempts > 0 ? detail.wall_time_s / detail.attempts : 0;
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto">
@@ -825,13 +885,22 @@ function ItemDetail({
                 className="px-2 py-1 rounded text-[11px] font-bold uppercase"
                 style={{ background: `${color}20`, color }}
               >
-                {detail.state}
+                {outcomeLabel(detail.state, skillUI)}
               </span>
               <span className="px-2 py-1 rounded text-[11px] font-semibold bg-[#1A1D24] text-[#60A5FA]">
                 {detail.category}
               </span>
               <span className="text-[12px] text-[#6B7280] tabular-nums">{detail.attempts} attempt{detail.attempts !== 1 ? "s" : ""}</span>
               <span className="text-[12px] text-[#6B7280] tabular-nums">{formatTime(detail.wall_time_s)}</span>
+              {avgAttemptS > 0 && detail.attempts > 1 && (
+                <span
+                  className="text-[11px] text-[#9CA3AF] tabular-nums px-1.5 py-0.5 rounded-sm"
+                  style={{ background: "#1A1D24" }}
+                  title="Average wall time per attempt on this item"
+                >
+                  \u00d8 {formatTime(avgAttemptS)}/attempt
+                </span>
+              )}
             </div>
             <div className="text-[16px] font-mono font-bold text-[#E8EAED]">
               {shortId(detail.id, skillUI.id_prefix_strip)}
@@ -860,9 +929,11 @@ function ItemDetail({
       {/* Approaches tried */}
       {detail.approaches_tried.length > 0 && (
         <div className="px-5 py-3 border-b border-[#1C1F26]">
-          <div className="text-[11px] uppercase tracking-wider text-[#6B7280] font-semibold mb-2">
-            Approaches Tried ({detail.approaches_tried.length})
-          </div>
+          <SubHeader
+            label="Approaches tried"
+            count={detail.approaches_tried.length}
+            accent={AGENT_COLORS.worker}
+          />
           <div className="space-y-2">
             {detail.approaches_tried.map((approach, i) => (
               <div key={i} className="flex gap-3 text-[13px]">
@@ -877,9 +948,11 @@ function ItemDetail({
       {/* Reflections */}
       {detail.reflections.length > 0 && (
         <div className="px-5 py-3 border-b border-[#1C1F26]">
-          <div className="text-[11px] uppercase tracking-wider text-[#A855F7] font-semibold mb-2">
-            Reflections ({detail.reflections.length})
-          </div>
+          <SubHeader
+            label="Reflections"
+            count={detail.reflections.length}
+            accent={AGENT_COLORS.reflector}
+          />
           <div className="space-y-3">
             {detail.reflections.map((ref, i) => {
               const parsed = parseReflection(ref.text);
@@ -925,9 +998,11 @@ function ItemDetail({
       {/* Architect reengagements */}
       {detail.reengagements.length > 0 && (
         <div className="px-5 py-3">
-          <div className="text-[11px] uppercase tracking-wider text-[#3B82F6] font-semibold mb-2">
-            Architect Verdicts ({detail.reengagements.length})
-          </div>
+          <SubHeader
+            label="Architect verdicts"
+            count={detail.reengagements.length}
+            accent={AGENT_COLORS.architect}
+          />
           <div className="space-y-2">
             {detail.reengagements.map((r, i) => {
               const vColor = r.verdict === "ESCALATE" ? "#EF4444" : r.verdict === "PIVOT" ? "#F59E0B" : "#22C55E";
@@ -977,7 +1052,7 @@ export default function FocusPanel({
       ) : (
         <>
           {/* Agent conversation — the hero, takes all available space */}
-          <AgentInsight events={events} />
+          <AgentInsight events={events} skillUI={skillUI} />
         </>
       )}
     </div>

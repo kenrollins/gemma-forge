@@ -34,11 +34,20 @@ interface ResolvedRule {
   elapsed_s: number;
 }
 
-const OUTCOME_COLOR: Record<Outcome, string> = {
+// Fallback colors when skillUI.outcomes doesn't define one — matches
+// the ORIGINAL hardcoded palette so existing STIG demos look
+// identical, but skills can override by listing `outcomes` entries
+// with their own hex values.
+const FALLBACK_OUTCOME_COLOR: Record<Outcome, string> = {
   fixed: "#22C55E",
   escalated: "#F59E0B",
   skipped: "#6B7280",
 };
+
+function outcomeColor(outcome: Outcome, skillUI: SkillUI): string {
+  const match = skillUI.outcomes?.find((o) => o.type === outcome);
+  return match?.color || FALLBACK_OUTCOME_COLOR[outcome];
+}
 
 function formatTime(s: number): string {
   if (s < 60) return `${Math.round(s)}s`;
@@ -118,10 +127,10 @@ export default function PulseRibbon({
         </span>
 
         <div className="flex items-center gap-3 text-[10px] text-[#9CA3AF]">
-          <LegendSwatch color={OUTCOME_COLOR.fixed} label={`${counts.fixed} ${skillUI.fixed_label.toLowerCase()}`} />
-          <LegendSwatch color={OUTCOME_COLOR.escalated} label={`${counts.escalated} escalated`} />
+          <LegendSwatch color={outcomeColor("fixed", skillUI)} label={`${counts.fixed} ${skillUI.fixed_label.toLowerCase()}`} />
+          <LegendSwatch color={outcomeColor("escalated", skillUI)} label={`${counts.escalated} escalated`} />
           {counts.skipped > 0 && (
-            <LegendSwatch color={OUTCOME_COLOR.skipped} label={`${counts.skipped} skipped`} />
+            <LegendSwatch color={outcomeColor("skipped", skillUI)} label={`${counts.skipped} skipped`} />
           )}
           {remaining > 0 && (
             <LegendSwatch color="#23262E" label={`${remaining} pending`} outlined />
@@ -145,7 +154,7 @@ export default function PulseRibbon({
           const r = i < resolved.length ? resolved[i] : null;
           const isLatest = r !== null && i === resolved.length - 1;
           const isHover = i === hoverIdx;
-          const color = r ? OUTCOME_COLOR[r.outcome] : undefined;
+          const color = r ? outcomeColor(r.outcome, skillUI) : undefined;
 
           return (
             <button
@@ -187,7 +196,7 @@ export default function PulseRibbon({
         {hovered && hoveredLabel ? (
           <span
             className="text-[11px] font-mono truncate"
-            style={{ color: OUTCOME_COLOR[hovered.outcome] }}
+            style={{ color: outcomeColor(hovered.outcome, skillUI) }}
           >
             {hoveredLabel}
             <span className="text-[#4B5563] mx-1.5">·</span>
@@ -203,11 +212,11 @@ export default function PulseRibbon({
           </span>
         ) : resolved.length > 0 ? (
           <span className="text-[10px] text-[#4B5563] italic">
-            Hover a cell to see which rule. The bright pulse marks the most recent resolution.
+            Hover a cell to see which {skillUI.work_item}. The bright pulse marks the most recent resolution.
           </span>
         ) : (
           <span className="text-[10px] text-[#4B5563] italic">
-            Waiting for the first rule to resolve...
+            Waiting for the first {skillUI.work_item} to resolve...
           </span>
         )}
       </div>

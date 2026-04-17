@@ -1,7 +1,127 @@
 "use client";
 
-import { RunEvent, SkillUI, DEFAULT_SKILL_UI, AGENT_COLORS, GraphNode } from "./types";
+import {
+  RunEvent,
+  SkillUI,
+  DEFAULT_SKILL_UI,
+  AGENT_COLORS,
+  GraphNode,
+  TipType,
+  RetrievedTip,
+} from "./types";
 import AgentFlow, { Stage, StageDetails } from "./AgentFlow";
+
+// Color map for retrieval pills. Kept in sync with MemoryTab so a tip
+// that was written green there shows green on retrieval here.
+const TIP_COLOR: Record<TipType, string> = {
+  strategy: "#22C55E",
+  optimization: "#3B82F6",
+  recovery: "#F59E0B",
+  warning: "#F87171",
+};
+
+const TIP_COLOR_BG: Record<TipType, string> = {
+  strategy: "rgba(34,197,94,0.12)",
+  optimization: "rgba(59,130,246,0.12)",
+  recovery: "rgba(245,158,11,0.12)",
+  warning: "rgba(248,113,113,0.12)",
+};
+
+function normalizeTipType(raw: unknown): TipType {
+  const s = typeof raw === "string" ? raw.toLowerCase() : "";
+  if (s === "strategy" || s === "recovery" || s === "optimization" || s === "warning") {
+    return s;
+  }
+  return "warning";
+}
+
+/**
+ * For the current rule, find the most recent `tips_loaded` event
+ * (V2 Phase G). Returns undefined if no retrieval event has fired
+ * — either a pre-V2 replay or before the Architect has retrieved
+ * anything for this rule. Graceful absence is the whole point: the
+ * strip simply doesn't render, which is honest.
+ */
+function findLatestRetrieval(
+  events: RunEvent[],
+  currentRuleId: string | undefined,
+): RetrievedTip[] | undefined {
+  if (!currentRuleId) return undefined;
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e.event_type !== "tips_loaded") continue;
+    const rid = e.data?.rule_id as string | undefined;
+    if (rid !== currentRuleId) continue;
+    const arr = e.data?.tips_loaded as RetrievedTip[] | undefined;
+    if (Array.isArray(arr)) return arr;
+  }
+  return undefined;
+}
+
+function countByType(tips: RetrievedTip[]): Record<TipType, number> {
+  const c: Record<TipType, number> = {
+    strategy: 0,
+    optimization: 0,
+    recovery: 0,
+    warning: 0,
+  };
+  for (const t of tips) c[normalizeTipType(t.tip_type)]++;
+  return c;
+}
+
+function RetrievalStrip({
+  tips,
+  workItem = "item",
+}: {
+  tips: RetrievedTip[];
+  workItem?: string;
+}) {
+  const counts = countByType(tips);
+  const active = (Object.keys(counts) as TipType[]).filter((t) => counts[t] > 0);
+  if (active.length === 0) {
+    return null;
+  }
+  return (
+    <div className="flex items-center gap-2 mt-1.5 mb-0.5 flex-wrap">
+      <span
+        className="text-[9px] uppercase tracking-[0.18em] text-[#9CA3AF]"
+        title={`Tips the Architect loaded from memory for this ${workItem} (V2 Phase G)`}
+      >
+        Loaded for this {workItem}
+      </span>
+      <span className="text-[10px] font-bold tabular-nums text-[#E8EAED]">
+        {tips.length}
+      </span>
+      <span className="text-[9px] text-[#6B7280]">tip{tips.length === 1 ? "" : "s"}</span>
+      <span className="text-[#3F4451] text-[9px]">&middot;</span>
+      {active.map((t) => (
+        <span
+          key={t}
+          className="flex items-center gap-1 rounded-sm px-1.5 py-0.5 border"
+          style={{
+            borderColor: `${TIP_COLOR[t]}55`,
+            background: TIP_COLOR_BG[t],
+          }}
+          title={`${counts[t]} ${t} tip${counts[t] === 1 ? "" : "s"} retrieved`}
+        >
+          <span
+            className="inline-block w-1.5 h-1.5 rounded-full"
+            style={{ background: TIP_COLOR[t], boxShadow: `0 0 4px ${TIP_COLOR[t]}` }}
+          />
+          <span
+            className="text-[9px] font-mono tabular-nums"
+            style={{ color: TIP_COLOR[t] }}
+          >
+            {counts[t]}
+          </span>
+          <span className="text-[9px] font-mono uppercase tracking-wider text-[#9CA3AF]">
+            {t}
+          </span>
+        </span>
+      ))}
+    </div>
+  );
+}
 
 function shortId(id: string, prefix: string): string {
   if (!id) return "\u2014";
@@ -37,9 +157,9 @@ function deriveNarrative(events: RunEvent[], stage: Stage): { text: string; colo
       }
       case "evaluation": {
         const passed = d.passed as boolean | undefined;
-        if (passed === true) return { text: "Scan passed — rule satisfied", color: "#22C55E" };
-        if (passed === false) return { text: "Scan failed — rule still failing", color: "#EF4444" };
-        return { text: "Running OScap scan...", color: "#22D3EE" };
+        if (passed === true) return { text: "Scan passed \u2014 item satisfied", color: "#22C55E" };
+        if (passed === false) return { text: "Scan failed \u2014 item still failing", color: "#EF4444" };
+        return { text: "Evaluator running\u2026", color: "#22D3EE" };
       }
       case "remediated": {
         return { text: `Remediated after ${d.attempt || "?"} attempt${(d.attempt as number) === 1 ? "" : "s"}`, color: "#22C55E" };
@@ -60,7 +180,7 @@ function deriveNarrative(events: RunEvent[], stage: Stage): { text: string; colo
         break;
       }
       case "rule_selected":
-        return { text: `Architect selected ${d.title || d.rule_id || "next rule"}`, color: AGENT_COLORS.architect };
+        return { text: `Architect selected ${d.title || d.rule_id || "next item"}`, color: AGENT_COLORS.architect };
       case "architect_reengaged":
         return { text: `Architect re-engaged: verdict ${d.verdict || "?"}`, color: AGENT_COLORS.architect };
       case "scanner_gap_detected":
@@ -415,6 +535,10 @@ export default function HeroStrip({
   const narrative = deriveNarrative(events, stage as Stage);
   const stageDetails = deriveStageDetails(events, total, done);
 
+  // V2 Phase G retrieval. Returns undefined when the backend hasn't
+  // emitted tips_loaded yet — strip simply doesn't render in that case.
+  const retrievedTips = findLatestRetrieval(events, currentRuleId);
+
   // Progress bar percentages
   const pctCompleted = total > 0 ? (completed / total) * 100 : 0;
   const pctEscalated = total > 0 ? (escalated / total) * 100 : 0;
@@ -487,7 +611,9 @@ export default function HeroStrip({
             {remaining > 0 && <span>{remaining} remaining</span>}
             <span>{formatTime(elapsed)}</span>
             {done > 0 && elapsed > 0 && (
-              <span>{(done * 3600 / elapsed).toFixed(1)} rules/hr</span>
+              <span>
+                {(done * 3600 / elapsed).toFixed(1)} {skillUI.work_item_plural}/hr
+              </span>
             )}
           </div>
         </div>
@@ -519,7 +645,7 @@ export default function HeroStrip({
                   background: "rgba(59, 130, 246, 0.15)",
                   color: "#60A5FA",
                 }}
-                title={`Rule category: ${currentCategory}`}
+                title={`${skillUI.work_item} category: ${currentCategory}`}
               >
                 {currentCategory}
               </span>
@@ -528,7 +654,7 @@ export default function HeroStrip({
               <span
                 className="text-[11px] text-[#9CA3AF] tabular-nums shrink-0 ml-auto"
                 style={{ minWidth: 110, textAlign: "right" }}
-                title="Current attempt and elapsed time on this rule"
+                title={`Current attempt and elapsed time on this ${skillUI.work_item}`}
               >
                 attempt <span className="text-[#E8EAED] font-bold">{currentAttempt}</span>
                 <span className="text-[#3F4451] mx-1.5">·</span>
@@ -536,6 +662,13 @@ export default function HeroStrip({
               </span>
             )}
           </div>
+
+          {/* Retrieval strip — tips the Architect pulled from memory for
+              this rule. Only renders when tips_loaded fires (V2 Phase G).
+              Pre-V2 replays skip it entirely, which is honest. */}
+          {retrievedTips && retrievedTips.length > 0 && (
+            <RetrievalStrip tips={retrievedTips} workItem={skillUI.work_item} />
+          )}
 
           {/* AgentFlow — handoff cards with active-stage pulse + narrative */}
           <AgentFlow

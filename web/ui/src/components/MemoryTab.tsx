@@ -27,16 +27,17 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import type { RunEvent, SkillUI, CrossRunData, CategoryStat } from "./types";
+import type {
+  RunEvent,
+  SkillUI,
+  CrossRunData,
+  CategoryStat,
+  TipType,
+} from "./types";
 
 // ============================================================================
 // Types
 // ============================================================================
-
-/** V2 tip_type values per docs/drafts/v2-architecture-plan.md §2.1.
- *  Unknown strings fall through to "warning" — the conservative default
- *  also used for migrated V1 lessons.  */
-export type TipType = "strategy" | "recovery" | "optimization" | "warning";
 
 interface TipEntry {
   id: string;
@@ -281,10 +282,9 @@ function looksLikeRegex(s: string | undefined): boolean {
 // Top strip — cross-run hydration + this-run counters
 // ============================================================================
 
-function shortRuleId(id?: string): string {
+function shortRuleId(id: string | undefined, prefix: string): string {
   if (!id) return "";
-  const prefix = "xccdf_org.ssgproject.content_rule_";
-  return id.startsWith(prefix) ? id.slice(prefix.length) : id;
+  return prefix && id.startsWith(prefix) ? id.slice(prefix.length) : id;
 }
 
 function formatElapsed(s: number): string {
@@ -475,7 +475,17 @@ function CategoryBar({ stat }: { stat: CategoryStat }) {
 // Tips panel (unified, color-coded by tip_type)
 // ============================================================================
 
-function TipsPanel({ tips, now }: { tips: TipEntry[]; now: number }) {
+function TipsPanel({
+  tips,
+  now,
+  idPrefix,
+  workItem,
+}: {
+  tips: TipEntry[];
+  now: number;
+  idPrefix: string;
+  workItem: string;
+}) {
   const sorted = useMemo(() => [...tips].reverse(), [tips]);
   const latestTsMs = sorted.length > 0 ? sorted[0].tsMs : 0;
 
@@ -503,7 +513,14 @@ function TipsPanel({ tips, now }: { tips: TipEntry[]; now: number }) {
             style={{ gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))" }}
           >
             {sorted.map((t) => (
-              <TipCard key={t.id} tip={t} now={now} isLatest={t.tsMs === latestTsMs} />
+              <TipCard
+                key={t.id}
+                tip={t}
+                now={now}
+                isLatest={t.tsMs === latestTsMs}
+                idPrefix={idPrefix}
+                workItem={workItem}
+              />
             ))}
           </div>
         )}
@@ -512,7 +529,19 @@ function TipsPanel({ tips, now }: { tips: TipEntry[]; now: number }) {
   );
 }
 
-function TipCard({ tip, now, isLatest }: { tip: TipEntry; now: number; isLatest: boolean }) {
+function TipCard({
+  tip,
+  now,
+  isLatest,
+  idPrefix,
+  workItem,
+}: {
+  tip: TipEntry;
+  now: number;
+  isLatest: boolean;
+  idPrefix: string;
+  workItem: string;
+}) {
   const age = Math.max(0, now - tip.tsMs);
   const fresh = age < FRESH_WINDOW_MS;
   const freshFactor = fresh ? Math.max(0, 1 - age / FRESH_WINDOW_MS) : 0;
@@ -599,7 +628,7 @@ function TipCard({ tip, now, isLatest }: { tip: TipEntry; now: number; isLatest:
           className="text-[9px] font-mono text-[#4B5563] mt-1.5 truncate"
           title={tip.ruleId}
         >
-          from {shortRuleId(tip.ruleId)}
+          from {workItem} {shortRuleId(tip.ruleId, idPrefix)}
         </div>
       )}
     </div>
@@ -618,9 +647,13 @@ function hexAlpha(a: number): string {
 function ReflectionsPanel({
   reflections,
   now,
+  idPrefix,
+  workItem,
 }: {
   reflections: ReflectionEntry[];
   now: number;
+  idPrefix: string;
+  workItem: string;
 }) {
   const sorted = useMemo(() => [...reflections].reverse(), [reflections]);
   const latestTsMs = sorted.length > 0 ? sorted[0].tsMs : 0;
@@ -654,6 +687,8 @@ function ReflectionsPanel({
                 reflection={r}
                 now={now}
                 isLatest={r.tsMs === latestTsMs}
+                idPrefix={idPrefix}
+                workItem={workItem}
               />
             ))}
           </div>
@@ -667,10 +702,14 @@ function ReflectionCard({
   reflection,
   now,
   isLatest,
+  idPrefix,
+  workItem,
 }: {
   reflection: ReflectionEntry;
   now: number;
   isLatest: boolean;
+  idPrefix: string;
+  workItem: string;
 }) {
   const age = Math.max(0, now - reflection.tsMs);
   const fresh = age < FRESH_WINDOW_MS;
@@ -768,7 +807,7 @@ function ReflectionCard({
           className="text-[9px] font-mono text-[#4B5563] mt-1.5 truncate"
           title={reflection.ruleId}
         >
-          from {shortRuleId(reflection.ruleId)}
+          from {workItem} {shortRuleId(reflection.ruleId, idPrefix)}
         </div>
       )}
     </div>
@@ -784,7 +823,7 @@ export interface MemoryTabProps {
   skillUI: SkillUI;
 }
 
-export default function MemoryTab({ events }: MemoryTabProps) {
+export default function MemoryTab({ events, skillUI }: MemoryTabProps) {
   const { tips, reflections, crossRun, countsByType } = useMemo(
     () => deriveMemory(events),
     [events],
@@ -810,8 +849,18 @@ export default function MemoryTab({ events }: MemoryTabProps) {
         reflectionsThisRun={reflections.length}
       />
       <div className="flex-1 flex overflow-hidden min-h-0">
-        <TipsPanel tips={tips} now={now} />
-        <ReflectionsPanel reflections={reflections} now={now} />
+        <TipsPanel
+          tips={tips}
+          now={now}
+          idPrefix={skillUI.id_prefix_strip}
+          workItem={skillUI.work_item}
+        />
+        <ReflectionsPanel
+          reflections={reflections}
+          now={now}
+          idPrefix={skillUI.id_prefix_strip}
+          workItem={skillUI.work_item}
+        />
       </div>
     </div>
   );

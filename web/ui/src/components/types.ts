@@ -110,6 +110,33 @@ export interface CrossRunData {
   category_stats: CategoryStat[];
 }
 
+// -- Tip retrieval (from tips_loaded event — V2 Phase G per
+//    docs/drafts/v2-architecture-plan.md §2.4). The dashboard reads
+//    this to show "which tips the Architect pulled from memory for
+//    the current rule". UI is built against the target shape so the
+//    moment the backend emits it, the retrieval strip lights up.
+
+export type TipType = "strategy" | "recovery" | "optimization" | "warning";
+
+export interface RetrievedTip {
+  tip_id?: number;
+  text?: string;
+  tip_type?: TipType;
+  rank?: number;
+  score?: number;
+  source_rule_id?: string;
+  source_run_id?: string;
+  confidence?: number;
+}
+
+export interface TipsLoadedData {
+  rule_id: string;
+  attempt?: number;
+  tips_loaded: RetrievedTip[];
+  retrieval_method?: string;
+  similar_rules_used?: string[];
+}
+
 // -- Work item detail (assembled from multiple events for FocusPanel) --
 
 export interface WorkItemDetail {

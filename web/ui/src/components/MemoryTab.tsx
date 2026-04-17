@@ -1,442 +1,592 @@
 "use client";
 
 /**
- * MemoryTab — the Reflective tier, visualized as a live graph.
+ * MemoryTab — the Reflective tier surfaced as tangible artifacts.
  *
- * Three node types connected in a tree:
- *   Category (gray)   →   Rule (blue, outcome-colored)   →   Lesson (purple)
+ * Previously rendered as a Category → Rule → Lesson graph, but that
+ * painted rule outcomes (green/amber boxes) rather than memory
+ * content. The three artifacts the system actually produces are:
  *
- * Categories cluster the rules so the graph branches visibly instead
- * of stacking into one horizontal line of boxes. Rules animate their
- * color as outcomes land. Lessons pulse for ~4 seconds after they're
- * distilled so the eye catches new writes even at 1000x replay.
+ *   1. BAN PATTERNS — regex-style strings the Reflector forbids after
+ *      they fail. Carried as ban_added events, one per new pattern.
+ *   2. REFLECTIONS — prose observations the Reflector writes when a
+ *      rule fails. Emitted as reflection events with a markdown
+ *      "Pattern identified: X / Root cause: Y" structure.
+ *   3. CROSS-RUN HYDRATION — counts of bans/lessons loaded from
+ *      prior runs, plus per-category success rates.
  *
- * V1 derives the graph from the current event stream. V2 will fetch
- * from a Neo4j-backed /api/memory/graph endpoint so we can see
- * cross-run provenance (DERIVED_FROM attempts, HELPED edges,
- * SUPERSEDED_BY chains) and lesson retrieval frequency.
+ * This layout puts those three front and center. The top strip is
+ * "what the system brought into this run" (prior-run state). Below it,
+ * two feeds grow as the Reflector writes: banned approaches on the
+ * left, reflection insights on the right. Both highlight freshly
+ * written entries with a pulsing accent so the eye tracks growth even
+ * at 1000x replay.
+ *
+ * V2 (future) will fetch lesson provenance + hit-rate from the
+ * Neo4j graph endpoint so we can show "this lesson helped N times."
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  ReactFlow,
-  Background,
-  Controls,
-  Handle,
-  Position,
-  type Node,
-  type Edge,
-  type NodeProps,
-  MarkerType,
-} from "@xyflow/react";
-import "@xyflow/react/dist/style.css";
-import dagre from "dagre";
-import type { RunEvent, SkillUI } from "./types";
+import { useEffect, useMemo, useState } from "react";
+import type { RunEvent, SkillUI, CrossRunData, CategoryStat } from "./types";
 
 // ============================================================================
-// Shape + layout tuning
+// Types
 // ============================================================================
 
-const RULE_COLOR = "#3B82F6";
-const LESSON_COLOR = "#A855F7";
-const CATEGORY_COLOR = "#4B5563";
-const FRESH_WINDOW_MS = 4000;
-
-const CATEGORY_WIDTH = 180;
-const CATEGORY_HEIGHT = 44;
-const RULE_WIDTH = 180;
-const RULE_HEIGHT = 48;
-const LESSON_WIDTH = 200;
-const LESSON_HEIGHT = 82;
-
-// Keep the graph big enough to read but small enough to fit on screen.
-// Rules capped by total; lessons capped per rule so one noisy rule
-// doesn't dominate. Categories show whatever is referenced.
-const MAX_RULES = 40;
-const MAX_LESSONS_PER_RULE = 4;
-
-// ============================================================================
-// Layout — dagre top-down, with per-level spacing tuned so the tree
-// visibly branches rather than stringing out in one row.
-// ============================================================================
-
-function layout(nodes: Node[], edges: Edge[]) {
-  const g = new dagre.graphlib.Graph({ compound: false });
-  g.setGraph({
-    rankdir: "TB",
-    nodesep: 24,
-    ranksep: 110,
-    marginx: 40,
-    marginy: 40,
-    ranker: "tight-tree",
-  });
-  g.setDefaultEdgeLabel(() => ({}));
-
-  for (const n of nodes) {
-    const t = (n.data as { type?: string })?.type;
-    const w = t === "lesson" ? LESSON_WIDTH : t === "category" ? CATEGORY_WIDTH : RULE_WIDTH;
-    const h = t === "lesson" ? LESSON_HEIGHT : t === "category" ? CATEGORY_HEIGHT : RULE_HEIGHT;
-    g.setNode(n.id, { width: w, height: h });
-  }
-  for (const e of edges) g.setEdge(e.source, e.target);
-
-  dagre.layout(g);
-
-  return nodes.map((n) => {
-    const t = (n.data as { type?: string })?.type;
-    const w = t === "lesson" ? LESSON_WIDTH : t === "category" ? CATEGORY_WIDTH : RULE_WIDTH;
-    const h = t === "lesson" ? LESSON_HEIGHT : t === "category" ? CATEGORY_HEIGHT : RULE_HEIGHT;
-    const d = g.node(n.id);
-    return {
-      ...n,
-      position: { x: d.x - w / 2, y: d.y - h / 2 },
-    };
-  });
-}
-
-// ============================================================================
-// Custom node components
-// ============================================================================
-
-interface CategoryNodeData extends Record<string, unknown> {
-  type: "category";
-  category: string;
-  ruleCount: number;
-}
-
-interface RuleNodeData extends Record<string, unknown> {
-  type: "rule";
-  ruleId: string;
-  title?: string;
-  category?: string;
-  outcome?: "completed" | "escalated" | "skip" | "active" | "unknown";
-  lessonCount: number;
-  isLatest: boolean;
-}
-
-interface LessonNodeData extends Record<string, unknown> {
-  type: "lesson";
-  text: string;
-  category?: string;
-  freshMs: number;
-  sourceRuleId?: string;
-}
-
-const OUTCOME_BG: Record<string, string> = {
-  completed: "rgba(34,197,94,0.16)",
-  escalated: "rgba(245,158,11,0.16)",
-  skip: "rgba(75,85,99,0.14)",
-  active: "rgba(59,130,246,0.22)",
-  unknown: "rgba(59,130,246,0.08)",
-};
-
-const OUTCOME_BORDER: Record<string, string> = {
-  completed: "#22C55E",
-  escalated: "#F59E0B",
-  skip: "#4B5563",
-  active: "#60A5FA",
-  unknown: "#3B82F6",
-};
-
-function CategoryNode({ data }: NodeProps) {
-  const d = data as CategoryNodeData;
-  return (
-    <div
-      className="rounded-md border text-center px-3 py-2"
-      style={{
-        width: CATEGORY_WIDTH,
-        height: CATEGORY_HEIGHT,
-        background: "rgba(75,85,99,0.12)",
-        borderColor: CATEGORY_COLOR,
-      }}
-    >
-      <div className="text-[10px] uppercase tracking-[0.2em] font-bold text-[#9CA3AF] truncate">
-        {d.category}
-      </div>
-      <div className="text-[9px] text-[#6B7280] font-mono tabular-nums mt-0.5">
-        {d.ruleCount} rule{d.ruleCount === 1 ? "" : "s"}
-      </div>
-      <Handle type="source" position={Position.Bottom} style={{ background: CATEGORY_COLOR }} />
-    </div>
-  );
-}
-
-function RuleNode({ data }: NodeProps) {
-  const d = data as RuleNodeData;
-  const outcome = d.outcome || "unknown";
-  const border = OUTCOME_BORDER[outcome];
-  const glow = d.isLatest ? `0 0 18px ${border}99` : `0 0 6px ${border}33`;
-  return (
-    <div
-      className="rounded-md border px-2.5 py-1.5 text-left"
-      style={{
-        width: RULE_WIDTH,
-        height: RULE_HEIGHT,
-        background: OUTCOME_BG[outcome],
-        borderColor: border,
-        boxShadow: glow,
-        transition: "box-shadow 600ms, background 400ms",
-      }}
-    >
-      <Handle type="target" position={Position.Top} style={{ background: RULE_COLOR }} />
-      <div className="flex items-center gap-1.5">
-        <span
-          className="inline-block w-1.5 h-1.5 rounded-full shrink-0"
-          style={{ background: border, boxShadow: d.isLatest ? `0 0 6px ${border}` : undefined }}
-        />
-        <span
-          className="text-[10px] font-mono text-[#E8EAED] truncate flex-1"
-          title={d.title || d.ruleId}
-        >
-          {shortRuleId(d.ruleId)}
-        </span>
-        {d.lessonCount > 0 && (
-          <span
-            className="text-[8px] font-mono tabular-nums shrink-0"
-            style={{ color: "#C084FC" }}
-            title={`${d.lessonCount} lesson${d.lessonCount === 1 ? "" : "s"}`}
-          >
-            {d.lessonCount}L
-          </span>
-        )}
-      </div>
-      <div className="text-[8px] uppercase tracking-wider mt-0.5" style={{ color: border }}>
-        {outcome}
-      </div>
-      <Handle type="source" position={Position.Bottom} style={{ background: RULE_COLOR }} />
-    </div>
-  );
-}
-
-function LessonNode({ data }: NodeProps) {
-  const d = data as LessonNodeData;
-  const freshFactor = Math.max(0, 1 - d.freshMs / FRESH_WINDOW_MS);
-  const border = freshFactor > 0 ? "#C084FC" : "rgba(168,85,247,0.55)";
-  const bg = freshFactor > 0 ? "rgba(168,85,247,0.2)" : "rgba(168,85,247,0.06)";
-  const glow =
-    freshFactor > 0
-      ? `0 0 ${8 + 16 * freshFactor}px rgba(168,85,247,${0.35 + 0.5 * freshFactor})`
-      : "0 0 4px rgba(168,85,247,0.12)";
-  return (
-    <div
-      className="rounded-md border px-2 py-1.5 text-left"
-      style={{
-        width: LESSON_WIDTH,
-        height: LESSON_HEIGHT,
-        background: bg,
-        borderColor: border,
-        boxShadow: glow,
-        transition: "background 400ms, border-color 400ms, box-shadow 400ms",
-      }}
-    >
-      <Handle type="target" position={Position.Top} style={{ background: LESSON_COLOR }} />
-      <div className="text-[8px] uppercase tracking-[0.18em] font-semibold text-[#C4B5FD]">
-        lesson
-      </div>
-      <div
-        className="text-[10px] font-mono leading-snug text-[#E8EAED] mt-0.5 line-clamp-3"
-        title={d.text}
-      >
-        {d.text}
-      </div>
-    </div>
-  );
-}
-
-const nodeTypes = {
-  category: CategoryNode,
-  rule: RuleNode,
-  lesson: LessonNode,
-};
-
-// ============================================================================
-// Graph derivation from events
-// ============================================================================
-
-interface DerivedGraph {
-  nodes: Node[];
-  edges: Edge[];
-  ruleCount: number;
-  lessonCount: number;
-  categoryCount: number;
-}
-
-interface RuleRec {
-  ruleId: string;
-  title?: string;
-  category?: string;
-  outcome: RuleNodeData["outcome"];
-  tsMs: number;
-}
-
-interface LessonRec {
+interface BanEntry {
   id: string;
-  text: string;
+  pattern: string;
+  ruleId?: string;
   category?: string;
-  sourceRuleId?: string;
+  total: number;
   tsMs: number;
+  elapsed_s: number;
 }
 
-function deriveGraph(events: RunEvent[], now: number): DerivedGraph {
-  const ruleState = new Map<string, RuleRec>();
-  const lessons: LessonRec[] = [];
-  let lessonCounter = 0;
-  let latestRuleId: string | undefined;
+interface ReflectionEntry {
+  id: string;
+  patternIdentified?: string;
+  rootCause?: string;
+  rest?: string;
+  ruleId?: string;
+  category?: string;
+  attempt?: number;
+  newBansThisReflection: number;
+  plateaued: boolean;
+  tsMs: number;
+  elapsed_s: number;
+}
+
+const FRESH_WINDOW_MS = 5000;
+const BAN_COLOR = "#F87171";
+const REFLECTION_COLOR = "#C084FC";
+const CATEGORY_ACCENT = "#60A5FA";
+
+// ============================================================================
+// Event parsing
+// ============================================================================
+
+/** Strip code fences + leading/solo labels, return { pattern, rootCause, rest }. */
+function parseReflectionBlob(raw: string | undefined): {
+  pattern?: string;
+  rootCause?: string;
+  rest?: string;
+} {
+  if (!raw) return {};
+  const stripped = raw
+    .replace(/^\s*```[a-z]*\s*\n?/i, "")
+    .replace(/\n?\s*```\s*$/, "")
+    .trim();
+  const lines = stripped
+    .split(/\r?\n+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  let pattern: string | undefined;
+  let rootCause: string | undefined;
+  const restLines: string[] = [];
+
+  for (const line of lines) {
+    if (/^REFLECTION\s*:?\s*$/i.test(line)) continue;
+    const patMatch = /^Pattern\s+(identified|noted|discovered|found)\s*:\s*(.+)$/i.exec(line);
+    if (patMatch && !pattern) {
+      pattern = patMatch[2].trim();
+      continue;
+    }
+    const rootMatch = /^Root\s+cause\s*:\s*(.+)$/i.exec(line);
+    if (rootMatch && !rootCause) {
+      rootCause = rootMatch[1].trim();
+      continue;
+    }
+    restLines.push(line);
+  }
+
+  return { pattern, rootCause, rest: restLines.join(" ") };
+}
+
+function deriveMemory(events: RunEvent[]): {
+  bans: BanEntry[];
+  reflections: ReflectionEntry[];
+  ruleCategoryMap: Map<string, string>;
+  crossRun?: CrossRunData;
+  bansThisRun: number;
+} {
+  const ruleCategoryMap = new Map<string, string>();
+  const bans: BanEntry[] = [];
+  const reflections: ReflectionEntry[] = [];
+  let crossRun: CrossRunData | undefined;
+  let banCounter = 0;
+  let reflectionCounter = 0;
 
   for (const e of events) {
-    const tsMs = new Date(e.timestamp).getTime();
     const d = e.data || {};
-    const ruleId = (d.rule_id as string | undefined) || undefined;
+    const tsMs = e.timestamp ? new Date(e.timestamp).getTime() : 0;
 
-    if (ruleId && (e.event_type === "rule_selected" || e.event_type === "attempt_start")) {
-      const prev = ruleState.get(ruleId);
-      ruleState.set(ruleId, {
+    if (e.event_type === "rule_selected") {
+      const rid = d.rule_id as string | undefined;
+      const cat = d.category as string | undefined;
+      if (rid && cat) ruleCategoryMap.set(rid, cat);
+    }
+    if (e.event_type === "cross_run_hydration") {
+      crossRun = d as unknown as CrossRunData;
+    }
+    if (e.event_type === "ban_added") {
+      const ruleId = d.rule_id as string | undefined;
+      bans.push({
+        id: `b${++banCounter}`,
+        pattern: (d.pattern as string) || "",
         ruleId,
-        title: (d.title as string) || prev?.title,
-        category: (d.category as string) || prev?.category,
-        outcome: prev?.outcome === "completed" || prev?.outcome === "escalated" || prev?.outcome === "skip" ? prev.outcome : "active",
+        category: ruleId ? ruleCategoryMap.get(ruleId) : undefined,
+        total: (d.banned_patterns_total as number) || 0,
         tsMs,
+        elapsed_s: e.elapsed_s,
       });
-      latestRuleId = ruleId;
     }
-    if (ruleId && e.event_type === "remediated") {
-      const prev = ruleState.get(ruleId) || { ruleId, outcome: "active" as const, tsMs };
-      ruleState.set(ruleId, { ...prev, outcome: "completed", tsMs });
-    }
-    if (ruleId && e.event_type === "escalated") {
-      const prev = ruleState.get(ruleId) || { ruleId, outcome: "active" as const, tsMs };
-      ruleState.set(ruleId, { ...prev, outcome: "escalated", tsMs });
-    }
-    if (ruleId && e.event_type === "skip") {
-      const prev = ruleState.get(ruleId) || { ruleId, outcome: "active" as const, tsMs };
-      ruleState.set(ruleId, { ...prev, outcome: "skip", tsMs });
-    }
-
-    if (e.event_type === "reflection" && typeof d.lesson === "string" && d.lesson.length > 0) {
-      lessons.push({
-        id: `lesson-${++lessonCounter}`,
-        text: d.lesson as string,
-        category: (d.category as string) || undefined,
-        sourceRuleId: ruleId,
+    if (e.event_type === "reflection") {
+      const ruleId = d.rule_id as string | undefined;
+      const parsed = parseReflectionBlob(d.text as string | undefined);
+      reflections.push({
+        id: `r${++reflectionCounter}`,
+        patternIdentified: parsed.pattern,
+        rootCause: parsed.rootCause,
+        rest: parsed.rest,
+        ruleId,
+        category: ruleId ? ruleCategoryMap.get(ruleId) : undefined,
+        attempt: d.attempt as number | undefined,
+        newBansThisReflection: (d.new_bans_this_reflection as number) || 0,
+        plateaued: Boolean(d.plateaued),
         tsMs,
+        elapsed_s: e.elapsed_s,
       });
     }
   }
 
-  // Sort rules by recency; take the most-recent MAX_RULES.
-  const sortedRules = [...ruleState.values()]
-    .sort((a, b) => b.tsMs - a.tsMs)
-    .slice(0, MAX_RULES);
-  const keptRuleIds = new Set(sortedRules.map((r) => r.ruleId));
-
-  // Per-rule lesson buckets, capped at MAX_LESSONS_PER_RULE with the
-  // most recent lessons winning. This guarantees lessons of recently-
-  // touched rules remain visible even as new rules are added.
-  const byRule = new Map<string, LessonRec[]>();
-  for (let i = lessons.length - 1; i >= 0; i--) {
-    const l = lessons[i];
-    if (!l.sourceRuleId || !keptRuleIds.has(l.sourceRuleId)) continue;
-    const arr = byRule.get(l.sourceRuleId) || [];
-    if (arr.length >= MAX_LESSONS_PER_RULE) continue;
-    arr.push(l);
-    byRule.set(l.sourceRuleId, arr);
-  }
-  const keptLessons: LessonRec[] = [];
-  for (const arr of byRule.values()) keptLessons.push(...arr);
-
-  // Categories present among kept rules; edge from category node to
-  // each of its rules so the graph branches instead of stringing out.
-  const categories = new Map<string, number>();
-  for (const r of sortedRules) {
-    if (!r.category) continue;
-    categories.set(r.category, (categories.get(r.category) || 0) + 1);
-  }
-
-  const nodes: Node[] = [];
-  const edges: Edge[] = [];
-
-  for (const [cat, count] of categories.entries()) {
-    nodes.push({
-      id: `cat-${cat}`,
-      type: "category",
-      position: { x: 0, y: 0 },
-      data: { type: "category", category: cat, ruleCount: count } satisfies CategoryNodeData,
-    });
-  }
-
-  for (const r of sortedRules) {
-    const lessonCount = byRule.get(r.ruleId)?.length || 0;
-    nodes.push({
-      id: `rule-${r.ruleId}`,
-      type: "rule",
-      position: { x: 0, y: 0 },
-      data: {
-        type: "rule",
-        ruleId: r.ruleId,
-        title: r.title,
-        category: r.category,
-        outcome: r.outcome,
-        lessonCount,
-        isLatest: r.ruleId === latestRuleId,
-      } satisfies RuleNodeData,
-    });
-    if (r.category) {
-      edges.push({
-        id: `e-cat-${cat_key(r.category, r.ruleId)}`,
-        source: `cat-${r.category}`,
-        target: `rule-${r.ruleId}`,
-        style: { stroke: "rgba(75,85,99,0.5)", strokeWidth: 1 },
-      });
+  // Second pass: categories referenced by rule_id that wasn't seen in a
+  // rule_selected (e.g. architect_reengaged carries category too). Cheap.
+  for (const e of events) {
+    const d = e.data || {};
+    if (e.event_type === "architect_reengaged") {
+      const rid = d.rule_id as string | undefined;
+      const cat = d.category as string | undefined;
+      if (rid && cat && !ruleCategoryMap.has(rid)) ruleCategoryMap.set(rid, cat);
     }
   }
+  // Backfill category on entries that were captured before rule_selected.
+  for (const b of bans) if (!b.category && b.ruleId) b.category = ruleCategoryMap.get(b.ruleId);
+  for (const r of reflections) if (!r.category && r.ruleId) r.category = ruleCategoryMap.get(r.ruleId);
 
-  for (const l of keptLessons) {
-    nodes.push({
-      id: l.id,
-      type: "lesson",
-      position: { x: 0, y: 0 },
-      data: {
-        type: "lesson",
-        text: l.text,
-        category: l.category,
-        freshMs: Math.max(0, now - l.tsMs),
-        sourceRuleId: l.sourceRuleId,
-      } satisfies LessonNodeData,
-    });
-    if (l.sourceRuleId && keptRuleIds.has(l.sourceRuleId)) {
-      const fresh = now - l.tsMs < FRESH_WINDOW_MS;
-      edges.push({
-        id: `e-${l.id}`,
-        source: `rule-${l.sourceRuleId}`,
-        target: l.id,
-        animated: fresh,
-        style: {
-          stroke: fresh ? "rgba(192,132,252,0.9)" : "rgba(168,85,247,0.35)",
-          strokeWidth: fresh ? 1.5 : 1,
-        },
-        markerEnd: {
-          type: MarkerType.ArrowClosed,
-          color: fresh ? "rgba(192,132,252,1)" : "rgba(168,85,247,0.6)",
-        },
-      });
-    }
-  }
-
-  return {
-    nodes: layout(nodes, edges),
-    edges,
-    ruleCount: sortedRules.length,
-    lessonCount: keptLessons.length,
-    categoryCount: categories.size,
-  };
-}
-
-function cat_key(category: string, ruleId: string): string {
-  return `${category}-${ruleId}`.replace(/[^a-zA-Z0-9]/g, "_");
+  return { bans, reflections, ruleCategoryMap, crossRun, bansThisRun: bans.length };
 }
 
 // ============================================================================
-// Main component
+// Top strip — cross-run hydration + this-run counters
+// ============================================================================
+
+function shortRuleId(id?: string): string {
+  if (!id) return "";
+  const prefix = "xccdf_org.ssgproject.content_rule_";
+  return id.startsWith(prefix) ? id.slice(prefix.length) : id;
+}
+
+function formatElapsed(s: number): string {
+  if (s < 60) return `${Math.round(s)}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+}
+
+function TopStrip({
+  crossRun,
+  bansThisRun,
+  reflectionsThisRun,
+}: {
+  crossRun?: CrossRunData;
+  bansThisRun: number;
+  reflectionsThisRun: number;
+}) {
+  const cats: CategoryStat[] = crossRun?.category_stats || [];
+  return (
+    <div className="border-b border-[#1C1F26] bg-[#0A0C10] px-5 py-3">
+      <div className="flex items-baseline gap-4 mb-2">
+        <div>
+          <div className="text-[10px] font-semibold tracking-[0.2em] uppercase text-[#4B5563]">
+            Reflective memory
+          </div>
+          <div className="text-[13px] font-bold text-[#E8EAED]">
+            What the system learned &mdash; and what it&rsquo;s writing right now
+          </div>
+        </div>
+        <div className="ml-auto flex items-center gap-5 text-[11px] font-mono">
+          <Counter
+            label="Prior runs"
+            value={crossRun?.prior_runs ?? 0}
+            color={CATEGORY_ACCENT}
+          />
+          <Counter
+            label="Loaded bans"
+            value={crossRun?.loaded_bans ?? 0}
+            color={BAN_COLOR}
+            hint="Ban patterns hydrated from prior runs at startup"
+          />
+          <Counter
+            label="Loaded lessons"
+            value={crossRun?.loaded_lessons ?? 0}
+            color={REFLECTION_COLOR}
+            hint="Distilled lessons carried over from prior runs"
+          />
+          <span className="text-[#3F4451]">|</span>
+          <Counter
+            label="Bans this run"
+            value={bansThisRun}
+            color={BAN_COLOR}
+            glow
+            hint="New ban patterns the Reflector has added in this run"
+          />
+          <Counter
+            label="Reflections"
+            value={reflectionsThisRun}
+            color={REFLECTION_COLOR}
+            glow
+            hint="Prose observations the Reflector has written in this run"
+          />
+        </div>
+      </div>
+      {cats.length > 0 && (
+        <div className="flex items-center gap-1.5 flex-wrap mt-2">
+          <span className="text-[9px] uppercase tracking-wider text-[#4B5563] shrink-0">
+            Category success (prior runs):
+          </span>
+          {cats.map((c) => (
+            <CategoryBar key={c.category} stat={c} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Counter({
+  label,
+  value,
+  color,
+  glow,
+  hint,
+}: {
+  label: string;
+  value: number;
+  color: string;
+  glow?: boolean;
+  hint?: string;
+}) {
+  return (
+    <span className="flex items-baseline gap-1.5" title={hint}>
+      <span
+        className="text-[15px] font-bold tabular-nums leading-none"
+        style={{
+          color,
+          textShadow: glow && value > 0 ? `0 0 10px ${color}80` : undefined,
+        }}
+      >
+        {value}
+      </span>
+      <span className="text-[9px] uppercase tracking-wider text-[#6B7280]">{label}</span>
+    </span>
+  );
+}
+
+function CategoryBar({ stat }: { stat: CategoryStat }) {
+  const pct = Math.max(0, Math.min(1, stat.success_rate));
+  const color =
+    pct >= 0.75 ? "#22C55E" : pct >= 0.5 ? "#F59E0B" : "#EF4444";
+  return (
+    <div
+      className="flex items-center gap-1.5 border border-[#1C1F26] rounded-sm px-1.5 py-0.5"
+      title={`${stat.category}: ${(pct * 100).toFixed(0)}% success across ${stat.total_items} items (avg ${stat.avg_attempts.toFixed(1)} attempts)`}
+    >
+      <span className="text-[9px] font-mono text-[#9CA3AF]">
+        {stat.category.replace(/_/g, "\u00a0")}
+      </span>
+      <div className="w-10 h-1 rounded-full overflow-hidden bg-[#15181F]">
+        <div
+          className="h-full"
+          style={{ width: `${pct * 100}%`, background: color }}
+        />
+      </div>
+      <span
+        className="text-[9px] font-mono tabular-nums"
+        style={{ color }}
+      >
+        {Math.round(pct * 100)}%
+      </span>
+    </div>
+  );
+}
+
+// ============================================================================
+// Bans panel
+// ============================================================================
+
+function BansPanel({ bans, now }: { bans: BanEntry[]; now: number }) {
+  const sorted = useMemo(() => [...bans].reverse(), [bans]);
+  const latestTsMs = sorted.length > 0 ? sorted[0].tsMs : 0;
+
+  return (
+    <div className="flex-1 min-w-0 overflow-hidden flex flex-col bg-[#0B0D11]">
+      <div className="px-5 py-2.5 border-b border-[#1C1F26] flex items-baseline gap-3 bg-[#0A0C10]">
+        <span className="text-[10px] font-semibold tracking-[0.2em] uppercase" style={{ color: BAN_COLOR }}>
+          Banned approaches
+        </span>
+        <span className="text-[10px] font-mono text-[#6B7280]">
+          {bans.length} pattern{bans.length === 1 ? "" : "s"}
+        </span>
+        <span className="ml-auto text-[9px] text-[#4B5563]">
+          the Reflector forbids these after they fail
+        </span>
+      </div>
+      <div className="flex-1 overflow-y-auto px-4 py-3">
+        {sorted.length === 0 ? (
+          <div className="text-[11px] text-[#4B5563] italic py-8 text-center">
+            No bans written yet in this run. They appear here the instant the Reflector adds one.
+          </div>
+        ) : (
+          <div
+            className="grid gap-2"
+            style={{ gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))" }}
+          >
+            {sorted.map((b) => (
+              <BanCard key={b.id} ban={b} now={now} isLatest={b.tsMs === latestTsMs} />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function BanCard({ ban, now, isLatest }: { ban: BanEntry; now: number; isLatest: boolean }) {
+  const age = Math.max(0, now - ban.tsMs);
+  const fresh = age < FRESH_WINDOW_MS;
+  const freshFactor = fresh ? Math.max(0, 1 - age / FRESH_WINDOW_MS) : 0;
+  const glow =
+    isLatest && fresh
+      ? `0 0 ${8 + 18 * freshFactor}px rgba(248,113,113,${0.3 + 0.5 * freshFactor})`
+      : "0 1px 2px rgba(0,0,0,0.4)";
+  const border = fresh ? "#F87171" : "#2A2A2F";
+  const bg = fresh ? "rgba(248,113,113,0.08)" : "#0F1217";
+
+  return (
+    <div
+      className="rounded-md border px-3 py-2.5"
+      style={{
+        borderColor: border,
+        background: bg,
+        boxShadow: glow,
+        transition: "border-color 600ms, background 600ms, box-shadow 600ms",
+      }}
+    >
+      <div className="flex items-center gap-2 mb-1.5">
+        <span
+          className="inline-block w-1.5 h-1.5 rounded-full"
+          style={{
+            background: BAN_COLOR,
+            boxShadow: fresh ? `0 0 6px ${BAN_COLOR}` : undefined,
+          }}
+        />
+        {ban.category && (
+          <span
+            className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded-sm"
+            style={{ background: "rgba(96,165,250,0.12)", color: CATEGORY_ACCENT }}
+          >
+            {ban.category}
+          </span>
+        )}
+        <span className="ml-auto text-[9px] font-mono tabular-nums text-[#6B7280]">
+          #{ban.total} &middot; at {formatElapsed(ban.elapsed_s)}
+        </span>
+      </div>
+      <div
+        className="text-[11px] font-mono text-[#FECACA] leading-snug break-words"
+        title={ban.pattern}
+      >
+        {ban.pattern}
+      </div>
+      {ban.ruleId && (
+        <div
+          className="text-[9px] font-mono text-[#4B5563] mt-1.5 truncate"
+          title={ban.ruleId}
+        >
+          from {shortRuleId(ban.ruleId)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// Reflections panel
+// ============================================================================
+
+function ReflectionsPanel({
+  reflections,
+  now,
+}: {
+  reflections: ReflectionEntry[];
+  now: number;
+}) {
+  const sorted = useMemo(() => [...reflections].reverse(), [reflections]);
+  const latestTsMs = sorted.length > 0 ? sorted[0].tsMs : 0;
+
+  return (
+    <div className="flex-1 min-w-0 overflow-hidden flex flex-col bg-[#0B0D11] border-l border-[#1C1F26]">
+      <div className="px-5 py-2.5 border-b border-[#1C1F26] flex items-baseline gap-3 bg-[#0A0C10]">
+        <span
+          className="text-[10px] font-semibold tracking-[0.2em] uppercase"
+          style={{ color: REFLECTION_COLOR }}
+        >
+          Reflection insights
+        </span>
+        <span className="text-[10px] font-mono text-[#6B7280]">
+          {reflections.length} observation{reflections.length === 1 ? "" : "s"}
+        </span>
+        <span className="ml-auto text-[9px] text-[#4B5563]">
+          what the Reflector noticed when attempts failed
+        </span>
+      </div>
+      <div className="flex-1 overflow-y-auto px-4 py-3">
+        {sorted.length === 0 ? (
+          <div className="text-[11px] text-[#4B5563] italic py-8 text-center">
+            No reflections yet. They land here whenever the Reflector writes one.
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2.5">
+            {sorted.map((r) => (
+              <ReflectionCard
+                key={r.id}
+                reflection={r}
+                now={now}
+                isLatest={r.tsMs === latestTsMs}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ReflectionCard({
+  reflection,
+  now,
+  isLatest,
+}: {
+  reflection: ReflectionEntry;
+  now: number;
+  isLatest: boolean;
+}) {
+  const age = Math.max(0, now - reflection.tsMs);
+  const fresh = age < FRESH_WINDOW_MS;
+  const freshFactor = fresh ? Math.max(0, 1 - age / FRESH_WINDOW_MS) : 0;
+  const glow =
+    isLatest && fresh
+      ? `0 0 ${8 + 18 * freshFactor}px rgba(192,132,252,${0.3 + 0.5 * freshFactor})`
+      : "0 1px 2px rgba(0,0,0,0.4)";
+  const border = fresh ? REFLECTION_COLOR : "#2A2A2F";
+  const bg = fresh ? "rgba(168,85,247,0.07)" : "#0F1217";
+
+  return (
+    <div
+      className="rounded-md border px-3 py-2.5"
+      style={{
+        borderColor: border,
+        background: bg,
+        boxShadow: glow,
+        transition: "border-color 600ms, background 600ms, box-shadow 600ms",
+      }}
+    >
+      <div className="flex items-center gap-2 mb-1.5">
+        <span
+          className="inline-block w-1.5 h-1.5 rounded-full"
+          style={{
+            background: REFLECTION_COLOR,
+            boxShadow: fresh ? `0 0 6px ${REFLECTION_COLOR}` : undefined,
+          }}
+        />
+        {reflection.category && (
+          <span
+            className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded-sm"
+            style={{ background: "rgba(96,165,250,0.12)", color: CATEGORY_ACCENT }}
+          >
+            {reflection.category}
+          </span>
+        )}
+        {reflection.attempt !== undefined && (
+          <span className="text-[9px] font-mono text-[#6B7280]">
+            attempt {reflection.attempt}
+          </span>
+        )}
+        {reflection.plateaued && (
+          <span
+            className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded-sm"
+            style={{ background: "rgba(245,158,11,0.15)", color: "#FBBF24" }}
+          >
+            plateaued
+          </span>
+        )}
+        {reflection.newBansThisReflection > 0 && (
+          <span
+            className="text-[9px] font-mono tabular-nums px-1.5 py-0.5 rounded-sm"
+            style={{ background: "rgba(248,113,113,0.15)", color: BAN_COLOR }}
+            title="Ban patterns added alongside this reflection"
+          >
+            +{reflection.newBansThisReflection} ban{reflection.newBansThisReflection === 1 ? "" : "s"}
+          </span>
+        )}
+        <span className="ml-auto text-[9px] font-mono tabular-nums text-[#6B7280]">
+          at {formatElapsed(reflection.elapsed_s)}
+        </span>
+      </div>
+
+      {reflection.patternIdentified ? (
+        <div className="mb-1.5">
+          <div className="text-[8px] uppercase tracking-wider text-[#6B7280] mb-0.5">
+            Pattern identified
+          </div>
+          <div className="text-[11.5px] font-mono text-[#E8EAED] leading-snug">
+            {reflection.patternIdentified}
+          </div>
+        </div>
+      ) : null}
+
+      {reflection.rootCause ? (
+        <div className="mb-1.5">
+          <div className="text-[8px] uppercase tracking-wider text-[#6B7280] mb-0.5">
+            Root cause
+          </div>
+          <div className="text-[11px] font-mono text-[#D1D5DB] leading-snug">
+            {reflection.rootCause}
+          </div>
+        </div>
+      ) : null}
+
+      {!reflection.patternIdentified && !reflection.rootCause && reflection.rest ? (
+        <div className="text-[11px] font-mono text-[#D1D5DB] leading-snug line-clamp-4">
+          {reflection.rest}
+        </div>
+      ) : null}
+
+      {reflection.ruleId && (
+        <div
+          className="text-[9px] font-mono text-[#4B5563] mt-1.5 truncate"
+          title={reflection.ruleId}
+        >
+          from {shortRuleId(reflection.ruleId)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// Main
 // ============================================================================
 
 export interface MemoryTabProps {
@@ -445,100 +595,30 @@ export interface MemoryTabProps {
 }
 
 export default function MemoryTab({ events }: MemoryTabProps) {
+  const { bans, reflections, crossRun } = useMemo(() => deriveMemory(events), [events]);
+
+  // Drive the fresh-glow animation for recent ban/reflection entries.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    const freshExists = events.some(
-      (e) =>
-        e.event_type === "reflection" &&
-        Date.now() - new Date(e.timestamp).getTime() < FRESH_WINDOW_MS,
-    );
-    if (!freshExists) return;
+    const anyFresh =
+      bans.some((b) => Date.now() - b.tsMs < FRESH_WINDOW_MS) ||
+      reflections.some((r) => Date.now() - r.tsMs < FRESH_WINDOW_MS);
+    if (!anyFresh) return;
     const t = setInterval(() => setNow(Date.now()), 500);
     return () => clearInterval(t);
-  }, [events]);
-
-  const graph = useMemo(() => deriveGraph(events, now), [events, now]);
-
-  const onNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
-    // Hook for UI-6.1's side panel with full provenance.
-    // eslint-disable-next-line no-console
-    console.log("memory node clicked:", node.id, node.data);
-  }, []);
+  }, [bans, reflections]);
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-[#0B0D11]">
-      <div className="px-5 py-3 border-b border-[#1C1F26] flex items-center gap-4">
-        <div>
-          <div className="text-[10px] font-semibold tracking-[0.2em] uppercase text-[#4B5563]">
-            Reflective memory
-          </div>
-          <div className="text-[13px] font-bold text-[#E8EAED]">
-            Categories → rules → distilled lessons
-          </div>
-        </div>
-        <div className="ml-auto flex items-center gap-4 text-[10px] font-mono text-[#9CA3AF]">
-          <LegendSwatch color={CATEGORY_COLOR} label={`${graph.categoryCount} categories`} />
-          <LegendSwatch color={RULE_COLOR} label={`${graph.ruleCount} rules`} />
-          <LegendSwatch color={LESSON_COLOR} label={`${graph.lessonCount} lessons`} />
-          <span className="text-[#3F4451]">·</span>
-          <span className="text-[#6B7280]">
-            V1: current run only. V2 will query Neo4j for full cross-run graph.
-          </span>
-        </div>
-      </div>
-
-      <div className="flex-1 relative">
-        {graph.nodes.length === 0 ? (
-          <div className="absolute inset-0 flex items-center justify-center text-[11px] text-[#4B5563]">
-            Waiting for the first rule to select...
-          </div>
-        ) : (
-          <ReactFlow
-            nodes={graph.nodes}
-            edges={graph.edges}
-            nodeTypes={nodeTypes}
-            onNodeClick={onNodeClick}
-            fitView
-            fitViewOptions={{ padding: 0.15 }}
-            proOptions={{ hideAttribution: true }}
-            minZoom={0.15}
-            maxZoom={2}
-            nodesDraggable={false}
-          >
-            <Background color="#1C1F26" gap={24} />
-            <Controls
-              position="bottom-right"
-              showInteractive={false}
-              style={{
-                background: "#0F1217",
-                border: "1px solid #2A2F38",
-                borderRadius: 6,
-              }}
-            />
-          </ReactFlow>
-        )}
+      <TopStrip
+        crossRun={crossRun}
+        bansThisRun={bans.length}
+        reflectionsThisRun={reflections.length}
+      />
+      <div className="flex-1 flex overflow-hidden min-h-0">
+        <BansPanel bans={bans} now={now} />
+        <ReflectionsPanel reflections={reflections} now={now} />
       </div>
     </div>
   );
-}
-
-// ============================================================================
-// Helpers
-// ============================================================================
-
-function LegendSwatch({ color, label }: { color: string; label: string }) {
-  return (
-    <span className="flex items-center gap-1.5">
-      <span
-        className="inline-block w-2 h-2 rounded"
-        style={{ background: color, boxShadow: `0 0 6px ${color}` }}
-      />
-      <span>{label}</span>
-    </span>
-  );
-}
-
-function shortRuleId(id: string): string {
-  const prefix = "xccdf_org.ssgproject.content_rule_";
-  return id.startsWith(prefix) ? id.slice(prefix.length) : id;
 }

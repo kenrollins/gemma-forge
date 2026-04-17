@@ -1,6 +1,6 @@
 "use client";
 
-// React hooks not needed — auto-scroll uses callback ref
+import { useEffect, useRef, useState } from "react";
 import { RunEvent, SkillUI, DEFAULT_SKILL_UI, AGENT_COLORS, WorkItemDetail } from "./types";
 
 function shortId(id: string, prefix: string): string {
@@ -112,37 +112,6 @@ function parseReflection(text: string): {
   return result;
 }
 
-function describeCurrentAction(events: RunEvent[]): { text: string; agent: string; icon: string } | null {
-  if (events.length === 0) return null;
-  const window = events.slice(-5).reverse();
-  for (const e of window) {
-    if (e.event_type === "tool_call") {
-      const tool = e.data.tool as string;
-      if (tool === "apply_fix") return { text: "Applying fix to target VM\u2026", agent: e.agent, icon: "\u25B6" };
-      if (tool === "run_stig_scan") return { text: "Scanning for compliance failures\u2026", agent: e.agent, icon: "\u25CE" };
-      if (tool === "check_health") return { text: "Health-checking the mission app\u2026", agent: e.agent, icon: "\u2665" };
-      if (tool === "revert_last_fix") return { text: "Reverting the last fix\u2026", agent: e.agent, icon: "\u27F2" };
-      return { text: `Calling tool: ${tool}`, agent: e.agent, icon: "\u2192" };
-    }
-    if (e.event_type === "evaluation") {
-      if (e.data.passed) return { text: "PASSED \u2014 evaluation succeeded", agent: "harness", icon: "\u2713" };
-      return { text: `FAILED \u2014 ${(e.data.summary as string || "").slice(0, 100)}`, agent: "harness", icon: "\u2717" };
-    }
-    if (e.event_type === "revert") return { text: "Reverting \u2014 fix did not pass evaluation", agent: "harness", icon: "\u27F2" };
-    if (e.event_type === "reflection") return { text: "Reflecting on the failure\u2026", agent: "reflector", icon: "\u25C6" };
-    if (e.event_type === "remediated") return { text: `Remediated on attempt ${e.data.attempt || "?"}`, agent: "harness", icon: "\u2713" };
-    if (e.event_type === "escalated") return { text: `Escalated after ${e.data.attempts || "?"} attempts`, agent: "harness", icon: "\u2717" };
-    if (e.event_type === "rule_selected") return { text: "Selecting next work item\u2026", agent: "architect", icon: "\u25C9" };
-    if (e.event_type === "attempt_start") return { text: `Starting attempt ${e.data.attempt}`, agent: "harness", icon: "\u25B6" };
-    if (e.event_type === "agent_response") {
-      const text = (e.data.text as string) || "";
-      const firstLine = text.split("\n").find(l => l.trim().length > 20) || text.slice(0, 100);
-      return { text: firstLine.slice(0, 140), agent: e.agent, icon: "\u25CF" };
-    }
-  }
-  return null;
-}
-
 // Build WorkItemDetail from events for a specific item.
 // Walks the full event stream sequentially, tracking which rule is active,
 // so we capture full agent_response text (not the truncated summaries).
@@ -249,6 +218,15 @@ function AgentInsight({
   events: RunEvent[];
   skillUI: SkillUI;
 }) {
+  // Auto-scroll with pause-on-user-scroll so readers can inspect earlier
+  // entries without fighting the stream. Declared up here to stay above
+  // the empty-state early return — React enforces stable hook order.
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const [autoScroll, setAutoScroll] = useState(true);
+  useEffect(() => {
+    if (autoScroll) bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [events.length, autoScroll]);
+
   // Find the current rule being worked on
   let currentRuleId = "";
   let currentTitle = "";
@@ -391,11 +369,7 @@ function AgentInsight({
     }
   }
 
-  // Determine what's happening NOW
-  const action = describeCurrentAction(events);
-  const actionColor = action ? (AGENT_COLORS[action.agent] || "#6B7280") : "#6B7280";
-
-  if (conversation.length === 0 && !action) {
+  if (conversation.length === 0) {
     return (
       <div className="px-4 py-8 text-center text-[12px] text-[#4B5563] italic border-b border-[#1C1F26]">
         Waiting for activity\u2026 the conversation fills in as agents start working.
@@ -417,44 +391,11 @@ function AgentInsight({
   // with the duplicate agent_response popped).
   const allEntries = conversation;
 
-  // Auto-scroll: use a callback ref on the last entry instead of useRef+useEffect
-  const bottomCallback = (el: HTMLDivElement | null) => {
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "end" });
-  };
-
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-      {/* Sticky header: prominent status + rule context */}
+      {/* Sticky header: rule context — current-action line is redundant with
+          the HeroStrip pipeline narrative above, so it's not repeated here. */}
       <div className="shrink-0 border-b border-[#1C1F26]">
-        {/* HERO STATUS — big, obvious, the first thing your eye hits */}
-        {action && (
-          <div
-            className="px-4 py-3 flex items-center gap-3"
-            style={{
-              background: `linear-gradient(135deg, ${actionColor}18, ${actionColor}06 60%, transparent)`,
-              borderBottom: `2px solid ${actionColor}40`,
-            }}
-          >
-            <span
-              className="text-2xl shrink-0"
-              style={{ color: actionColor, filter: `drop-shadow(0 0 6px ${actionColor}60)` }}
-            >
-              {action.icon}
-            </span>
-            <div className="flex-1 min-w-0">
-              <div className="text-[13px] font-mono font-bold text-[#E8EAED] truncate">
-                {action.text}
-              </div>
-              <div className="text-[10px] uppercase tracking-wider mt-0.5" style={{ color: actionColor }}>
-                {action.agent}
-              </div>
-            </div>
-            <div
-              className="w-2 h-2 rounded-full animate-pulse shrink-0"
-              style={{ background: actionColor, boxShadow: `0 0 8px ${actionColor}` }}
-            />
-          </div>
-        )}
         {/* Rule + attempt + countdown + tokens — all in one clear block */}
         <div className="px-4 py-2 bg-[#0D0F14] flex flex-col gap-1.5">
           {/* Rule title + category */}
@@ -519,12 +460,15 @@ function AgentInsight({
         </div>
       </div>
 
-      {/* Console — auto-scrolling conversation timeline */}
-      <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1.5 bg-[#080A0E]"
+      {/* Console — auto-scrolling conversation timeline, wrapped in a
+          relative container so the resume pill can float over the bottom. */}
+      <div className="flex-1 relative min-h-0">
+      <div className="absolute inset-0 overflow-y-auto px-3 py-2 space-y-1.5 bg-[#080A0E]"
         style={{
           boxShadow: "inset 0 2px 8px rgba(0,0,0,0.4), inset 0 0 1px rgba(0,0,0,0.6)",
           borderTop: "1px solid #000",
-        }}>
+        }}
+        onWheel={() => setAutoScroll(false)}>
         {allEntries.map((entry, i) => {
           const borderColor = entryBorder(entry);
           const agentColor = AGENT_COLORS[entry.agent] || "#6B7280";
@@ -713,7 +657,19 @@ function AgentInsight({
           );
         })}
         {/* Scroll anchor — auto-scrolls as new entries arrive */}
-        <div ref={bottomCallback} />
+        <div ref={bottomRef} />
+      </div>
+      {!autoScroll && allEntries.length > 0 && (
+        <button
+          onClick={() => {
+            setAutoScroll(true);
+            bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+          }}
+          className="absolute bottom-3 left-1/2 -translate-x-1/2 px-3 py-1 bg-[#3B82F6] text-white text-[11px] font-mono rounded-sm shadow-lg z-10"
+        >
+          {"\u2193"} Resume auto-scroll
+        </button>
+      )}
       </div>
     </div>
   );

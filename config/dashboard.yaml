@@ -11,8 +11,10 @@
 #   3. No restart required — the API reads this on each request.
 
 # Demo replay run. Set to null to fall back to "most recent completed
-# run with summary."
-demo_run: run-20260414-012052.jsonl
+# run with summary" (current default — always surfaces the latest full
+# run). Pin a specific filename here only when a scripted demo needs
+# deterministic behavior regardless of newer runs.
+demo_run: null
 
 # Speed at which the demo loops by default. Presenters can change
 # this from the UI; this is just the initial value. 100x on a

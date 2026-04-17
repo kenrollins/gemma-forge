@@ -61,6 +61,11 @@ from gemma_forge.memory.reflector_parser import (
     TIPS_JSON_INSTRUCTIONS,
     parse_tips_json,
 )
+from gemma_forge.memory.retrieval import (
+    assemble_tips_for_rule,
+    log_retrievals,
+    update_retrieval_outcomes,
+)
 from gemma_forge.memory.tip_writer import Tip, TipWriter
 from gemma_forge.models.vllm_llm import VllmLlm
 from gemma_forge.skills.base import Skill
@@ -1148,7 +1153,7 @@ async def run_ralph(
             if sem:
                 work_sections.append((4, "semantic_memory", sem))
 
-            # 4.5: Category-specific lessons from prior runs
+            # 4.5: Category-specific lessons from prior runs (V1 retrieval)
             cat_lessons = mem_store.load_lessons(rule_category, min_weight=0.2, limit=5)
             if cat_lessons:
                 cl_lines = [f"LESSONS FROM PRIOR RUNS for [{rule_category}] rules:"]
@@ -1156,8 +1161,43 @@ async def run_ralph(
                     cl_lines.append(f"  • {cl.lesson[:150]}")
                 work_sections.append((5, "category_lessons", "\n".join(cl_lines)))
 
-            # 6: Final directive
-            work_sections.append((6, "directive", "Call apply_fix EXACTLY ONCE now, then return a brief text summary."))
+            # 5.5: V2 similarity-based tip retrieval (Phase G). Replaces
+            # category+confidence ranking with lexical-prefix + category +
+            # per-(tip, rule) hit-rate scoring. Runs alongside V1
+            # category_lessons during the Run 5 comparison run so both
+            # signals coexist in the Worker's prompt; V1 goes away after
+            # Run 5 validates V2's aggregate gain.
+            retrieved_tips = assemble_tips_for_rule(
+                selected["rule_id"], rule_category,
+                skill=skill_schema, k=5,
+                exclude_run_id=mem_run_id,  # damp (not exclude) same-run tips
+            )
+            retrieval_ids: list[int] = []
+            if retrieved_tips:
+                rt_lines = [
+                    f"SIMILAR-RULE TIPS (V2 structured retrieval, {len(retrieved_tips)} tips):"
+                ]
+                for rt in retrieved_tips:
+                    src_short = (rt.source_rule_id or "").split("content_rule_")[-1]
+                    rt_lines.append(
+                        f"  [{rt.tip_type}] (sim={rt.similarity_score:.2f}, "
+                        f"from {src_short[:48]}) {rt.text[:150]}"
+                    )
+                work_sections.append((6, "similar_rule_tips", "\n".join(rt_lines)))
+                # Log each retrieval to stig.tip_retrievals — outcomes get
+                # filled in after runtime.evaluator.evaluate below.
+                try:
+                    retrieval_ids = log_retrievals(
+                        retrieved_tips,
+                        run_id=mem_run_id,
+                        rule_id=selected["rule_id"],
+                        skill=skill_schema,
+                    )
+                except Exception as exc:  # noqa: BLE001 — retrieval telemetry is auxiliary
+                    logger.warning("log_retrievals failed: %s", exc)
+
+            # 7: Final directive
+            work_sections.append((7, "directive", "Call apply_fix EXACTLY ONCE now, then return a brief text summary."))
 
             # Snapshot the per-rule cat_lessons in rank order so post-hoc
             # analysis can answer "what was the Worker's prompt for this
@@ -1176,12 +1216,27 @@ async def run_ralph(
                 for i, cl in enumerate(cat_lessons)
             ]
 
+            # V2 retrieval snapshot — mirrors the V1 cat_lessons_snapshot shape
+            # so post-hoc analysis can diff the two side-by-side per attempt.
+            v2_tips_snapshot = [
+                {
+                    "tip_id": rt.tip_id,
+                    "rank": rt.rank,
+                    "similarity_score": rt.similarity_score,
+                    "tip_type": rt.tip_type,
+                    "source_rule_id": rt.source_rule_id,
+                    "source_run_id": rt.source_run_id,
+                }
+                for rt in retrieved_tips
+            ]
+
             work_context, work_meta = assemble_prompt(work_sections, budget_tokens=WORKER_USER_BUDGET)
             run_log.log("prompt_assembled", "worker", {
                 "phase": "apply_fix",
                 "rule_id": selected["rule_id"],
                 "attempt": attempt,
                 "category_lessons_loaded": cat_lessons_snapshot,
+                "v2_tips_loaded": v2_tips_snapshot,
                 **work_meta,
             })
 
@@ -1228,6 +1283,21 @@ async def run_ralph(
             }
             logger.info("  EVAL: %s (mode=%s)", eval_result_obj.summary, eval_result_obj.failure_mode.value)
             run_log.log("evaluation", "harness", eval_result)
+
+            # V2 Phase G3: close the loop on tip_retrievals. For each tip
+            # that landed in THIS attempt's prompt, record the outcome
+            # signal — feeds per-(tip, rule) hit-rate computation in
+            # retrieval.py and eviction policy in Phase H.
+            if retrieval_ids:
+                try:
+                    update_retrieval_outcomes(
+                        retrieval_ids,
+                        outcome_value=outcome_signal.value,
+                        outcome_confidence=outcome_signal.confidence,
+                        skill=skill_schema,
+                    )
+                except Exception as exc:  # noqa: BLE001 — telemetry, not load-bearing
+                    logger.warning("update_retrieval_outcomes failed: %s", exc)
 
             # --- Evaluation triage ---
             if eval_result_obj.failure_mode == FailureMode.EVALUATOR_GAP:

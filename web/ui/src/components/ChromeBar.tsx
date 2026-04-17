@@ -49,6 +49,8 @@ export interface ChromeBarProps {
   liveAvailable: boolean;
   replaySpeed: ReplaySpeed;
   setReplaySpeed: (s: ReplaySpeed) => void;
+  paused: boolean;
+  togglePause: () => void;
   connected: boolean;
   activeTab: Tab;
   setActiveTab: (t: Tab) => void;
@@ -82,6 +84,8 @@ export default function ChromeBar({
   liveAvailable,
   replaySpeed,
   setReplaySpeed,
+  paused,
+  togglePause,
   connected,
   activeTab,
   setActiveTab,
@@ -143,6 +147,28 @@ export default function ChromeBar({
         >
           Speed
         </span>
+        <button
+          onClick={() => speedActive && togglePause()}
+          disabled={!speedActive}
+          title={
+            !speedActive
+              ? "Pause is only meaningful in replay mode"
+              : paused
+              ? "Resume playback"
+              : "Pause playback"
+          }
+          className="flex items-center justify-center rounded-md border border-[#2A2F38] bg-[#0F1217] hover:bg-[#1A1E27] transition-colors shadow-inner"
+          style={{
+            width: "32px",
+            height: "28px",
+            color: !speedActive ? "#3F4451" : paused ? MODE.replay.fg : "#E8EAED",
+            background: paused && speedActive ? MODE.replay.bg : undefined,
+            cursor: speedActive ? "pointer" : "not-allowed",
+          }}
+          aria-label={paused ? "Resume" : "Pause"}
+        >
+          <span style={{ fontSize: "11px", lineHeight: 1 }}>{paused ? "▶" : "❚❚"}</span>
+        </button>
         <div className="flex items-stretch rounded-md overflow-hidden bg-[#0F1217] border border-[#2A2F38] shadow-inner">
           {SPEEDS.map((s, idx) => (
             <SpeedButton
@@ -205,16 +231,23 @@ export default function ChromeBar({
         <div
           className="w-2 h-2 rounded-full"
           style={{
-            background: connected ? palette.fg : "#3F4451",
-            boxShadow: connected ? `0 0 8px ${palette.fg}` : undefined,
-            animation: connected ? "chromebarPulse 2s ease-in-out infinite" : undefined,
+            background: paused ? "#F59E0B" : connected ? palette.fg : "#3F4451",
+            boxShadow: paused
+              ? "0 0 8px #F59E0B"
+              : connected
+              ? `0 0 8px ${palette.fg}`
+              : undefined,
+            animation: !paused && connected ? "chromebarPulse 2s ease-in-out infinite" : undefined,
           }}
         />
         <span
           className="text-[10px] font-semibold tracking-[0.18em] uppercase"
-          style={{ color: connected ? palette.fg : "#3F4451", minWidth: "60px" }}
+          style={{
+            color: paused ? "#F59E0B" : connected ? palette.fg : "#3F4451",
+            minWidth: "60px",
+          }}
         >
-          {connected ? (mode === "live" ? "Live" : "Replay") : "Idle"}
+          {paused ? "Paused" : connected ? (mode === "live" ? "Live" : "Replay") : "Idle"}
         </span>
       </div>
 

@@ -50,8 +50,16 @@ interface TipEntry {
   ruleId?: string;
   category?: string;
   triggerConditions?: string[];
+  /** Rule-family scopes where this tip will apply (distinct from
+   *  triggerConditions, which is what caused it to be written).
+   *  Emitted by tip_added as `application_context`. */
+  applicationContext?: string[];
+  /** Whether the tip was distilled from a failing attempt
+   *  (`failure_reflection`) or a successful one (`success_reflection`).
+   *  Emitted by tip_added as `phase`. */
+  phase?: "failure_reflection" | "success_reflection";
   /** Running count at the time this tip was written (ban_added carries
-   *  banned_patterns_total; tip_added will carry a similar total). */
+   *  banned_patterns_total; tip_added carries tips_total). */
   total?: number;
   tsMs: number;
   elapsed_s: number;
@@ -217,6 +225,13 @@ function deriveMemory(events: RunEvent[]): {
         triggerConditions: Array.isArray(d.trigger_conditions)
           ? (d.trigger_conditions as string[])
           : undefined,
+        applicationContext: Array.isArray(d.application_context)
+          ? (d.application_context as string[])
+          : undefined,
+        phase:
+          d.phase === "failure_reflection" || d.phase === "success_reflection"
+            ? (d.phase as "failure_reflection" | "success_reflection")
+            : undefined,
         total:
           (d.tips_total as number) ||
           (d.total as number) ||
@@ -542,6 +557,7 @@ function TipCard({
   idPrefix: string;
   workItem: string;
 }) {
+  const [expanded, setExpanded] = useState(false);
   const age = Math.max(0, now - tip.tsMs);
   const fresh = age < FRESH_WINDOW_MS;
   const freshFactor = fresh ? Math.max(0, 1 - age / FRESH_WINDOW_MS) : 0;
@@ -552,10 +568,23 @@ function TipCard({
     isLatest && fresh
       ? `0 0 ${8 + 18 * freshFactor}px ${color}${hexAlpha(0.3 + 0.5 * freshFactor)}`
       : "0 1px 2px rgba(0,0,0,0.4)";
+  const extraTriggers = tip.triggerConditions && tip.triggerConditions.length > 4
+    ? tip.triggerConditions.slice(4)
+    : [];
 
   return (
     <div
-      className="rounded-md border px-3 py-2.5"
+      role="button"
+      tabIndex={0}
+      aria-expanded={expanded}
+      onClick={() => setExpanded(v => !v)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          setExpanded(v => !v);
+        }
+      }}
+      className="rounded-md border px-3 py-2.5 cursor-pointer hover:brightness-110 focus:outline-none focus-visible:ring-1 focus-visible:ring-[#3B82F6]"
       style={{
         borderColor,
         background: bg,
@@ -623,12 +652,78 @@ function TipCard({
         </div>
       )}
 
-      {tip.ruleId && (
+      {tip.ruleId && !expanded && (
         <div
           className="text-[9px] font-mono text-[#4B5563] mt-1.5 truncate"
           title={tip.ruleId}
         >
           from {workItem} {shortRuleId(tip.ruleId, idPrefix)}
+        </div>
+      )}
+
+      {expanded && (
+        <div className="mt-2 pt-2 border-t border-[#23262E] space-y-1.5">
+          {tip.phase && (
+            <div className="text-[9px] font-mono">
+              <span className="text-[#6B7280]">learned from: </span>
+              <span
+                style={{
+                  color: tip.phase === "failure_reflection" ? "#EF4444" : "#22C55E",
+                }}
+              >
+                {tip.phase === "failure_reflection" ? "a failing attempt" : "a successful attempt"}
+              </span>
+            </div>
+          )}
+          {extraTriggers.length > 0 && (
+            <div>
+              <div className="text-[8px] font-mono uppercase tracking-wider text-[#6B7280] mb-1">
+                all triggers ({tip.triggerConditions!.length})
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {extraTriggers.map((tc, i) => (
+                  <span
+                    key={i}
+                    className="text-[8px] font-mono px-1 py-0.5 rounded-sm"
+                    style={{ background: "#15181F", color: "#9CA3AF", border: "1px solid #23262E" }}
+                  >
+                    {tc}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          {tip.applicationContext && tip.applicationContext.length > 0 && (
+            <div>
+              <div className="text-[8px] font-mono uppercase tracking-wider text-[#6B7280] mb-1">
+                applies to ({tip.applicationContext.length})
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {tip.applicationContext.map((ac, i) => (
+                  <span
+                    key={i}
+                    className="text-[8px] font-mono px-1 py-0.5 rounded-sm"
+                    style={{
+                      background: "rgba(96,165,250,0.10)",
+                      color: CATEGORY_ACCENT,
+                      border: "1px solid rgba(96,165,250,0.25)",
+                    }}
+                  >
+                    {ac}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          {tip.ruleId && (
+            <div className="text-[9px] font-mono text-[#9CA3AF] break-all">
+              <span className="text-[#4B5563]">from {workItem}: </span>{tip.ruleId}
+            </div>
+          )}
+          <div className="text-[9px] font-mono text-[#4B5563] break-all">
+            <span>tip id: </span>{tip.id}
+            {tip.isBanPattern && <span className="ml-2 text-[#EF4444]">[regex ban]</span>}
+          </div>
         </div>
       )}
     </div>

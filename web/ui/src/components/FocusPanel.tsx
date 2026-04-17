@@ -369,7 +369,14 @@ function AgentInsight({
     }
   }
 
-  if (conversation.length === 0) {
+  // We used to early-return a single "Waiting for activity" stub
+  // when the conversation was empty, but that also hid the rule
+  // title + attempt + countdown header. Now the header renders as
+  // soon as any rule context (title / attempt / budget) is known,
+  // and only the console body shows the waiting placeholder.
+  const hasRuleContext =
+    !!currentTitle || !!currentCategory || currentAttempt > 0 || timeBudgetS > 0;
+  if (conversation.length === 0 && !hasRuleContext) {
     return (
       <div className="px-4 py-8 text-center text-[12px] text-[#4B5563] italic border-b border-[#1C1F26]">
         Waiting for activity\u2026 the conversation fills in as agents start working.
@@ -469,6 +476,11 @@ function AgentInsight({
           borderTop: "1px solid #000",
         }}
         onWheel={() => setAutoScroll(false)}>
+        {allEntries.length === 0 && (
+          <div className="py-6 text-center text-[11px] text-[#4B5563] italic">
+            Waiting for activity\u2026 the conversation fills in as agents start working.
+          </div>
+        )}
         {allEntries.map((entry, i) => {
           const borderColor = entryBorder(entry);
           const agentColor = AGENT_COLORS[entry.agent] || "#6B7280";

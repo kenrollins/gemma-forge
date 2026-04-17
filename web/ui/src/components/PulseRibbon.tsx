@@ -23,6 +23,8 @@ import type { RunEvent, SkillUI, GraphNode } from "./types";
 
 type Outcome = "fixed" | "escalated" | "skipped";
 
+type Phase = "architect" | "worker" | "eval_pass" | "eval_fail" | "reflector" | "harness";
+
 interface ResolvedRule {
   /** Sort order. Index into the time-ordered resolution sequence. */
   idx: number;
@@ -44,9 +46,61 @@ const FALLBACK_OUTCOME_COLOR: Record<Outcome, string> = {
   skipped: "#6B7280",
 };
 
+// Phase → dot color. Matches the agent palette used across the
+// dashboard so the pulse on the ribbon stays visually consistent
+// with the ARCHITECT/WORKER/EVAL/REFLECTOR cards above.
+const PHASE_COLOR: Record<Phase, string> = {
+  architect: "#3B82F6",
+  worker: "#F59E0B",
+  eval_pass: "#22C55E",
+  eval_fail: "#EF4444",
+  reflector: "#A855F7",
+  harness: "#9CA3AF",
+};
+
 function outcomeColor(outcome: Outcome, skillUI: SkillUI): string {
   const match = skillUI.outcomes?.find((o) => o.type === outcome);
   return match?.color || FALLBACK_OUTCOME_COLOR[outcome];
+}
+
+// Walk the recent event tail to figure out which agent phase is
+// currently active. First matching event type wins — `rule_selected`
+// always overrides older activity because it marks a fresh item
+// starting up. Returns null when no in-progress rule is detected.
+function detectActivePhase(events: RunEvent[]): Phase | null {
+  const window = events.slice(-25);
+  for (let i = window.length - 1; i >= 0; i--) {
+    const e = window[i];
+    switch (e.event_type) {
+      case "remediated":
+      case "escalated":
+      case "skip":
+        // The most recent item has already resolved — nothing in flight.
+        return null;
+      case "rule_selected":
+        return "architect";
+      case "architect_reengaged":
+        return "architect";
+      case "reflection":
+        return "reflector";
+      case "evaluation":
+        return e.data?.passed ? "eval_pass" : "eval_fail";
+      case "revert":
+        return "harness";
+      case "tool_call":
+      case "tool_result":
+      case "attempt_start":
+        return "worker";
+      case "agent_response":
+        if (e.agent === "architect") return "architect";
+        if (e.agent === "reflector") return "reflector";
+        if (e.agent === "worker") return "worker";
+        continue;
+      default:
+        continue;
+    }
+  }
+  return null;
 }
 
 function formatTime(s: number): string {
@@ -106,8 +160,17 @@ export default function PulseRibbon({
     return c;
   }, [resolved]);
 
-  const cellCount = Math.max(total, resolved.length, 1);
-  const remaining = Math.max(cellCount - resolved.length, 0);
+  // Detect the active-phase marker so the pulse can sit on the
+  // currently-working cell (rather than trailing on the last
+  // resolved one) and wear the phase's color.
+  const activePhase = useMemo(() => detectActivePhase(events), [events]);
+
+  const cellCount = Math.max(total, resolved.length + (activePhase ? 1 : 0), 1);
+  // Index of the cell representing the rule currently in flight,
+  // if any. Always sits just past the last resolved cell — the
+  // resolution sequence is strictly left-to-right.
+  const inProgressIdx = activePhase && resolved.length < cellCount ? resolved.length : null;
+  const remaining = Math.max(cellCount - resolved.length - (inProgressIdx !== null ? 1 : 0), 0);
 
   // Hover detail
   const hovered = hoverIdx !== null ? resolved[hoverIdx] : null;
@@ -152,9 +215,22 @@ export default function PulseRibbon({
       >
         {Array.from({ length: cellCount }).map((_, i) => {
           const r = i < resolved.length ? resolved[i] : null;
-          const isLatest = r !== null && i === resolved.length - 1;
+          const isInProgress = i === inProgressIdx;
           const isHover = i === hoverIdx;
           const color = r ? outcomeColor(r.outcome, skillUI) : undefined;
+          const phaseColor = activePhase ? PHASE_COLOR[activePhase] : "#9CA3AF";
+
+          // Background priority: resolved outcome > in-progress neutral > pending.
+          // In-progress cells get a soft grey tint (tied to phase color at low
+          // opacity) so they read as "something's happening" without committing
+          // to an outcome.
+          const background = r
+            ? isHover
+              ? color
+              : `${color}DD`
+            : isInProgress
+            ? `${phaseColor}22`
+            : "#15181F";
 
           return (
             <button
@@ -162,26 +238,28 @@ export default function PulseRibbon({
               onMouseEnter={() => setHoverIdx(i)}
               className="relative flex-1 h-6 rounded-sm transition-colors"
               style={{
-                background: r
-                  ? isHover
-                    ? color
-                    : `${color}DD`
-                  : "#15181F",
-                outline: isHover ? `1px solid ${color}FF` : undefined,
+                background,
+                outline: isHover && color
+                  ? `1px solid ${color}FF`
+                  : isInProgress
+                  ? `1px solid ${phaseColor}80`
+                  : undefined,
                 minWidth: 2,
               }}
               title={
                 r
-                  ? `${hoveredLabelFor(r, skillUI)} · ${r.outcome} · ${formatTime(r.elapsed_s)}`
+                  ? `${hoveredLabelFor(r, skillUI)} \u00b7 ${r.outcome} \u00b7 ${formatTime(r.elapsed_s)}`
+                  : isInProgress
+                  ? `in progress \u00b7 ${activePhase}`
                   : "pending"
               }
             >
-              {isLatest && (
+              {isInProgress && (
                 <span
                   className="absolute -top-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full"
                   style={{
-                    background: color,
-                    boxShadow: `0 0 6px ${color}, 0 0 12px ${color}60`,
+                    background: phaseColor,
+                    boxShadow: `0 0 6px ${phaseColor}, 0 0 12px ${phaseColor}60`,
                     animation: "pulseRibbonNow 1.6s ease-in-out infinite",
                   }}
                 />

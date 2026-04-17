@@ -116,6 +116,10 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState<Tab>("live");
   const [eventLogExpanded, setEventLogExpanded] = useState(false);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+  // Replay pause: closes the EventSource and freezes UI state. Resume
+  // reopens with start_from=<current elapsed>, reusing the same
+  // seek-preserve path as a speed change.
+  const [paused, setPaused] = useState(false);
 
   // Did we initialize from /api/state yet? Used to skip the first
   // render's effect cycle so we don't open a stream against a stale
@@ -297,6 +301,14 @@ export default function Dashboard() {
     currentElapsedRef.current = events.length > 0 ? events[events.length - 1].elapsed_s : 0;
   }, [events]);
 
+  // Mirror of the `paused` state for use inside the stable openStream
+  // callback (which doesn't close over React state). Lets the
+  // stream-end branch decide whether to auto-restart the demo loop.
+  const pausedRef = useRef(paused);
+  useEffect(() => {
+    pausedRef.current = paused;
+  }, [paused]);
+
   const openStream = useCallback(
     (
       m: "live" | "replay",
@@ -384,8 +396,9 @@ export default function Dashboard() {
             }
             // Demo loop: kick off the next round with
             // swapOnFirstEvent so the page never shows an empty
-            // transition frame.
-            if (m === "replay") {
+            // transition frame. Skip if the user paused — the run has
+            // ended while paused, and we respect that until they hit play.
+            if (m === "replay" && !pausedRef.current) {
               setTimeout(
                 () =>
                   openStream("replay", run, speed, { swapOnFirstEvent: true }),
@@ -426,10 +439,12 @@ export default function Dashboard() {
   // ----- Auto-connect: open a fresh stream whenever mode or run changes.
   // Speed changes are handled separately (see setReplaySpeedPreserving
   // below) so that bumping speed during a demo doesn't reset the run
-  // back to the beginning.
+  // back to the beginning. Changing mode or run also clears any active
+  // pause — they're deliberate context shifts, so restart playback.
   useEffect(() => {
     if (!initialized.current) return;
     if (!activeRun && mode === "replay") return;
+    setPaused(false);
     openStream(mode, activeRun, replaySpeed);
     return () => disconnect();
     // intentionally NOT depending on replaySpeed — the speed handler
@@ -439,11 +454,12 @@ export default function Dashboard() {
 
   // Speed change during a replay: reconnect at the current elapsed_s
   // so the event stream resumes at the new speed from exactly where
-  // we are on screen. No visual reset, no event loss.
+  // we are on screen. No visual reset, no event loss. If paused,
+  // just store the new speed — the next play will use it.
   const setReplaySpeedPreserving = useCallback(
     (s: ReplaySpeed) => {
       setReplaySpeed(s);
-      if (mode === "replay" && activeRun) {
+      if (mode === "replay" && activeRun && !paused) {
         const seek = Math.max(0, currentElapsedRef.current - 0.5);
         openStream("replay", activeRun, s, {
           seekSeconds: seek,
@@ -451,8 +467,27 @@ export default function Dashboard() {
         });
       }
     },
-    [mode, activeRun, openStream],
+    [mode, activeRun, openStream, paused],
   );
+
+  // Pause / resume replay playback. Pause closes the EventSource so
+  // the server stops pacing events; resume reopens at the current
+  // elapsed_s with the current speed, reusing the same seek path as
+  // a speed change so no visual reset is needed.
+  const togglePause = useCallback(() => {
+    if (mode !== "replay" || !activeRun) return;
+    if (paused) {
+      setPaused(false);
+      const seek = Math.max(0, currentElapsedRef.current - 0.5);
+      openStream("replay", activeRun, replaySpeed, {
+        seekSeconds: seek,
+        preserveEvents: true,
+      });
+    } else {
+      disconnect();
+      setPaused(true);
+    }
+  }, [mode, activeRun, paused, replaySpeed, openStream, disconnect]);
 
   // ----- Cross-run hydration data passed into TaskMap ------------------
   const crossRunData: CrossRunData | null = useMemo(() => {
@@ -500,6 +535,8 @@ export default function Dashboard() {
         liveAvailable={liveAvailable}
         replaySpeed={replaySpeed}
         setReplaySpeed={setReplaySpeedPreserving}
+        paused={paused}
+        togglePause={togglePause}
         connected={connected}
         activeTab={activeTab}
         setActiveTab={setActiveTab}

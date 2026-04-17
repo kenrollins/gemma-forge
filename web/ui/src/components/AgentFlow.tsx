@@ -21,12 +21,25 @@ import { AGENT_COLORS } from "./types";
 
 export type Stage = "architect" | "worker" | "eval" | "reflector" | "idle";
 
+/** Per-agent detail block shown inside each card. Lets the boxes carry
+ *  real information density instead of being mostly empty label slots. */
+export interface StageDetail {
+  /** Freshest concrete signal — rule title, tool name, verdict word, etc. */
+  headline?: string;
+  /** Secondary line, usually a running counter or context. */
+  sub?: string;
+}
+
+export type StageDetails = Partial<Record<Exclude<Stage, "idle">, StageDetail>>;
+
 export interface AgentFlowProps {
   stage: Stage;
   /** When the stage is "eval", whether the most recent eval passed. */
   evalPassed?: boolean;
   /** Optional one-line description shown beneath the stages. Color-coded. */
   narrative?: { text: string; color?: string };
+  /** Per-agent detail lines to give each card real content. */
+  details?: StageDetails;
 }
 
 interface StageMeta {
@@ -69,25 +82,30 @@ function stageColor(s: Stage, evalPassed?: boolean): string {
   return "#6B7280";
 }
 
-export default function AgentFlow({ stage, evalPassed, narrative }: AgentFlowProps) {
+export default function AgentFlow({ stage, evalPassed, narrative, details }: AgentFlowProps) {
   // Index of the active stage (or -1 for idle). Used to determine which
   // stages render as completed vs upcoming.
   const activeIdx = STAGES.findIndex((s) => s.key === stage);
 
   return (
-    <div className="flex flex-col gap-2">
+    // max-w cap stops the four cards from stretching edge-to-edge on
+    // wide monitors. Without this, each card was >400px wide on a 4K
+    // display and read as a row of mostly-empty boxes. Centered so the
+    // flow still lines up under the rule headline above.
+    <div className="flex flex-col gap-2 max-w-[1280px] mx-auto w-full">
       <div className="flex items-stretch gap-1.5">
         {STAGES.map((s, idx) => {
           const isActive = idx === activeIdx;
           const isPast = activeIdx >= 0 && idx < activeIdx;
           const color = stageColor(s.key, evalPassed);
           return (
-            <div key={s.key} className="flex items-stretch flex-1">
+            <div key={s.key} className="flex items-stretch flex-1 min-w-0">
               <StageCard
                 meta={s}
                 color={color}
                 state={isActive ? "active" : isPast ? "past" : "upcoming"}
                 evalPassed={s.key === "eval" ? evalPassed : undefined}
+                detail={details?.[s.key]}
               />
               {idx < STAGES.length - 1 && (
                 <FlowArrow
@@ -129,11 +147,13 @@ function StageCard({
   color,
   state,
   evalPassed,
+  detail,
 }: {
   meta: StageMeta;
   color: string;
   state: "active" | "past" | "upcoming";
   evalPassed?: boolean;
+  detail?: StageDetail;
 }) {
   const active = state === "active";
   const past = state === "past";
@@ -169,7 +189,7 @@ function StageCard({
 
   return (
     <div
-      className="flex-1 px-4 py-2.5 rounded-md border transition-all duration-300 relative overflow-hidden"
+      className="flex-1 min-w-0 px-4 py-2.5 rounded-md border transition-all duration-300 relative overflow-hidden"
       style={{
         background: bg,
         borderColor,
@@ -222,6 +242,30 @@ function StageCard({
         style={{ color: subColor }}
       >
         {subText}
+      </div>
+
+      {/* Detail block — the concrete signal for THIS agent. Gives each
+          card real information density so the strip isn't four sparse
+          labels. Fixed two-line slot so the card height is stable
+          whether we have a detail yet or not. */}
+      <div
+        className="relative mt-2 pt-2 border-t"
+        style={{ borderColor: active ? `${color}30` : past ? `${color}18` : "#15181F" }}
+      >
+        <div
+          className="text-[10.5px] font-mono truncate leading-tight h-[13px]"
+          style={{ color: active ? "#E8EAED" : past ? "#9CA3AF" : "#3F4451" }}
+          title={detail?.headline || ""}
+        >
+          {detail?.headline || "\u2014"}
+        </div>
+        <div
+          className="text-[9px] font-mono uppercase tracking-wider truncate leading-tight h-[12px] mt-0.5"
+          style={{ color: active ? `${color}CC` : "#4B5563" }}
+          title={detail?.sub || ""}
+        >
+          {detail?.sub || "\u00a0"}
+        </div>
       </div>
 
       <style jsx>{`

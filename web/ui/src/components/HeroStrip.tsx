@@ -1,7 +1,7 @@
 "use client";
 
 import { RunEvent, SkillUI, DEFAULT_SKILL_UI, AGENT_COLORS, GraphNode } from "./types";
-import AgentFlow, { Stage } from "./AgentFlow";
+import AgentFlow, { Stage, StageDetails } from "./AgentFlow";
 
 function shortId(id: string, prefix: string): string {
   if (!id) return "\u2014";
@@ -77,6 +77,176 @@ function deriveNarrative(events: RunEvent[], stage: Stage): { text: string; colo
   if (stage === "reflector") return { text: "Reflector is analyzing the failure", color: AGENT_COLORS.reflector };
   if (stage === "eval") return { text: "Evaluating outcome", color: "#22D3EE" };
   return undefined;
+}
+
+/**
+ * The Reflector emits `data.text` as a markdown block — often wrapped
+ * in ``` fences, with "REFLECTION:" on its own line followed by a
+ * "Pattern identified: X" line and a "Root cause: Y" line. The raw
+ * string truncated into a 10px card reads as boilerplate. This
+ * extracts the first real content line so the card conveys what the
+ * Reflector actually noticed.
+ */
+function extractReflectionHeadline(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  // Strip leading/trailing triple-backtick fences and any language tag.
+  const stripped = raw
+    .replace(/^\s*```[a-z]*\s*\n?/i, "")
+    .replace(/\n?\s*```\s*$/, "")
+    .trim();
+  // Split into lines, dropping empty ones and solo-label lines
+  // ("REFLECTION", "Pattern identified", etc. with nothing after).
+  const lines = stripped
+    .split(/\r?\n+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .filter(
+      (s) =>
+        !/^(REFLECTION|reflection)\s*:?\s*$/i.test(s) &&
+        !/^(Pattern (identified|noted|discovered|found))\s*:?\s*$/i.test(s),
+    );
+  let first = lines[0];
+  if (!first) return undefined;
+  // Strip a leading label from the chosen line so we jump straight to
+  // the content: "Pattern identified: X" → "X".
+  first = first
+    .replace(
+      /^(REFLECTION|Pattern (identified|noted|discovered|found)|Observation|Finding|Insight|Root cause|Summary)\s*:\s*/i,
+      "",
+    )
+    .trim();
+  return first || undefined;
+}
+
+/**
+ * Derive a detail block per agent for the AgentFlow cards. The boxes
+ * were previously just "Architect / selected" — four sparse labels
+ * stretched across the screen. These details give each card a
+ * concrete signal: Architect's category + resolve count, Worker's
+ * last tool call, Eval's pass/fail tally, Reflector's latest pattern
+ * preview. Single backward pass so we get freshest values for
+ * headlines while counting totals as we go.
+ */
+function deriveStageDetails(
+  events: RunEvent[],
+  totalRules: number,
+  doneRules: number,
+): StageDetails {
+  let architectHeadline: string | undefined;
+  let architectCategory: string | undefined;
+  let reengageCount = 0;
+
+  let workerHeadline: string | undefined;
+  let toolCalls = 0;
+
+  let evalHeadline: string | undefined;
+  let scanCount = 0;
+  let scanPass = 0;
+  let scanFail = 0;
+
+  let reflectorHeadline: string | undefined;
+  let lessonCount = 0;
+  let banCount = 0;
+
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    const d = e.data || {};
+    switch (e.event_type) {
+      case "rule_selected":
+        if (!architectHeadline) {
+          architectHeadline =
+            (d.title as string) || (d.rule_id as string) || undefined;
+          architectCategory = d.category as string | undefined;
+        }
+        break;
+      case "architect_reengaged":
+        reengageCount++;
+        if (!architectHeadline) {
+          architectHeadline = `re-engaged: ${d.verdict || "\u2026"}`;
+        }
+        break;
+      case "tool_call": {
+        toolCalls++;
+        if (!workerHeadline) {
+          const tool = (d.tool || d.name) as string | undefined;
+          const arg = (d.command || d.target || d.path || d.arg) as
+            | string
+            | undefined;
+          if (tool && arg) workerHeadline = `${tool}: ${arg}`;
+          else if (tool) workerHeadline = tool;
+          else if (arg) workerHeadline = String(arg);
+        }
+        break;
+      }
+      case "evaluation": {
+        scanCount++;
+        if (d.passed === true) scanPass++;
+        else if (d.passed === false) scanFail++;
+        if (!evalHeadline) {
+          evalHeadline =
+            d.passed === true
+              ? "verdict: passed"
+              : d.passed === false
+                ? "verdict: failed"
+                : "scan running\u2026";
+        }
+        break;
+      }
+      case "reflection":
+        lessonCount++;
+        if (!reflectorHeadline) {
+          const raw =
+            (d.pattern as string) ||
+            (d.summary as string) ||
+            (d.text as string);
+          reflectorHeadline = extractReflectionHeadline(raw) || "new pattern noted";
+        }
+        break;
+      case "ban_added":
+        banCount++;
+        break;
+    }
+  }
+
+  const details: StageDetails = {};
+
+  const archHeadline = architectCategory
+    ? architectCategory.replace(/_/g, " ").toLowerCase()
+    : architectHeadline;
+  if (archHeadline || totalRules > 0) {
+    details.architect = {
+      headline: archHeadline || "\u2014",
+      sub:
+        reengageCount > 0
+          ? `re-engaged ${reengageCount}\u00d7 \u00b7 ${doneRules}/${totalRules || "?"} resolved`
+          : totalRules > 0
+            ? `${doneRules}/${totalRules} resolved`
+            : undefined,
+    };
+  }
+  if (workerHeadline || toolCalls > 0) {
+    details.worker = {
+      headline: workerHeadline || "\u2014",
+      sub: `${toolCalls} tool ${toolCalls === 1 ? "call" : "calls"}`,
+    };
+  }
+  if (scanCount > 0 || evalHeadline) {
+    details.eval = {
+      headline: evalHeadline || "\u2014",
+      sub:
+        scanCount > 0
+          ? `${scanCount} scans \u00b7 ${scanPass} pass \u00b7 ${scanFail} fail`
+          : undefined,
+    };
+  }
+  if (reflectorHeadline || lessonCount > 0 || banCount > 0) {
+    details.reflector = {
+      headline: reflectorHeadline || "\u2014",
+      sub: `${lessonCount} lesson${lessonCount === 1 ? "" : "s"} \u00b7 ${banCount} ban${banCount === 1 ? "" : "s"}`,
+    };
+  }
+
+  return details;
 }
 
 // Pipeline stage detection from recent events
@@ -243,6 +413,7 @@ export default function HeroStrip({
   // Pipeline stage + the prose narrative for AgentFlow
   const { stage, evalPassed } = detectPipelineStage(events);
   const narrative = deriveNarrative(events, stage as Stage);
+  const stageDetails = deriveStageDetails(events, total, done);
 
   // Progress bar percentages
   const pctCompleted = total > 0 ? (completed / total) * 100 : 0;
@@ -371,6 +542,7 @@ export default function HeroStrip({
             stage={stage as Stage}
             evalPassed={evalPassed}
             narrative={narrative}
+            details={stageDetails}
           />
         </div>
       )}

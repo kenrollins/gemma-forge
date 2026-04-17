@@ -872,10 +872,28 @@ async def run_ralph(
                 logger.info("    %s: %.0f%% success, %.1f avg attempts, %.0fs avg time",
                             cs.category, cs.success_rate * 100, cs.avg_attempts, cs.avg_wall_time_s)
 
+        # Snapshot the global lesson set that will live in state.semantic.lessons
+        # for the whole run, so post-hoc analysis can answer
+        # "what was the Worker's global cross-run context at time T?" without
+        # reconstructing it from lessons_current state-at-time. (Phase E1 of
+        # the V2 architecture plan; addresses Diagnostic 1's reconstruction gap.)
+        global_lessons_snapshot = [
+            {
+                "id": pl.id,
+                "category": pl.category,
+                "score": round(pl.composite_score, 4),
+                "weight": round(pl.weight, 3),
+                "confidence": round(pl.confidence, 3) if pl.confidence is not None else None,
+                "source_run_id": pl.source_run_id,
+                "source_item_id": pl.source_item_id,
+            }
+            for pl in diverse[:30]
+        ]
         run_log.log("cross_run_hydration", "system", {
             "prior_runs": prior_run_count,
             "loaded_bans": len(prior_bans),
             "loaded_lessons": len(prior_lessons),
+            "global_lessons_in_prompt": global_lessons_snapshot,
             "category_stats": [
                 {"category": cs.category, "success_rate": round(cs.success_rate, 2),
                  "avg_attempts": round(cs.avg_attempts, 1), "total_items": cs.total_items}
@@ -1075,11 +1093,29 @@ async def run_ralph(
             # 6: Final directive
             work_sections.append((6, "directive", "Call apply_fix EXACTLY ONCE now, then return a brief text summary."))
 
+            # Snapshot the per-rule cat_lessons in rank order so post-hoc
+            # analysis can answer "what was the Worker's prompt for this
+            # rule on this attempt?" without state-at-time reconstruction.
+            # (Phase E1; closes the auditability gap Diagnostic 1 hit.)
+            cat_lessons_snapshot = [
+                {
+                    "id": cl.id,
+                    "rank": i + 1,
+                    "score": round(cl.composite_score, 4),
+                    "weight": round(cl.weight, 3),
+                    "confidence": round(cl.confidence, 3) if cl.confidence is not None else None,
+                    "source_run_id": cl.source_run_id,
+                    "source_item_id": cl.source_item_id,
+                }
+                for i, cl in enumerate(cat_lessons)
+            ]
+
             work_context, work_meta = assemble_prompt(work_sections, budget_tokens=WORKER_USER_BUDGET)
             run_log.log("prompt_assembled", "worker", {
                 "phase": "apply_fix",
                 "rule_id": selected["rule_id"],
                 "attempt": attempt,
+                "category_lessons_loaded": cat_lessons_snapshot,
                 **work_meta,
             })
 
@@ -1113,6 +1149,16 @@ async def run_ralph(
                 "failure_mode": eval_result_obj.failure_mode.value,
                 "summary": eval_result_obj.summary,
                 **eval_result_obj.signals,
+            }
+            # Skill-agnostic graded outcome signal (Phase E of V2 plan).
+            # value × confidence is the per-retrieval utility contribution
+            # the memory system uses for hit-tracking and eviction.
+            outcome_signal = runtime.evaluator.signal_for(eval_result_obj)
+            eval_result["outcome_signal"] = {
+                "value": round(outcome_signal.value, 4),
+                "confidence": round(outcome_signal.confidence, 4),
+                "utility_contribution": round(outcome_signal.utility_contribution, 4),
+                "signal_type": runtime.evaluator.metadata.signal_type,
             }
             logger.info("  EVAL: %s (mode=%s)", eval_result_obj.summary, eval_result_obj.failure_mode.value)
             run_log.log("evaluation", "harness", eval_result)

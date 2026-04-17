@@ -24,7 +24,81 @@ Design notes:
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Protocol, runtime_checkable
+from typing import Literal, Protocol, runtime_checkable
+
+
+# -- Skill-agnostic outcome signal -------------------------------------------
+#
+# Phase E of the V2 memory architecture. The harness historically had two
+# outcome notions: a boolean ``EvalResult.passed`` and the ``failure_mode``
+# enum used for triage. That collapse threw away gradations the memory
+# system needed (an attempt that escalates after 1 try is a worse outcome
+# than one that escalates after 5; a graded test-suite skill has no clean
+# pass/fail at all).
+#
+# ``OutcomeSignal`` is the unit the memory system reads. ``EvalResult``
+# stays as the harness-level triage object — both flow out of the same
+# Evaluator. See docs/drafts/v2-architecture-plan.md §2.2.
+
+
+SignalType = Literal["binary", "graded", "judgment", "behavioral"]
+ConfidenceTier = Literal["high", "medium", "low"]
+EvaluationCost = Literal["cheap", "moderate", "expensive"]
+
+
+@dataclass(frozen=True)
+class OutcomeSignal:
+    """Skill-agnostic graded outcome for memory utility tracking.
+
+    ``value`` is the success score in [0, 1] (binary skills emit 0.0 or 1.0).
+    ``confidence`` is how trustworthy the value is, also in [0, 1] (binary
+    deterministic skills like STIG emit 1.0; an LLM judge emits something
+    lower). ``utility_contribution = value * confidence`` is the per-retrieval
+    weight a tip accrues toward its running utility average; it generalizes
+    cleanly across binary, graded, judgment, and behavioral signals.
+    """
+    value: float
+    confidence: float
+    metadata: dict = field(default_factory=dict)
+
+    @property
+    def utility_contribution(self) -> float:
+        return self.value * self.confidence
+
+
+@dataclass(frozen=True)
+class EvaluatorMetadata:
+    """Skill-declared characteristics of its outcome signal.
+
+    These parameterize the V2 memory curation policy (eviction threshold,
+    retrieval-count gate, same-run damping). A binary-deterministic skill
+    can fire eviction after a few retrievals at a low threshold; a graded
+    or judgment-based skill needs more samples and a higher floor.
+    """
+    signal_type: SignalType
+    expected_confidence: ConfidenceTier
+    cost_per_evaluation: EvaluationCost
+    # Curation-policy knobs (defaults are conservative — graded/judgment
+    # shape; binary skills override to lower values in their declaration).
+    min_retrievals_before_eviction: int = 10
+    eviction_threshold: float = 0.5
+
+
+def outcome_signal_from_eval_result(
+    result: "EvalResult", *, confidence: float = 1.0,
+) -> OutcomeSignal:
+    """Default projection used by binary deterministic evaluators.
+
+    Maps ``passed`` → ``value`` (1.0 / 0.0) and forwards the failure-mode
+    plus signals into ``metadata``. Skills with graded outcomes (test
+    coverage, LLM-judge scores) override their ``signal_for`` instead of
+    using this helper.
+    """
+    return OutcomeSignal(
+        value=1.0 if result.passed else 0.0,
+        confidence=confidence,
+        metadata={"failure_mode": result.failure_mode.value, **result.signals},
+    )
 
 
 class FailureMode(Enum):
@@ -105,7 +179,24 @@ class Executor(Protocol):
 
 @runtime_checkable
 class Evaluator(Protocol):
-    """Determines whether a change succeeded."""
+    """Determines whether a change succeeded.
+
+    Two outputs flow from a single evaluation:
+
+      ``evaluate(item) -> EvalResult`` for harness-level triage
+      (success/failure-mode routing).
+
+      ``signal_for(result) -> OutcomeSignal`` for the memory system's
+      utility math (value × confidence). Binary deterministic skills
+      can delegate to ``outcome_signal_from_eval_result``; graded /
+      judgment skills override.
+
+    ``metadata`` declares the skill's signal characteristics so the
+    eviction/retrieval policy in Phase H can parameterize correctly
+    without hardcoding STIG assumptions.
+    """
+
+    metadata: EvaluatorMetadata
 
     async def evaluate(self, item: WorkItem) -> EvalResult:
         """Evaluate the current state of the target for this work item.
@@ -115,6 +206,10 @@ class Evaluator(Protocol):
           - failure_mode: harness-level classification
           - signals: domain-specific detail for logging
         """
+        ...
+
+    def signal_for(self, result: EvalResult) -> OutcomeSignal:
+        """Project an EvalResult into the graded OutcomeSignal."""
         ...
 
 

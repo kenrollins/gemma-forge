@@ -103,6 +103,35 @@ async def main(skill: str) -> None:
         for row in rows:
             print(f"  - group_id={row['group_id']!r}, initialized_at={row['initialized_at']}")
 
+        # ----- Phase E3: V2 memory architecture schema --------------------
+        # Tip / Rule labels and indexes for the similarity-retrieval query:
+        #   (r:Rule)<-[:HELPED]-(t:Tip {retired_at: null, group_id: $skill})
+        # Postgres stig.tips.id ↔ Neo4j Tip.tip_id (BIGINT int). Rule.rule_id
+        # mirrors the xccdf rule identifier. Graphiti's standard indices don't
+        # cover this pattern because Tip / Rule are overlay labels we add on
+        # top of the episode / entity graph.
+        print("graphiti_init: adding V2 Tip/Rule indexes (Phase E3)...")
+        _tip_rule_ddl = [
+            "CREATE INDEX tip_group_id   IF NOT EXISTS FOR (t:Tip)  ON (t.group_id)",
+            "CREATE INDEX tip_tip_id     IF NOT EXISTS FOR (t:Tip)  ON (t.tip_id)",
+            "CREATE INDEX tip_retired_at IF NOT EXISTS FOR (t:Tip)  ON (t.retired_at)",
+            "CREATE INDEX tip_source_rule IF NOT EXISTS FOR (t:Tip) ON (t.source_rule_id)",
+            "CREATE INDEX rule_rule_id   IF NOT EXISTS FOR (r:Rule) ON (r.rule_id)",
+            "CREATE INDEX rule_group_id  IF NOT EXISTS FOR (r:Rule) ON (r.group_id)",
+            # Uniqueness of tip_id within a skill. Matches the Postgres
+            # tips.id primary key after the Postgres tip is written and its
+            # UUID echoed back into Neo4j.
+            "CREATE CONSTRAINT tip_group_id_tip_id_unique IF NOT EXISTS "
+            "FOR (t:Tip) REQUIRE (t.group_id, t.tip_id) IS UNIQUE",
+            # Rule.rule_id is the natural key; uniqueness within a skill.
+            "CREATE CONSTRAINT rule_group_id_rule_id_unique IF NOT EXISTS "
+            "FOR (r:Rule) REQUIRE (r.group_id, r.rule_id) IS UNIQUE",
+        ]
+        async with graphiti.driver.session() as session:
+            for stmt in _tip_rule_ddl:
+                await session.run(stmt)
+                print(f"  ok  {stmt.split(' IF NOT EXISTS')[0][:70]}")
+
     finally:
         await graphiti.close()
 

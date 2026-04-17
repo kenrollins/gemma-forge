@@ -14,10 +14,13 @@ from gemma_forge.harness.interfaces import (
     Checkpoint,
     EvalResult,
     Evaluator,
+    EvaluatorMetadata,
     Executor,
     FailureMode,
+    OutcomeSignal,
     WorkItem,
     WorkQueue,
+    outcome_signal_from_eval_result,
 )
 from gemma_forge.harness.tools.healthcheck import mission_healthcheck
 from gemma_forge.harness.tools.journal import read_recent_journal
@@ -126,10 +129,25 @@ class StigExecutor:
 class StigEvaluator:
     """Deterministic evaluation via OpenSCAP + health checks + journal."""
 
+    metadata = EvaluatorMetadata(
+        signal_type="binary",
+        expected_confidence="high",
+        cost_per_evaluation="cheap",
+        # OpenSCAP is deterministic; we can act on per-(tip, rule) hits
+        # after only a few retrievals at a low utility floor (Xu et al.
+        # arxiv 2505.16067 §4.2).
+        min_retrievals_before_eviction=3,
+        eviction_threshold=0.3,
+    )
+
     def __init__(self, ssh_config: SSHConfig, profile: str, datastream: str):
         self._ssh = ssh_config
         self._profile = profile
         self._datastream = datastream
+
+    def signal_for(self, result: EvalResult) -> OutcomeSignal:
+        """Binary signal: pass=1.0/fail=0.0, full confidence (OpenSCAP is deterministic)."""
+        return outcome_signal_from_eval_result(result, confidence=1.0)
 
     async def evaluate(self, item: WorkItem) -> EvalResult:
         health = await mission_healthcheck(self._ssh)

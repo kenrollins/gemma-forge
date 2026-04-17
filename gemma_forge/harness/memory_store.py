@@ -50,6 +50,21 @@ class StoredLesson:
     success_count: int = 0
     failure_count: int = 0
     weight: float = 0.5  # frequency-driven; the dream pass adds confidence separately
+    confidence: Optional[float] = None  # dream-pass output, in [-1, +1]; NULL pre-dream
+
+    @property
+    def composite_score(self) -> float:
+        """Ranking score used by load_lessons / load_all_lessons.
+
+        Mirrors the SQL ``weight * COALESCE((confidence + 1.0)/2.0, 0.5)``.
+        Surfaced on the dataclass so ``prompt_assembled`` events can record
+        the exact rank a lesson held when it was retrieved — the auditability
+        gap that Run 4's wins-decomposition diagnostic had to reconstruct
+        by hand (see docs/drafts/run4-architectural-analysis.md §"Update
+        2026-04-16 (evening)").
+        """
+        conf_mult = 0.5 if self.confidence is None else (self.confidence + 1.0) / 2.0
+        return self.weight * conf_mult
 
 
 @dataclass
@@ -323,7 +338,7 @@ class PostgresMemoryStore:
                 cur.execute(
                     """
                     SELECT id, category, lesson, source_run_id, source_item_id,
-                           success_count, failure_count, weight
+                           success_count, failure_count, weight, confidence
                     FROM lessons_current
                     WHERE category = %s AND weight >= %s
                     ORDER BY weight * COALESCE((confidence + 1.0) / 2.0, 0.5) DESC, id
@@ -338,6 +353,7 @@ class PostgresMemoryStore:
                 source_run_id=r[3] or "", source_item_id=r[4] or "",
                 success_count=r[5] or 0, failure_count=r[6] or 0,
                 weight=float(r[7]) if r[7] is not None else 0.0,
+                confidence=float(r[8]) if r[8] is not None else None,
             )
             for r in rows
         ]
@@ -349,7 +365,7 @@ class PostgresMemoryStore:
                 cur.execute(
                     """
                     SELECT id, category, lesson, source_run_id, source_item_id,
-                           success_count, failure_count, weight
+                           success_count, failure_count, weight, confidence
                     FROM lessons_current
                     WHERE weight >= %s
                     ORDER BY weight * COALESCE((confidence + 1.0) / 2.0, 0.5) DESC, id
@@ -364,6 +380,7 @@ class PostgresMemoryStore:
                 source_run_id=r[3] or "", source_item_id=r[4] or "",
                 success_count=r[5] or 0, failure_count=r[6] or 0,
                 weight=float(r[7]) if r[7] is not None else 0.0,
+                confidence=float(r[8]) if r[8] is not None else None,
             )
             for r in rows
         ]

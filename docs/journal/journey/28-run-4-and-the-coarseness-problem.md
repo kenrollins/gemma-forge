@@ -3,14 +3,13 @@ id: journey-28-run-4-and-the-coarseness-problem
 type: journey
 title: "Run 4: When the Dream Pass Passes the Wrong Test"
 date: 2026-04-16
-status: DRAFT — Run 4 still in flight at time of writing; numbers will be finalized when it completes
 tags: [L4-orchestration, reflexion-loop, cross-run-learning, postmortem, discovery]
 related:
   - journey/27-building-the-dream-pass
   - journey/26-dreaming-and-real-databases
   - journey/25-run-3-learning-plateaus
   - architecture/01-reflexive-agent-harness-failure-modes
-one_line: "Run 4 was the dream pass's first real test. The aggregate fix rate looked impressive mid-flight (70%), but the per-rule analysis told a different story: the dream pass produced six dramatic wins and twelve regressions, the regressions clustered in a specific audit subfamily, and the architectural lesson was sharper than the result — category-level credit assignment is too coarse to be safe."
+one_line: "Run 4 was the dream pass's first real test. The aggregate fix rate looked impressive mid-flight (70%) but landed at 56.2% — 3.4 percentage points below Run 3. The dream pass produced eight wins and seventeen regressions, the regressions clustered in a specific audit subfamily, and the architectural lesson was sharper than the result: category-level credit assignment is too coarse to be safe."
 ---
 
 # Run 4: When the Dream Pass Passes the Wrong Test
@@ -35,46 +34,51 @@ The hypothesis was about the *aggregate*. The actual mechanism turned out to be 
 
 At the 9-hour mark, Run 4 read 70% fix rate (124 remediated, 50 escalated). Compared to Run 3's final 60%, this looked like the breakthrough we hoped for. It wasn't.
 
-The 70% was a stage-of-run artifact. Run 4 had processed 188 of 270 rules — the *easy front* of the run, where high-success categories like service-config (100%), authentication (96%), and kernel (92%) get done early. The remaining 82 rules were almost entirely audit (74 of them), which historically converts at 33%. Once the audit tail rolled through, the fix rate would compress back toward Run 3 territory.
+The 70% was a stage-of-run artifact. Run 4 had processed 188 of 270 rules — the *easy front* of the run, where high-success categories like service-config (100%), authentication (96%), and kernel (92%) get done early. The remaining 82 rules were almost entirely audit (74 of them), which historically converts at 33%. Once the audit tail rolled through, the fix rate compressed back through Run 3 territory and kept going. **The final aggregate landed at 56.18% (141 completed / 110 escalated / 19 skipped) — 3.4 percentage points below Run 3's 59.52%.**
 
 The lesson here is operational, not architectural: **comparing fix rates mid-run is meaningless** if the run hasn't reached the same point in the difficulty distribution. Final numbers only.
 
-### The real signals
+### The real signals — final numbers
 
-The honest per-rule comparison against Run 3 (179 rules processed by both runs at the time of mid-flight analysis):
+The honest per-rule comparison against Run 3, all 251 rules attempted by both runs:
 
-| Metric | Run 3 | Run 4 (mid-flight) | Δ |
+| Metric | Run 3 | Run 4 (final) | Δ |
 |---|---|---|---|
-| First-try success rate | 86.0% | 87.6% | +1.6pp |
-| Avg attempts on completed | 1.33 | 1.29 | -0.03 |
-| Avg attempts on escalated | 4.73 | 4.42 | **-0.31** |
-| Wall time per completed | 55.4s | 54.6s | -1% |
-| Wall time per escalated | 426s | 398s | **-7%** |
+| Aggregate fix rate (completed / (completed+escalated)) | 59.52% | **56.18%** | **−3.4pp** |
+| First-try success rate | 51.2% | 49.0% | −2.2pp |
+| Avg attempts on completed | 1.33 | 1.30 | −0.03 |
+| Avg attempts on escalated | 4.73 | 4.39 | **−0.34** |
+| Wall time per completed | 55.4s | 54.9s | ≈0 |
+| Wall time per escalated | 426s | 392s | **−8%** |
 
-Two of these are real: **escalation attempts down 0.31 (-7% wall time)**. The Worker is giving up on dead ends faster, which suggests the lessons it has are routing it away from doomed approaches more efficiently. That's the dream pass doing its job, narrowly.
+Only one of these is real: **escalation attempts down 0.34 (-8% wall time)**. The Worker is giving up on dead ends faster, which suggests the lessons it has are routing it away from doomed approaches more efficiently. That's the dream pass doing its job, narrowly.
 
-First-try and per-completed metrics moved by less than the noise floor. Within the resolution of one comparison run, you cannot claim the dream pass improved them.
+First-try success and aggregate fix rate both *regressed* between mid-flight and end-of-run. The early-flight reading of "+1.6pp first-try" reversed; the final number is −2.2pp. Per-completed wall-time barely moved. Within the resolution of one comparison run, the only reliable claim is the escalation-efficiency one — and it doesn't translate into more rules getting fixed.
 
-### The wins (6)
+### The wins (8)
 
-Six rules went from escalated in Run 3 to remediated in Run 4. Five of them dramatic:
+Eight rules went from escalated in Run 3 to remediated in Run 4. The dramatic ones:
 
 - `aide_build_database`: **8 attempts and 564s in Run 3 → 1 attempt and 72s in Run 4**.
 - `kernel_module_sctp_disabled`: 3 → 1, 242s → 32s.
 - `sshd_enable_warning_banner`: 4 → 2, 418s → 103s.
+- `audit_rules_privileged_commands_chage`: 8 → 3, 651s → 146s.
 - `networkmanager_dns_mode`: 7 → 4, 584s → 226s.
+- `audit_rules_file_deletion_events_unlink`: 5 → 3, 400s → 180s.
 - `use_pam_wheel_for_su`: 4 → 3, 361s → 153s.
 - `sudo_remove_nopasswd`: 5 → 8, 527s → 689s. (Won, but slower.)
 
-Each of these is a rule whose category had positive confidence in the dream pass, where the Worker's prompt now carried promoted lessons that it didn't carry in Run 3. The mechanism worked exactly as designed.
+A wins-decomposition diagnostic against the lessons available at each rule's firing time finds the picture is more nuanced than "the dream pass promoted the right lessons." Three wins (use_pam_wheel_for_su, kernel_module_sctp_disabled, aide_build_database) are clearly knowledge-driven — the top-ranked retrievable lessons were directly applicable, often from the same rule or an analogous one. Two wins (the audit unlink and chage) are best explained by *within-run* lesson accumulation — the harness had just been hammering setxattr and the augenrules/rules.d insight transferred to other audit rules. Two wins (networkmanager_dns_mode, sshd_enable_warning_banner) look accidental: the top-ranked lessons in their categories were about completely unrelated rules (chronyd config, RPM database corruption). One was mixed (sudo_remove_nopasswd had relevant knowledge but still took more attempts than Run 3). The mechanism produced wins, but only some of them by design.
 
-### The regressions (12) and the actual mechanism
+### The regressions (17) and the actual mechanism
 
-Twelve rules went from remediated in Run 3 to escalated in Run 4. The pattern is the alarming part: **three of them are `audit_rules_dac_modification_*` rules**, a family that previously succeeded at 1-4 attempts.
+Seventeen rules went from remediated in Run 3 to escalated in Run 4. The pattern is the alarming part: **eight of them are audit rules, and three are specifically `audit_rules_dac_modification_*`**, a family that previously succeeded at 1-4 attempts.
 
 - `audit_rules_dac_modification_fchmod`: **1 attempt, 44s, completed** → 6 attempts, 567s, escalated.
 - `audit_rules_dac_modification_fchmodat`: 4 attempts, 214s, completed → 7 attempts, 552s, escalated.
 - `audit_rules_dac_modification_fchown`: 1 attempt, 41s, completed → 4 attempts, 348s, escalated.
+
+Several `audit_rules_unsuccessful_file_modification_*` rules also regressed, fitting the same pattern of audit-subfamily-specific knowledge being washed out by the dream-pass-induced category penalty.
 
 Reading the JSONL trace for `audit_rules_dac_modification_fchmod` makes the mechanism plain. In Run 3, the Worker hit `/etc/audit/rules.d/audit.rules` with a heredoc on attempt 1 and the rule passed. In Run 4, the Worker spent attempts 1–2 hammering `/etc/audit/audit.rules` (which `augenrules` regenerates from `rules.d/`) and the *Reflector* — not the prompt — had to teach it about the `rules.d` mechanism on attempt 2. Same model, same VM baseline, same skill. The only thing that changed was the cross-run lesson context the Worker received.
 
@@ -96,9 +100,9 @@ This is the architectural finding of Run 4: **category-level credit, NULL-vs-pen
 |---|---|---|---|
 | Run 1 → Run 2 | 59 | 1 | 59:1 |
 | Run 2 → Run 3 | 14 | 10 | 1.4:1 |
-| Run 3 → Run 4 (mid-flight) | 6 | 12 | **0.5:1** |
+| Run 3 → Run 4 (final) | 8 | 17 | **0.47:1** |
 
-The trajectory is unambiguous and uncomfortable. Cross-run learning's win:regression ratio is collapsing run over run. Run 4 is the first run where regressions outpace wins, and the regressions track to a specific architectural choice we made between runs.
+The trajectory is unambiguous and uncomfortable. Cross-run learning's win:regression ratio is collapsing run over run. Run 4 is the first run where regressions outpace wins by more than 2-to-1, and the regressions track to a specific architectural choice we made between runs.
 
 ## The meta-lesson
 
@@ -126,11 +130,11 @@ The path forward is concrete now in a way it wasn't before Run 4:
 
 ## What this means for the broader story
 
-The fix-rate plateau at ~60% across Runs 3 and 4 is not the end of the cross-run-learning story. It is the empirical confirmation that **memory accumulation alone, even with a curation layer, hits its ceiling without per-instance attribution**. The whitepaper said this might happen and named it as the limitation that production systems would have to solve. Run 4 confirmed it experimentally, on the harness we built, with the dream pass we shipped.
+Run 4 didn't plateau at Run 3 — it dropped 3.4 percentage points below it. That's the empirical confirmation that **memory accumulation alone, even with a curation layer, can actively misdirect the system without per-instance attribution**. The whitepaper said this might happen and named it as the limitation that production systems would have to solve. Run 4 confirmed it experimentally, on the harness we built, with the dream pass we shipped — and produced a *negative* aggregate result, not a flat one.
 
-The thesis that the agentic harness shapes outcomes still holds. The thesis that memory curation is necessary still holds. What Run 4 added is a sharper claim: **memory curation done at category granularity will produce no aggregate gain on workloads with mixed-difficulty subfamilies inside a category**. The granularity has to match the difficulty distribution, and on STIG that means at least at the rule-family level.
+The thesis that the agentic harness shapes outcomes still holds. The thesis that memory curation is necessary still holds. What Run 4 added is a sharper claim: **memory curation done at category granularity, with no per-(rule, lesson) causal accounting, can produce negative aggregate gain on workloads with mixed-difficulty subfamilies inside a category**. The granularity has to match the causal structure of the work, and on STIG that means at least at the rule-family level — and probably at the per-(rule, lesson) level for any meaningful credit assignment.
 
-This is the story to take into the whitepaper update. Not "dream pass works → fix rate jumps." The actual story: **dream pass V1 works as plumbing, V1 algorithm is empirically too coarse, V2 is now empirically scoped**. The honesty is the strength.
+This is the story to take into the whitepaper update. Not "dream pass works → fix rate jumps." The actual story: **dream pass V1 works as plumbing, V1 algorithm is empirically not just too coarse but actively misdirecting, V2 is now empirically scoped**. The honesty is the strength.
 
 ---
 

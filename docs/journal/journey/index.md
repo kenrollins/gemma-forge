@@ -4,7 +4,7 @@ title: Journey Overview
 
 # The Journey
 
-First-person field notes of how GemmaForge was built. Chronological,
+First-person field notes of how gemma-forge was built. Chronological,
 honest, specific. Each entry is scoped to a single moment in the
 project — a decision, a discovery, a refactor, or a postmortem — and
 is meant to be readable on its own.
@@ -25,7 +25,7 @@ is meant to be readable on its own.
 ## Entries, in order
 
 ### Phase 0 — Starting from scratch
-- [**00. The Origin of GemmaForge**](00-origin.md) — why Ralph loops, why Gemma 4, why STIG as the anchor, and what the project explicitly *is not*.
+- [**00. The Origin of gemma-forge**](00-origin.md) — why Ralph loops, why Gemma 4, why STIG as the anchor, and what the project explicitly *is not*.
 - [**00.5. How Should We Serve Gemma 4?**](00.5-how-should-we-serve-gemma-4.md) — picking the serving strategy: precision, tensor parallelism, and the NVFP4 VRAM math surprise on L4.
 
 ### Phase 1 — The inference layer

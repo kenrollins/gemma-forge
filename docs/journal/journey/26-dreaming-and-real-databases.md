@@ -103,7 +103,7 @@ search pass killed both assumptions.
   *governing* evolving memory. We are in "risks of unbounded memory
   evolution" territory, not "should we have memory" territory.
 
-The honest admission: GemmaForge is not charting new ground on the
+The honest admission: gemma-forge is not charting new ground on the
 memory primitives. The frontier crystallized in the last six months,
 and we are catching up to it. That is a more honest story than the
 alternative — and, crucially, a better one. Because the primitives
@@ -162,7 +162,7 @@ The "sovereign edge" principle is **no cloud, no phone-home, no
 external dependencies** — it is not **no infrastructure**. The
 XR7620 hosts Docker workloads with Supabase, Qdrant, ClickHouse,
 MinIO, and Redis already. Adding Neo4j and a Postgres instance
-scoped to GemmaForge is not a violation of sovereignty; it is the
+scoped to gemma-forge is not a violation of sovereignty; it is the
 sovereignty posture, accurately stated.
 
 ## The decision, in three parts

@@ -117,7 +117,7 @@ The decision was made to write **two** documents instead of one:
 
 - **`architecture/01-reflexive-agent-harness-failure-modes.md`** — the
   standalone artifact. Project-agnostic, suitable for citation outside
-  GemmaForge, names the failure modes and prescribes the harness
+  gemma-forge, names the failure modes and prescribes the harness
   mechanisms. STIG appears only as a running example.
 
 - **`journey/14-overnight-run-findings.md`** and the present

@@ -245,7 +245,7 @@ needs sudo, and you lose. Any out-of-band channel (a hypervisor-
 level snapshot, in this case) is strictly better because nothing
 the agent does inside the guest can defeat it.
 
-**A known limitation**: GemmaForge also has a virsh console
+**A known limitation**: gemma-forge also has a virsh console
 fallback for diagnostic gathering when SSH+sudo is broken, but
 the current implementation of the console fallback has a bug
 ("Connection lost" during the virsh console subprocess

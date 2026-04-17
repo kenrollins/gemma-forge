@@ -1,8 +1,8 @@
-# Host setup — bringing up a GemmaForge XR7620 from scratch
+# Host setup — bringing up a gemma-forge XR7620 from scratch
 
 This document walks through the **host-level prep** that has to happen
 once on a Dell PowerEdge XR7620 (or equivalent multi-L4 host) before
-GemmaForge can be cloned and run. It's the human-readable companion to
+gemma-forge can be cloned and run. It's the human-readable companion to
 the scripts under [`infra/triton/`](../infra/triton/) and the
 forthcoming `infra/vm/` from Phase 2.
 
@@ -11,7 +11,7 @@ single demo run — once it's done on a host, future demos consume the
 services it stands up as clients.
 
 > The "shared host service" pattern this document codifies is the
-> single most important architectural insight in GemmaForge. See
+> single most important architectural insight in gemma-forge. See
 > [ADR-0012](adr/0012-data-host-layout-convention.md) and
 > [ADR-0014](adr/0014-triton-vllm-director-shared-host-service.md)
 > for the full reasoning.
@@ -29,14 +29,14 @@ services it stands up as clients.
 | **Sudo access** (NOPASSWD or interactive) | Required for libvirt + systemd installs | `sudo -n true` or your password handy |
 
 If any of these are missing, install them via your distro's normal
-channels first. GemmaForge does not assume responsibility for
+channels first. gemma-forge does not assume responsibility for
 bringing up the base GPU + Docker stack.
 
 ---
 
 ## Step 1 — Install host packages
 
-GemmaForge needs three things on top of the base GPU/Docker stack:
+gemma-forge needs three things on top of the base GPU/Docker stack:
 
 1. **libvirt + KVM + cloud-init tooling** — for the target VM(s) that
    the Ralph loop operates on (Phase 2). Installed now so Phase 2 can
@@ -85,13 +85,13 @@ systemctl is-active libvirtd  # should be: active
 
 Every check from `virt-host-validate qemu` should be `PASS` except
 possibly `Checking for secure guest support` (that's AMD SEV / Intel
-TDX, not relevant for GemmaForge).
+TDX, not relevant for gemma-forge).
 
 ---
 
 ## Step 2 — Create the `/data/<service>/` host trees
 
-GemmaForge follows the [`/data/<service>/` host layout convention
+gemma-forge follows the [`/data/<service>/` host layout convention
 (ADR-0012)](adr/0012-data-host-layout-convention.md). Two trees need
 to exist before the install scripts run:
 
@@ -99,7 +99,7 @@ to exist before the install scripts run:
 # Triton director state (shared across all demos on this host)
 mkdir -p /data/triton/{models,systemd,config,logs}
 
-# GemmaForge VM state (scoped to this project; future demos get their
+# gemma-forge VM state (scoped to this project; future demos get their
 # own subdirectory under /data/vm/)
 mkdir -p /data/vm/gemma-forge/{pool,seed,snapshots,keys,state}
 ```
@@ -128,7 +128,7 @@ What this does (full detail in
 3. **Symlinks** the systemd unit files into `/etc/systemd/system/`
    so edits in the repo flow through after a `daemon-reload`.
 4. Runs `systemctl daemon-reload`.
-5. Enables the **default GemmaForge layout (ADR-0015 Option A)**:
+5. Enables the **default gemma-forge layout (ADR-0015 Option A)**:
    - `triton@wide-01.service` — GPUs 0+1, Gemma 4 31B-IT, tp=2
    - `triton@2.service` — GPU 2, Gemma 4 E4B
    - `triton@3.service` — GPU 3, Gemma 4 E2B
@@ -153,7 +153,7 @@ the services for the first time.
 
 ## Step 4 — Verify nothing existing got disturbed
 
-GemmaForge is being added to a host that's already running other
+gemma-forge is being added to a host that's already running other
 workloads. The strict rule from
 [`feedback_dont_touch_docker.md`](../#) is that **existing Docker
 workloads must never be disturbed**. Verify after each install step:

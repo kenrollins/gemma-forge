@@ -6,7 +6,7 @@
 
 ## Context
 
-GemmaForge's central narrative is the **Ralph loop**: an agent that
+gemma-forge's central narrative is the **Ralph loop**: an agent that
 fails, reasons through the failure, reverts, and retries until the
 mission succeeds. This is the demo's headline — not first-try success.
 We need an agent framework that:

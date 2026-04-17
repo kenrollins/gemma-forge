@@ -342,7 +342,7 @@ work).
 ### The witness
 The Reflexion paper uses a fixed retry cap of 3-5 because it's evaluating
 hundreds of tasks and needs bounded per-task cost. The naive implementation
-of GemmaForge inherited this as `max_retries_per_rule: 3`. We then noticed
+of gemma-forge inherited this as `max_retries_per_rule: 3`. We then noticed
 that the most interesting reflexion behavior happens at retries 4-10
 (where the reflector has accumulated enough failure history to suggest
 fundamentally different approaches). The 3-retry cap was cutting off the
@@ -408,7 +408,7 @@ needs comparison against alternative architectures, statistical claims
 about effect sizes, and a more rigorous evaluation. This document is the
 field notes that a paper would build on.
 
-## Known limitations of the current GemmaForge implementation
+## Known limitations of the current gemma-forge implementation
 
 These are gaps where the abstract failure modes are correctly named but
 the harness's *current implementation* of the prescribed mechanism falls
@@ -473,7 +473,7 @@ If you want the empirical evidence backing each failure mode:
 This is v0.1 of the failure-modes document. It will be revised as the
 test suite produces evidence and as the harness refactor (lifting
 STIG-specific concerns out of the harness core) proceeds. The version
-that ships with the GemmaForge whitepaper will likely add: a seventh
+that ships with the gemma-forge whitepaper will likely add: a seventh
 failure mode (TBD), a comparison table of "what most reflexion
 implementations get wrong" vs the prescribed mechanisms, and a worked
 example of porting the harness to a non-STIG skill.

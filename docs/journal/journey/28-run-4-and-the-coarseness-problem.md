@@ -108,7 +108,7 @@ The trajectory is unambiguous and uncomfortable. Cross-run learning's win:regres
 
 The dream pass *works* — the plumbing is solid, the scores are persisted, the rankings change as predicted. The V1 *algorithm* is too coarse for this domain. What looked like the right granularity at design time (lessons load by category, so credit by category) turned out to lump together rules with very different difficulty profiles.
 
-This is exactly the failure mode the [whitepaper section on memory](../../drafts/whitepaper/04-memory.md) describes for any agent system that persists learned behavior as text. Aggregating signal at the wrong granularity makes the persistence layer actively misdirect the agent. We built a working version of that failure mode and then ran it as our V1.
+This is exactly the failure mode any agent system that persists learned behavior as text has to guard against: aggregating signal at the wrong granularity makes the persistence layer actively misdirect the agent. We built a working version of that failure mode and then ran it as our V1.
 
 That is not a bug. That is the cycle the architecture is supposed to expose. The dream pass V1 produced no aggregate gain, and in producing no gain it taught us something specific about what V2 has to do.
 

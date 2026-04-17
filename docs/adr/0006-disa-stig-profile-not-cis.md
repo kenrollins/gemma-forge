@@ -6,7 +6,7 @@
 
 ## Context
 
-The first GemmaForge skill is autonomous compliance remediation on a
+The first gemma-forge skill is autonomous compliance remediation on a
 Rocky Linux 9 target. Two well-known security baselines apply to RHEL 9
 (and to RHEL-compatible distributions like Rocky 9):
 
@@ -21,7 +21,7 @@ The OpenSCAP `scap-security-guide` package ships *both* profiles as
 part of the same `ssg-rhel9-ds.xml` data stream, so technically the
 demo could pick either by changing the profile ID at scan time.
 
-GemmaForge is a Federal-leaning reference build, and the audience for
+gemma-forge is a Federal-leaning reference build, and the audience for
 the demo is Federal agencies — primarily DoD-adjacent — evaluating
 sovereign-edge AI for use on hosts they will eventually have to STIG.
 The choice of baseline is therefore not a technical preference, it's
@@ -44,7 +44,7 @@ manifest-driven), but the headline demo runs against the DISA STIG.
 
 - **CIS Level 2** — Strong commercial baseline, broadly adopted in
   industry. Less specific to the Federal audience we're addressing
-  with this build. Would be the right primary choice if GemmaForge
+  with this build. Would be the right primary choice if gemma-forge
   were positioned as a commercial-edge AI demo. We will likely add
   it as a second STIG-style skill (`skills/cis-rhel9/`) once the
   skills system is extracted in Phase 4 — that addition is a

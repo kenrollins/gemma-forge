@@ -65,7 +65,7 @@ pattern to multi-agent settings and notes a critical limitation:
 matches exactly what we observed in the scanner-semantic-gap cases —
 the model kept trying variations of a fundamentally wrong approach.
 
-**VIGIL (Dec 2025)** is architecturally closest to GemmaForge: a
+**VIGIL (Dec 2025)** is architecturally closest to gemma-forge: a
 reflective runtime that supervises agents with mostly-deterministic
 code, using the LLM only for high-level reasoning. Its
 Roses/Buds/Thorns diagnostic structure is similar to the post-mortem

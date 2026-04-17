@@ -44,15 +44,15 @@ its LLM-native UI. Two facts changed the calculus:
 2. **Langfuse has had documented security issues** that make it a
    problematic dependency for a Federal-leaning reference build, and
    the host operator (Ken) is independently considering migrating
-   off Langfuse for unrelated workloads. Building GemmaForge to
+   off Langfuse for unrelated workloads. Building gemma-forge to
    depend on a product the host is moving away from is a strategic
    mistake regardless of whether the security issues are
    user-impacting today.
 
 ## Decision
 
-GemmaForge adopts an **OpenTelemetry-pure observability stack** with no
-Langfuse dependency. The full stack runs locally inside the GemmaForge
+gemma-forge adopts an **OpenTelemetry-pure observability stack** with no
+Langfuse dependency. The full stack runs locally inside the gemma-forge
 `docker-compose.yml`:
 
 | Layer | Component | Role |
@@ -98,7 +98,7 @@ the `gen_ai.usage.*` attributes into Prometheus counters with labels:
 Grafana queries those counters via PromQL and renders dashboards like:
 *Total tokens per skill per day*, *Token spend per Ralph-loop run*,
 *Tokens by role*, *Token blowup detection*. The same metrics power
-alerts and quotas without writing GemmaForge-specific code.
+alerts and quotas without writing gemma-forge-specific code.
 
 ## Alternatives considered
 
@@ -110,7 +110,7 @@ alerts and quotas without writing GemmaForge-specific code.
   (b) Langfuse has had documented security issues that make it a
   problematic dependency for a Federal-leaning reference build;
   (c) the host operator is migrating off Langfuse for unrelated
-  workloads, so building GemmaForge to depend on it now is a
+  workloads, so building gemma-forge to depend on it now is a
   strategic mistake. The OTel-pure path is more Federal-credible
   and avoids the maintenance/security lifecycle of a third-party
   product entirely.
@@ -122,7 +122,7 @@ alerts and quotas without writing GemmaForge-specific code.
   single-host demo: Tempo + Mimir + Loki is three separate storage
   backends versus Jaeger + Prometheus's two, and the operational
   complexity isn't justified at our scale. We may revisit if a
-  Federal customer wants to deploy GemmaForge into an existing LGTM
+  Federal customer wants to deploy gemma-forge into an existing LGTM
   environment — at which point the OTel collector simply gets a
   different exporter target, which is exactly the portability win
   the OTel-pure architecture buys us.
@@ -151,7 +151,7 @@ alerts and quotas without writing GemmaForge-specific code.
 
 - **Federal-credible by construction.** Every Federal observability
   team already runs OTel + Prometheus + Grafana, frequently with
-  Jaeger as the trace backend. GemmaForge's traces are immediately
+  Jaeger as the trace backend. gemma-forge's traces are immediately
   legible in their existing tools without translation.
 - **Token accounting is queryable.** PromQL on
   `gen_ai_*_tokens_total{...}` answers any question about token
@@ -176,7 +176,7 @@ alerts and quotas without writing GemmaForge-specific code.
 - **Jaeger's trace browser is more generic than Langfuse's LLM-native
   UI.** A user who wants to see a prompt and its completion side by
   side has to expand the span and read the events. Mitigated by
-  Phase 6's GemmaForge dashboard, which can deep-link to a Jaeger
+  Phase 6's gemma-forge dashboard, which can deep-link to a Jaeger
   trace by ID and (optionally) render a prettier prompt/completion
   view inline using the OTel events.
 - **Five observability containers** (`otel-collector`, `jaeger`,
@@ -187,7 +187,7 @@ alerts and quotas without writing GemmaForge-specific code.
   `make obs-up` Makefile target.
 - **No built-in "user feedback" or "annotation" UI** (which Langfuse
   provides for human-in-the-loop labeling of LLM responses).
-  Acceptable: GemmaForge is a fully autonomous Ralph loop, not a
+  Acceptable: gemma-forge is a fully autonomous Ralph loop, not a
   human-in-the-loop chatbot. If we ever need human labeling, we add
   it as a separate skill rather than coupling it into the
   observability stack.

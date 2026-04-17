@@ -1,8 +1,8 @@
 ---
-title: "GemmaForge: Architecture Brief"
+title: "gemma-forge: Architecture Brief"
 ---
 
-# GemmaForge: Architecture Brief
+# gemma-forge: Architecture Brief
 
 > **An exploration of Ralph loop architecture and Gemma 4 at the edge —
 > building your own agentic harness, from scratch.**
@@ -21,7 +21,7 @@ title: "GemmaForge: Architecture Brief"
 
 ## What this is
 
-GemmaForge demonstrates that a smaller open-weights model on commodity
+gemma-forge demonstrates that a smaller open-weights model on commodity
 edge hardware, paired with the right harness architecture, can
 autonomously solve complex multi-step problems — learning from every
 failure, improving across runs, and producing a decision audit trail
@@ -50,7 +50,7 @@ folder-per-skill exercise with no harness modifications.
 
 Google's [Gemma 4](https://blog.google/technology/developers/gemma-4/)
 (released April 2, 2026) is the first open-weights model family with
-native function calling and Day-0 vLLM support. GemmaForge uses the
+native function calling and Day-0 vLLM support. gemma-forge uses the
 **31B Dense Instruct** variant in **bf16 full precision** — no
 quantization, no compromises on reasoning quality.
 
@@ -232,7 +232,7 @@ triage, and cross-run memory work for any skill.
 | **Jaeger** | Distributed tracing — per-request trace visualization |
 | **Prometheus** | Metrics collection — throughput, latency, GPU utilization |
 | **Grafana** | Dashboards — operational monitoring |
-| **GemmaForge Dashboard** | Live task graph heatmap, agent activity, event stream |
+| **gemma-forge Dashboard** | Live task graph heatmap, agent activity, event stream |
 
 The dashboard renders a **waffle-chart heatmap** of all work items,
 color-coded by state (green = completed, cyan = active, amber =

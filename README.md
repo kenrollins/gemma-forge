@@ -1,4 +1,4 @@
-# GemmaForge
+# gemma-forge
 
 > An exploration of Ralph loop architecture and Gemma 4 at the edge — building your own agentic harness, from scratch.
 >
@@ -18,7 +18,7 @@
 
 ## What this is
 
-GemmaForge explores whether a smaller open-weights model on edge
+gemma-forge explores whether a smaller open-weights model on edge
 hardware can solve real problems autonomously — if you give it the
 right harness. It combines two architectures:
 

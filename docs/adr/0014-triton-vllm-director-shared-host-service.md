@@ -8,7 +8,7 @@
 ## Context
 
 ADR-0001 picked vLLM as the inference server, deployed as four
-dedicated vLLM containers inside the GemmaForge `docker-compose.yml`,
+dedicated vLLM containers inside the gemma-forge `docker-compose.yml`,
 each statically loaded with one Gemma 4 variant for one agent role.
 That decision was correct *for a single demo* and is still valid for
 the underlying engine (vLLM remains the right inference engine —
@@ -94,7 +94,7 @@ All processes use `--model-control-mode=explicit`, sharing the same
 
 ### Client contract
 
-GemmaForge is a **client** of this service, not its owner. The harness
+gemma-forge is a **client** of this service, not its owner. The harness
 reads two environment variables:
 
 - `TRITON_DIRECTOR_URL` — base URL for the routing layer (or for the
@@ -102,7 +102,7 @@ reads two environment variables:
 - `TRITON_MODEL_REPO` — read-only path for verification only, never
   written to from the client
 
-GemmaForge **never**:
+gemma-forge **never**:
 
 - writes to `/data/triton/models/`
 - restarts Triton systemd units
@@ -178,7 +178,7 @@ This is now part of the demo narrative, not a backstage step.
   Ray Serve deployment can do so without changing the model files
   on disk.
 - **No `docker compose down` blast radius.** Triton lives outside the
-  GemmaForge compose project, so demo cleanup never accidentally
+  gemma-forge compose project, so demo cleanup never accidentally
   disturbs the inference layer or the model catalog.
 
 ### Negative / accepted trade-offs
@@ -203,7 +203,7 @@ This is now part of the demo narrative, not a backstage step.
   a host-setup script in Phase 0.5.
 
 - **The shared host service introduces a coupling** between
-  GemmaForge and the host's inference layer. We mitigate by making
+  gemma-forge and the host's inference layer. We mitigate by making
   the client contract explicit (two env vars, never write to
   `/data/triton/`), documenting it in `docs/host-services.md`, and
   keeping the harness usable against any OpenAI-compatible endpoint

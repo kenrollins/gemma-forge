@@ -1,4 +1,4 @@
-# Adding a skill to GemmaForge
+# Adding a skill to gemma-forge
 
 A **skill** is a self-contained demo scenario that the Ralph loop can
 execute. Adding a new skill is a `cp -r` + edit prompts exercise — no

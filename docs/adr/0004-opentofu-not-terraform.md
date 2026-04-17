@@ -6,7 +6,7 @@
 
 ## Context
 
-GemmaForge needs to provision one or more KVM/libvirt VMs on the
+gemma-forge needs to provision one or more KVM/libvirt VMs on the
 XR7620 host as targets for the Ralph-loop demos. The first such VM is
 a Rocky Linux 9 host running an Nginx + Postgres "mission app"
 (see ADR-0005). Future skills may add additional VMs (e.g., an attacker

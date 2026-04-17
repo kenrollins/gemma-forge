@@ -6,7 +6,7 @@ title: Futures
 
 This section is for ideas that came up during the project, are worth
 preserving, and would be valuable to someone — possibly future-Ken,
-possibly someone else picking up GemmaForge — if and when there's
+possibly someone else picking up gemma-forge — if and when there's
 time, motivation, or external pressure to pursue them.
 
 These are not journey entries. They didn't happen. They are not

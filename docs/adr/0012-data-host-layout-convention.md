@@ -8,7 +8,7 @@
 ## Context
 
 The Dell PowerEdge XR7620 is being used as a multi-tenant demo host:
-multiple distinct demo projects (GemmaForge being the first of several)
+multiple distinct demo projects (gemma-forge being the first of several)
 will run on the same hardware over the host's lifetime. Each project
 has its own source repository, but the projects share infrastructure:
 container runtime, model weights, VM hypervisor, observability backend.
@@ -59,7 +59,7 @@ exactly one of two categories:
 
 The exact subdirectory layout under each service directory is documented
 where the service is defined (ADR-0014 for Triton, this ADR for the
-overall convention). For GemmaForge specifically:
+overall convention). For gemma-forge specifically:
 
 ```
 /data/triton/
@@ -70,7 +70,7 @@ overall convention). For GemmaForge specifically:
 
 /data/vm/
   gemma-forge/
-    pool/       <- libvirt storage pool for GemmaForge VMs
+    pool/       <- libvirt storage pool for gemma-forge VMs
     seed/       <- cloud-init seed ISOs
     snapshots/  <- external snapshots for fast demo reset
     keys/       <- generated SSH keys (NEVER committed; gitignored at the source side)
@@ -89,8 +89,8 @@ overall convention). For GemmaForge specifically:
 2. **Demo projects do not write to `/data/<service>/`** for shared
    services. They consume the service via its endpoint. The Triton
    model repository at `/data/triton/models/` is read-only for
-   GemmaForge; weights are placed there by the host operator's
-   model-download workflow, not by GemmaForge code.
+   gemma-forge; weights are placed there by the host operator's
+   model-download workflow, not by gemma-forge code.
 
 3. **Demo projects read shared-service endpoints from environment
    variables**, not hardcoded paths. The convention is
@@ -110,7 +110,7 @@ overall convention). For GemmaForge specifically:
 5. **Existing host workloads are sacred.** The Docker daemon and
    any containers Ken is already running on the host (langfuse,
    traefik, supabase, etc. — see `docker ps`) must never be
-   disturbed by GemmaForge work. See `feedback_dont_touch_docker.md`
+   disturbed by gemma-forge work. See `feedback_dont_touch_docker.md`
    in the project's memory.
 
 ## Alternatives considered
@@ -153,7 +153,7 @@ overall convention). For GemmaForge specifically:
   pattern, share the same Triton, share the same VM hypervisor, and
   not have to invent its own conventions.
 - **Reference build clarity.** A Federal customer cloning a
-  GemmaForge-style repo can immediately see which parts they need to
+  gemma-forge-style repo can immediately see which parts they need to
   provide on their own host (the `/data/<service>/` services) versus
   which parts they get for free by cloning (the project tree under
   `/data/code/`).

@@ -18,7 +18,7 @@
 
 ## Context
 
-GemmaForge runs four Gemma 4 models concurrently on a Dell PowerEdge
+gemma-forge runs four Gemma 4 models concurrently on a Dell PowerEdge
 XR7620 with 4× NVIDIA L4 GPUs, intended as a Federal reference build.
 The inference server must be:
 
@@ -60,7 +60,7 @@ support** (released 2026-04-02 alongside Gemma 4 itself per the
   pattern (one process serving many models, hot-reloadable, with
   filesystem-based versioning and pluggable backends) is the right
   shape for fleet inference platforms serving dozens of models. It is
-  *not* the right shape for GemmaForge's fixed 4-role architecture
+  *not* the right shape for gemma-forge's fixed 4-role architecture
   where per-GPU container isolation is the *point* (see Consequences
   and ADR-0013). Importantly, Triton supports vLLM as a backend, so
   picking vLLM today is a low-cost reversible decision: a future
@@ -111,14 +111,14 @@ support** (released 2026-04-02 alongside Gemma 4 itself per the
 
 - **vLLM does not provide Triton-style multi-model multiplexing,
   hot model reload, or `config.pbtxt`-based fleet management.** None of
-  these are needed for GemmaForge's fixed 4-role architecture: we run
+  these are needed for gemma-forge's fixed 4-role architecture: we run
   one model per L4 deliberately (ADR-0013), every demo run starts from
   a version-pinned model set for reproducibility, and revving a model
   is "edit one tag in `docker-compose.yml` and `docker compose up -d
   vllm-architect`" — under 30 seconds. The decision is also reversible
   at low cost because vLLM is supported as a Triton backend; a Federal
   customer who standardizes on Triton can wrap our vLLM engines without
-  re-architecting GemmaForge.
+  re-architecting gemma-forge.
 
 ## References
 

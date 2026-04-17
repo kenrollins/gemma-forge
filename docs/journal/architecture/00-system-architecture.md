@@ -11,7 +11,7 @@ related:
   - journey/04-vm-provisioning
   - journey/06-tool-calling
   - journey/11-the-missing-reflector
-one_line: "GemmaForge mapped onto the 5-Layer Enterprise AI Partner Map, with components, industry alternatives, and drill-downs to the architectural patterns at each layer."
+one_line: "gemma-forge mapped onto the 5-Layer Enterprise AI Partner Map, with components, industry alternatives, and drill-downs to the architectural patterns at each layer."
 ---
 
 # System Architecture
@@ -23,10 +23,10 @@ of iteration — not where we planned to be on day one. Every component
 choice has a story behind it, and most of those stories involve
 trying something else first.
 
-An overview of GemmaForge as a system, mapped onto the 5-Layer Enterprise AI
+An overview of gemma-forge as a system, mapped onto the 5-Layer Enterprise AI
 Partner Map. Each layer block shows (1) industry examples — both
 open-source and enterprise-grade — so readers can see what alternatives
-exist at each layer, (2) the components GemmaForge uses at that layer, and
+exist at each layer, (2) the components gemma-forge uses at that layer, and
 (3) the architectural patterns that live primarily at that layer with links
 to their deep treatments.
 
@@ -45,7 +45,7 @@ ideas travel, even when the tool choices don't.
 - **Industry** lists common alternatives so a reader can map the
   implementation back to their own environment. If you can't use what we
   used, the entries here are where you'd look instead.
-- **Components** lists what GemmaForge actually runs at that layer.
+- **Components** lists what gemma-forge actually runs at that layer.
 
 ---
 
@@ -59,19 +59,19 @@ ideas travel, even when the tool choices don't.
 - **Glean** — enterprise search and knowledge assistants (enterprise)
 - **Open WebUI** — self-hosted chat-style application (open source)
 
-**GemmaForge components**
+**gemma-forge components**
 - **STIG Remediation Skill** — declarative skill manifest plus per-role
   prompts that instruct the harness how to approach DISA STIG compliance
   on a Rocky Linux 9 target. This is the end-user mission the project
   solves for.
-- **GemmaForge Dashboard** — Next.js live and replay UI that renders the
+- **gemma-forge Dashboard** — Next.js live and replay UI that renders the
   Ralph loop event stream in real time, with a pipeline view, a current-
   step panel, and a scrollable event log.
-- **GemmaForge Journal Site** — this static site, served by GitHub Pages,
+- **gemma-forge Journal Site** — this static site, served by GitHub Pages,
   built from the project's engineering notes.
 
 **Patterns at this layer**
-- *(None declared yet.)* L5 content in GemmaForge is primarily
+- *(None declared yet.)* L5 content in gemma-forge is primarily
   implementation, not architectural patterns. When a second skill is
   added in the future and a "skill-authoring pattern" emerges, it will
   live here.
@@ -82,7 +82,7 @@ ideas travel, even when the tool choices don't.
 
 *RAG pipelines, agents, vector databases, LLM frameworks.*
 
-This is where the Ralph loop itself lives, and where most of GemmaForge's
+This is where the Ralph loop itself lives, and where most of gemma-forge's
 interesting architecture is concentrated. The four key patterns below
 all live at this layer.
 
@@ -101,9 +101,9 @@ all live at this layer.
 - **Google ADK** — the agent development kit used in this project (open
   source, Apache 2.0)
 - **Vector stores** — Pinecone, Qdrant, Weaviate, Milvus (mixed OSS and
-  enterprise; GemmaForge does not currently use a vector store)
+  enterprise; gemma-forge does not currently use a vector store)
 
-**GemmaForge components**
+**gemma-forge components**
 - **Google ADK (Agent Development Kit)** — pre-1.0 but stable enough for
   `LoopAgent` and `FunctionTool` use. Provides the agent turn abstraction
   and the tool-calling machinery.
@@ -166,7 +166,7 @@ engines that run them.*
 - **NVIDIA NIM** — NVIDIA's microservices packaging of the above,
   license-gated (enterprise)
 
-**GemmaForge components**
+**gemma-forge components**
 - **Gemma 4 31B bf16** — the sole LLM used for Architect, Worker, and
   Reflector roles. Full precision, no quantization.
 - **vLLM 0.19.0** — OpenAI-compatible REST API, direct calls (no proxy,
@@ -206,7 +206,7 @@ stores, and LLM observability.*
 - **MLflow / Weights & Biases** — experiment tracking and model registry
   (open source / enterprise tiers)
 
-**GemmaForge components**
+**gemma-forge components**
 - **OpenTelemetry collector** — ingests spans, metrics, and logs from the
   harness and the vLLM services
 - **Jaeger** — distributed tracing backend; the run-by-run trace view
@@ -242,7 +242,7 @@ hardware that underlies everything above.*
   source)
 - **VMware vSphere** — enterprise virtualization (enterprise)
 
-**GemmaForge components**
+**gemma-forge components**
 - **Dell PowerEdge XR7620** — the reference host. 2× Intel Xeon Gold
   6442Y (96 threads), 256 GB RAM, 4× NVIDIA L4 (24 GB each), no NVLink.
   The XR7620 is the lab environment; the techniques apply to any

@@ -26,7 +26,7 @@ idea first showed up.
 
 ## The observation
 
-Every Ralph-loop run on the GemmaForge harness produces a specific
+Every Ralph-loop run on the gemma-forge harness produces a specific
 shape of data, by construction:
 
 - **Per agent turn** — Architect, Worker, Auditor, Reflector. Each
@@ -68,7 +68,7 @@ Most fine-tuning datasets in the wild are one of:
    transcripts, code review history, search-and-click logs. Lots of
    data, no clean signal.
 
-GemmaForge produces something different: **agent traces with
+gemma-forge produces something different: **agent traces with
 deterministic outcome labels.** Every Worker action is paired with
 a scanner result that says, in binary, whether the action achieved
 the intended state. Every Architect verdict is paired with what
@@ -133,7 +133,7 @@ agentic systems. Closed-weights vendors offer none of these:
   used for fine-tuning leaves your environment to the cloud provider.
   Federal sovereignty story collapses.
 
-GemmaForge with open weights:
+gemma-forge with open weights:
 - Data stays on the host (Postgres + Neo4j on the XR7620).
 - Fine-tuning runs on the host (PyTorch + PEFT or Unsloth, using the
   same 4× L4 GPUs that run inference).

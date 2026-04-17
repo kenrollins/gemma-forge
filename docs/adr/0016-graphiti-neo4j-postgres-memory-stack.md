@@ -70,7 +70,7 @@ external dependencies** — it is not **no infrastructure**. The
 XR7620 is a real production edge server with Docker-hosted production
 workloads, Supabase (Postgres), Qdrant, ClickHouse, MinIO, and Redis
 already running. One more Neo4j instance and a Postgres instance
-scoped to GemmaForge do not violate sovereignty; they match it.
+scoped to gemma-forge do not violate sovereignty; they match it.
 
 ## Decision
 
@@ -79,7 +79,7 @@ Adopt a three-part memory storage architecture:
 1. **Reflective tier: Graphiti-on-Neo4j.** Bi-temporal graph memory
    for cross-run historical state. One Neo4j instance, one named
    database per skill. Graphiti provides the storage, temporal logic,
-   and hybrid retrieval. GemmaForge builds the **dream pass** — the
+   and hybrid retrieval. gemma-forge builds the **dream pass** — the
    between-runs consolidation job that performs outcome-driven credit
    assignment, supersession, abstraction-loss recovery, environment
    tagging, and semantic linking — as a layer on top.
@@ -99,7 +99,7 @@ Host layout:
 /data/vm/          — target VMs (existing)
 ```
 
-The distinctive contribution of GemmaForge on the memory side is
+The distinctive contribution of gemma-forge on the memory side is
 **outcome-driven credit assignment applied to agentic infrastructure
 operations**, not the memory primitives. The primitives are adopted
 from the current frontier.
@@ -182,7 +182,7 @@ from the current frontier.
   tab showing supersession events, provenance chains).
 - [ADR-0012](0012-data-host-layout-convention.md) is extended (not
   superseded) to include `/data/neo4j/` and `/data/postgres/` as
-  standard GemmaForge host services.
+  standard gemma-forge host services.
 - Re-opens the database decision recorded in
   [Journey 22](../journal/journey/22-context-graphs-and-the-memory-question.md).
   That decision (SQLite) was correct for its time and is replaced,
@@ -197,7 +197,7 @@ call; they refine where the services live.
 
 ### Amendment 1: Postgres pivot to shared Supabase, per-skill schemas
 
-The original decision called for a **GemmaForge-scoped Postgres
+The original decision called for a **gemma-forge-scoped Postgres
 instance** at `/data/postgres/`, with **one database per skill**
 (`gemma_forge_stig`, etc.). During Phase A implementation, two
 points were raised and accepted:
@@ -239,7 +239,7 @@ Revised shape:
 
 The original decision placed Neo4j data at `/data/neo4j/` (i.e.,
 claiming the service root). That works in the short term but makes
-GemmaForge a bad host citizen: a second demo on this XR7620 that
+gemma-forge a bad host citizen: a second demo on this XR7620 that
 also wants Neo4j has to share this instance or install elsewhere.
 
 Revised path: `/data/neo4j/gemma-forge/`. Service-typed top-level,

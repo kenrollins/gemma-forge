@@ -6,7 +6,7 @@
 
 ## Context
 
-GemmaForge is a Federal reference build. In RHEL-based Federal
+gemma-forge is a Federal reference build. In RHEL-based Federal
 environments, **Podman** is the default container runtime: it's
 daemonless (smaller attack surface), rootless-capable, FIPS-friendly,
 ships in RHEL by default, and is what most Federal customers will
@@ -15,7 +15,7 @@ already be running on the production hosts they'll deploy this onto.
 At the same time, the **reference XR7620 Ken builds this on already
 runs Docker** with multiple unrelated production workloads. Migrating
 that host to Podman would risk breaking unrelated services for no
-demonstrable benefit to GemmaForge itself — the cost of an outage on
+demonstrable benefit to gemma-forge itself — the cost of an outage on
 those workloads is much higher than the marginal Federal-alignment
 benefit of switching runtimes on this single host.
 
@@ -27,7 +27,7 @@ We need a story that:
 
 ## Decision
 
-GemmaForge ships a **single `docker-compose.yml` written to the plain
+gemma-forge ships a **single `docker-compose.yml` written to the plain
 Compose v2 specification**. Compose v2 is the format that **both**
 `docker compose` (v2 plugin) and `podman compose` consume natively, so
 the same file is the source of truth on both runtimes.

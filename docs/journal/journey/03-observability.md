@@ -35,7 +35,7 @@ stack, Qdrant, ClickHouse, MinIO, Redis, Mattermost, Traefik, and
 Unstructured.
 
 This triggered the "shared host service" insight: if Langfuse is already
-running, GemmaForge should connect to it as a client, not spin up its
+running, gemma-forge should connect to it as a client, not spin up its
 own copy.
 
 ### Discovery 2: Langfuse has security issues
@@ -44,7 +44,7 @@ Langfuse had surfaced security issues that made migrating off it
 attractive — specifically, wanting something more Federal-credible
 that would run only on this host.
 
-This was the tipping point. Building GemmaForge to depend on a product
+This was the tipping point. Building gemma-forge to depend on a product
 the host operator is migrating away from is a strategic mistake.
 
 ### The pivot: OTel-pure
@@ -72,7 +72,7 @@ Five containers vs Langfuse's six. Net headcount actually goes down.
 ## The Federal-credibility argument
 
 Every Federal observability team already runs OTel + Prometheus + Grafana.
-GemmaForge's traces are immediately legible in their existing tools
+gemma-forge's traces are immediately legible in their existing tools
 without translation. "We use the same observability stack you do" is a
 stronger answer than "we use this third-party LLM-specific product you
 haven't heard of."

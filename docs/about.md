@@ -2,11 +2,11 @@
 title: About
 ---
 
-# About GemmaForge
+# About gemma-forge
 
 ## What this project is
 
-GemmaForge is a personal exploration by **Ken Rollins**, Chief AI
+gemma-forge is a personal exploration by **Ken Rollins**, Chief AI
 Technology Strategist in Dell Federal, into two things in combination:
 
 1. **Ralph loop architecture** — a pattern for autonomous-but-accountable
@@ -30,7 +30,7 @@ a wide range of problem spaces. STIG is the witness, not the point.
   produced, endorsed, or reviewed through any official Dell channel.
   Views, technical findings, and opinions represented here are the
   author's own and do not represent an official Dell position.
-- **Not a commercial agentic-AI framework.** GemmaForge deliberately
+- **Not a commercial agentic-AI framework.** gemma-forge deliberately
   rolls its own harness on open components so the whole thing can be
   read, reasoned about, and reused. It is reference material, not a
   platform.
@@ -45,7 +45,7 @@ Most agentic-AI demos are beautiful when they work and have nothing
 useful to say when they don't. They show the happy path, skip the
 recovery, and hide the source so no one can learn from the build.
 
-GemmaForge is the opposite. The code is open. Every failure mode is
+gemma-forge is the opposite. The code is open. Every failure mode is
 documented. Every architectural decision has a journal entry
 explaining what was tried, what failed, and what we landed on
 instead. Every known limitation is called out honestly rather than
@@ -73,7 +73,7 @@ surprising strengths (see [journey/12](journal/journey/12-bf16-tp4-full-precisio
 
 ## The collaboration
 
-GemmaForge was built in an agentic coding workflow — a human operator
+gemma-forge was built in an agentic coding workflow — a human operator
 paired with an AI coding assistant, with the human making every
 architectural and strategic decision and the AI contributing
 implementation velocity, test coverage, and documentation drafting.
@@ -84,7 +84,7 @@ at [journey/16 — Capturing Lightning](journal/journey/16-agentic-coding-as-a-m
 
 ## License
 
-GemmaForge is released under the **Apache License 2.0**, matching the
+gemma-forge is released under the **Apache License 2.0**, matching the
 license of the Gemma 4 model family. See `LICENSE` in the repository
 root for the full text.
 

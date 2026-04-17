@@ -35,7 +35,7 @@ understand every design decision firsthand, and run it on a Dell
 PowerEdge XR7620 with four NVIDIA L4 GPUs. No cloud dependency. No
 internet required. Everything local.
 
-**Why "GemmaForge" as a project name?** Gemma, obviously, because
+**Why "gemma-forge" as a project name?** Gemma, obviously, because
 this is built around Google's Gemma 4 model. And Forge because of
 what the system represents — a controlled environment where raw
 material gets heated, shaped, and refined through repeated cycles
@@ -115,7 +115,7 @@ hardware.
 
     ---
 
-    The 5-layer enterprise AI stack map with GemmaForge's components
+    The 5-layer enterprise AI stack map with gemma-forge's components
     at each layer, industry alternatives (open-source and enterprise),
     and the six failure modes in reflexive agent harnesses.
 
@@ -172,7 +172,7 @@ hardware.
 
 <div style="background: linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(239, 68, 68, 0.05)); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px 8px 0 0; padding: 1.2rem 1.5rem;">
 <h3 style="color: #EF4444;">&#9316; Layer 5 — Application</h3>
-<p style="margin: 0.3rem 0;"><strong>STIG Remediation Skill</strong> · <strong>GemmaForge Dashboard</strong> · <strong>This Documentation Site</strong></p>
+<p style="margin: 0.3rem 0;"><strong>STIG Remediation Skill</strong> · <strong>gemma-forge Dashboard</strong> · <strong>This Documentation Site</strong></p>
 <p style="margin: 0.3rem 0; opacity: 0.7; font-style: italic; font-size: 0.85rem;">Where the user sees results. Skills are pluggable — STIG is the first, not the only.</p>
 </div>
 

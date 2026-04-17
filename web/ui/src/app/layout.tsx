@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "GemmaForge — Sovereign Edge AI",
+  title: "gemma-forge — Sovereign Edge AI",
   description:
     "Air-gapped agentic infrastructure remediation on the Dell PowerEdge XR7620. Gemma 4 + vLLM + Ralph loops.",
 };

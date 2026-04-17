@@ -6,7 +6,7 @@
 
 ## Context
 
-The first GemmaForge skill is autonomous DISA STIG remediation against
+The first gemma-forge skill is autonomous DISA STIG remediation against
 a representative Federal target host. Federal production is
 overwhelmingly **Red Hat Enterprise Linux 9** in the unclassified-and-up
 tiers we're targeting. The honest, customer-credible choice for the

@@ -14,7 +14,7 @@ one_line: "The loop worked for STIG, but every variable said 'STIG.' The next mo
 
 ## The story in one sentence
 
-The STIG remediation loop worked, but the whole point of GemmaForge
+The STIG remediation loop worked, but the whole point of gemma-forge
 was never STIG — it was the harness. If the harness couldn't run a
 different skill without code changes, there was no platform. Just a
 script.
@@ -41,7 +41,7 @@ Skills are becoming a recognized pattern in the agent ecosystem.
 Anthropic's MCP established tool-use protocols. LangChain and CrewAI
 converged on pluggable task definitions. The idea that an agent
 harness should separate *what it does* from *how it orchestrates*
-has moved from novel to expected. GemmaForge needed to follow
+has moved from novel to expected. gemma-forge needed to follow
 that pattern — not because it was trendy, but because it was right.
 A harness that can only run one demo is a prototype. A harness with
 a skills interface is infrastructure.

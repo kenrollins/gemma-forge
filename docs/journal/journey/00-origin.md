@@ -1,7 +1,7 @@
 ---
 id: journey-00-origin
 type: journey
-title: "The Origin of GemmaForge"
+title: "The Origin of gemma-forge"
 date: 2026-04-09
 tags: [L5-application, L4-orchestration, decision]
 related:
@@ -9,10 +9,10 @@ related:
   - journey/02-model-strategy
   - architecture/00-system-architecture
   - architecture/01-reflexive-agent-harness-failure-modes
-one_line: "How GemmaForge went from 'what could we credibly show a Federal customer on an XR7620' to 'an exploration of Ralph loops and Gemma 4 at the edge with a roll-your-own harness.'"
+one_line: "How gemma-forge went from 'what could we credibly show a Federal customer on an XR7620' to 'an exploration of Ralph loops and Gemma 4 at the edge with a roll-your-own harness.'"
 ---
 
-# The Origin of GemmaForge
+# The Origin of gemma-forge
 
 The project began at the intersection of two interests. The first was Ralph loops and agentic harness architectures: the pattern where a persistent agent grinds through a problem, failing and retrying and learning from each failure, until it either solves it or provably can't. Reading Ghuntley's Ralph writeup and the Reflexion paper was enough to see the shape of it, but not enough to understand it. The best way to actually understand a pattern like this is to build one yourself.
 
@@ -44,4 +44,4 @@ STIG is the anchor, not the only use case. The skills system was in the design f
 
 ## What this is not
 
-GemmaForge is not a product, not an official Dell reference architecture, and not a competitor to commercial agentic-AI platforms. It is personal exploration published as reference material, built to teach the patterns, not to sell a solution.
+gemma-forge is not a product, not an official Dell reference architecture, and not a competitor to commercial agentic-AI platforms. It is personal exploration published as reference material, built to teach the patterns, not to sell a solution.

@@ -1,4 +1,4 @@
-site_name: GemmaForge
+site_name: gemma-forge
 site_description: "An exploration of Ralph loop architecture and Gemma 4 at the edge — building your own agentic harness, from scratch."
 site_author: Ken Rollins
 site_url: https://kenrollins.github.io/gemma-forge/
@@ -191,7 +191,7 @@ extra:
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/kenrollins/gemma-forge
-      name: GemmaForge on GitHub
+      name: gemma-forge on GitHub
   tags:
     L5-application: l5
     L4-orchestration: l4

@@ -56,7 +56,7 @@ Air-gapped and sovereign edge deployments must plan for this gap because:
    (Google DeepMind, vLLM project, HuggingFace, NVIDIA). Synchronizing
    them is nobody's job.
 
-## How GemmaForge handles it
+## How gemma-forge handles it
 
 The approach: **maintain the ability to compose components at different
 release cadences** rather than pinning to a single vendor's stack.

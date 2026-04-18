@@ -13,23 +13,11 @@ one_line: "I replaced the flat work-item queue with a DAG-based task graph that 
 
 # The Task Graph: From Flat Queue to Live DAG
 
-## The story in one sentence
+The v3 harness processed work items from a flat list. Five AIDE rules all depended on `aide_build_database`, and the flat list didn't know that — it let all five discover the same prerequisite failure independently. 83 minutes of wall time, burned on a question the architecture should have been able to answer before it was asked.
 
-The overnight run proved the loop works; the interface extraction
-proved it generalizes; the task graph is what makes that
-generalization *visible* — a live DAG where the audience watches
-green wash across 120 nodes as the harness grinds through them.
+That's the first cost. The second is invisible: two rules that touch entirely different resources could run in parallel, but the flat queue serializes everything. Each 20-minute escalation blocks the pipeline behind it.
 
-## Why this is its own entry
-
-This is where the frontend story and the harness story converge. The
-structured run logger ([`journey/12.5`](12.5-structured-run-logger.md))
-produced events. The interface extraction
-([`journey/20`](20-the-interface-extraction.md)) produced skill-agnostic
-work items. The task graph adds *structure* — and structure is
-what you can visualize.
-
----
+The third cost is the one the audience notices: a flat queue produces a progress bar. A graph produces a map of the problem space — you can see *where* the hard problems are clustered, *why* some items are blocked, and which category is actually paying the bill for the time that isn't being spent on remediations. Once you've seen a live DAG of 120 work items with green washing across the nodes, you can't go back to the progress bar.
 
 ## What the flat queue couldn't do
 

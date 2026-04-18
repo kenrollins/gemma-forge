@@ -13,22 +13,9 @@ one_line: "Before building v4, I stopped to ask whether I was reinventing wheels
 
 # Standing on Whose Shoulders?
 
-## The story in one sentence
+Two overnight runs, five architectural fixes, and a working 78% fix rate on a hard workload. The tempting thing was to keep building. The right thing was to stop and check whether the fixes being planned were already standard in the field — or whether the architecture had quietly wandered into novel territory that needed a better name than "v3."
 
-After two overnight runs and five architectural fixes, I paused
-before committing to v4 to ask: is this doing something novel, is it
-catching up with what others did months ago, and were the right
-choices made — because ripping and replacing now is cheaper than
-discovering I was wrong after three more improvements.
-
-## Why this is its own entry
-
-This is a decision moment, not a coding moment. The research changed
-what got built next and how the project is framed. Without it, v4
-would have been three more STIG-specific improvements. With it, v4
-became an interface extraction that makes the harness skill-agnostic.
-
----
+A day of reading changed what got built next and how the project is framed. Without it, v4 would have been three more STIG-specific improvements. With it, v4 became an interface extraction that makes the harness skill-agnostic. The cost of ripping-and-replacing now is small. The cost of discovering three improvements later that the whole direction was wrong would not be.
 
 ## What I found
 

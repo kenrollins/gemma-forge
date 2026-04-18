@@ -13,24 +13,9 @@ one_line: "I realized the harness and the STIG skill were the same code — and 
 
 # The Interface Extraction: Ripping the Engine Apart Mid-Flight
 
-## The story in one sentence
+The harness had just remediated 93 STIG rules overnight. The v3 fixes held. The demo was ready. The sensible move was to stop and ship.
 
-The harness had remediated 93 STIG rules overnight, and I tore it
-apart anyway — because the thing that made it work for STIG was
-the same thing that would prevent it from working for anything else.
-
-## Why this is its own entry
-
-The research pass ([`journey/19`](19-research-and-v4-architecture.md))
-defined *what* to build. This entry is about the terrifying moment
-of having working code, a demo deadline, and deciding to refactor the
-core loop anyway — and the engineering discipline that made it land.
-
----
-
-## The problem I couldn't ignore
-
-Look at this line from ralph.py, the heart of the harness:
+Instead I opened `ralph.py` and stared at one line:
 
 ```python
 eval_result = await evaluate_fix(
@@ -38,26 +23,13 @@ eval_result = await evaluate_fix(
 )
 ```
 
-`evaluate_fix` calls `mission_healthcheck` (SSH to the VM), then
-`stig_check_rule` (OpenSCAP on the VM), then `read_recent_journal`
-(journald on the VM). Every one of those is STIG-on-a-VM-specific.
+That's the heart of the harness. It calls `mission_healthcheck` (SSH to the VM), then `stig_check_rule` (OpenSCAP on the VM), then `read_recent_journal` (journald on the VM). Every one of those is STIG-on-a-VM-specific. A second skill — code repair, configuration drift, anything else — would require forking the loop, gutting the middle, copy-pasting the outer structure. The harness was not a harness. It was a STIG remediation script that happened to have good architecture around it.
 
-Now imagine writing a skill for automated test repair — fixing
-failing tests in a CI pipeline. There's no VM. There's no OpenSCAP.
-The evaluator just runs the test suite and checks for green. But
-the revert is a `git checkout`, not a VM snapshot. You'd have
-to... fork ralph.py? Rewrite the evaluation? Copy-paste the loop
-and gut the middle?
-
-That's the moment the problem became undeniable. The harness wasn't
-a harness — it was a STIG remediation script that happened to have
-good architecture around it.
+So I ripped the engine apart mid-flight, with working code and a demo deadline, because the thing that made it work for STIG was the same thing that would prevent it from working for anything else.
 
 ## The five interfaces
 
-I stared at the code and asked: what does the harness *actually*
-need from a skill? Not "what does STIG provide" — what does the
-*loop* need?
+What does the harness *actually* need from a skill? Not "what does STIG provide" — what does the *loop* need?
 
 Five things:
 

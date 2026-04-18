@@ -13,24 +13,9 @@ one_line: "v3 ran for 9.5 hours and remediated 93 of 120 STIG rules autonomously
 
 # The Second Overnight Run: 93 Rules, and What the Other 26 Teach
 
-## The story in one sentence
+The first overnight run fixed 2 STIG rules in 10 hours. The second overnight run fixed 93 in 9.5. The v3 fixes landed and the harness stopped lying to itself about what the Worker was doing — the 15-to-1 discrepancy from [entry 14](14-overnight-run-findings.md) vanished, first-try success hit 79%, and the median time-to-remediation dropped to 34 seconds.
 
-The v3 harness ran 9.5 hours on the same STIG workload that v2 barely
-dented, autonomously remediating 93 of 120 rules (78%), but the 26
-escalated rules consumed 69% of wall time — and the patterns in those
-failures point to three harness-level architectural improvements that
-aren't about STIG at all.
-
-## Why this is its own entry
-
-The first overnight run
-([`journey/14`](14-overnight-run-findings.md)) found the flaws that
-produced the v3 fix pass. This second run validates that those fixes
-worked — and then reveals the *next layer* of architectural questions.
-The pattern of "ship, observe, analyze, improve" is the Ralph loop
-applied to the harness itself.
-
----
+Then the 26 that escalated took 69% of the wall time, and the pattern in those failures was not about STIG. It was about the harness — three architectural questions the v3 fixes didn't answer, and that the v2 run was too broken to expose.
 
 ## What the numbers say
 

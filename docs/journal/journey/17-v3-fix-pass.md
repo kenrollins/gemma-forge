@@ -17,21 +17,9 @@ one_line: "After the overnight run revealed multiple architectural flaws, I impl
 
 # The v3 Fix Pass: Five Architectural Changes in One Push
 
-## The story in one sentence
-Once the overnight run postmortem (see
-[`journey/14`](14-overnight-run-findings.md)) had surfaced four
-architectural flaws — and a fifth that emerged while fixing the first
-four — I stopped, renamed the loop revision "v3," and implemented the
-five changes in sequence, each one testable in isolation before moving
-on to the next.
+The [overnight run postmortem](14-overnight-run-findings.md) surfaced four architectural flaws. A fifth emerged while fixing the first four. Renamed the loop revision "v3," stopped taking new features, and did the five changes in order, each testable in isolation before moving to the next. Five improvement documents were written alongside the code — each fix gets its own design and rationale elsewhere.
 
-## Why this is its own entry
-
-The individual fixes each have their own improvement document with
-design and rationale. This entry is the *narrative* — the order I
-worked in, the discoveries that came out of each fix, and the
-interactions between them. It's the layer of the story that the
-per-fix documents deliberately don't cover.
+This entry is the narrative layer the per-fix documents deliberately don't cover: the order the fixes had to happen in, the discoveries that came out of each one, and the interactions between them that only appeared after two or three had landed.
 
 ## The five fixes in the order I did them
 
@@ -54,8 +42,10 @@ prompt overflowed.
 **Why the harness cap matters even with the prompt**: the prompt
 alone is a 90%-effective fix. The harness cap is defense in depth —
 it guarantees the invariant holds even if the LLM decides to ignore
-the prompt. In any production context, "the model was told not to"
-is not a safety argument.
+the prompt.
+
+!!! quote ""
+    In any production context, "the model was told not to" is not a safety argument.
 
 **Verified with**: a live LLM smoke test. A Worker agent given a
 loose prompt ("if it fails, try something different") tried to

@@ -188,7 +188,17 @@ cmd_down() {
 }
 
 cmd_run() {
-    local skill="${1:-stig-rhel9}"
+    local skill="stig-rhel9"
+    local config=""
+
+    # Parse args: first positional is skill (optional); --config <path> optional.
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --config) config="$2"; shift 2 ;;
+            -h|--help) echo "Usage: forge run [skill] [--config path]"; return 0 ;;
+            *) skill="$1"; shift ;;
+        esac
+    done
 
     if _is_running "$RUN_PID_FILE"; then
         echo -e "${YELLOW}A run is already active (PID $(_pid_of "$RUN_PID_FILE")).${NC}"
@@ -248,7 +258,12 @@ cmd_run() {
     echo -e "${PURPLE}Starting Ralph loop (skill: ${skill})...${NC}"
 
     cd "$FORGE_ROOT"
-    "${VENV}/python" -m gemma_forge.harness.ralph --skill "$skill" \
+    local config_args=()
+    if [[ -n "$config" ]]; then
+        config_args=(--config "$config")
+        echo -e "  ${BLUE}Using config: $config${NC}"
+    fi
+    "${VENV}/python" -m gemma_forge.harness.ralph --skill "$skill" "${config_args[@]}" \
         &>/tmp/forge-run.log &
     echo $! > "$RUN_PID_FILE"
 

@@ -53,7 +53,8 @@ The Auditor doesn't need to be SMARTER than the Architect. It needs
 to THINK DIFFERENTLY. Same model evaluating its own work has the same
 blind spots. A different model family catches systematic biases.
 
-This is the red team / blue team principle applied to agentic AI.
+!!! quote ""
+    Red team / blue team, applied to agentic AI.
 
 ## The revised architecture
 

@@ -80,9 +80,10 @@ The whole point of the Ralph loop — the thing that differentiates it from
 
 A fixed attempt cap directly undercuts that thesis. It says "the model failed
 3 times in a row, therefore it cannot solve this problem" — which is the exact
-opposite of what persistence-first means. Persistence-first says "the model
-will keep working until *physics* says stop, and physics means either wall
-clock or provably diminishing returns, not an arbitrary counter".
+opposite of what persistence-first means.
+
+!!! quote ""
+    Persistence-first says the model keeps working until *physics* says stop, and physics means wall clock or provably diminishing returns — not an arbitrary counter.
 
 The academic cap of 3 makes sense in a paper where the experiment is measuring
 a benchmark of 200 tasks and you need bounded runtime per task. This experiment

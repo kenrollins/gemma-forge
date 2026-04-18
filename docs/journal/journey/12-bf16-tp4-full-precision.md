@@ -42,6 +42,9 @@ The surprise: at sustained generation (256+ tokens), bf16 tp=4
 (9.8 tok/s at 128 tokens — the 4-way all-reduce startup overhead)
 but it converges.
 
+!!! quote ""
+    Full precision, no quantization loss, 72% more KV cache headroom than the NVFP4 configuration, all 4 GPUs engaged. On PCIe hardware without NVLink — the case where full precision on 4 GPUs is supposed to be the slow choice.
+
 The GB10 row is included as a reference data point because its
 published bandwidth-bound throughput for this model is commonly cited
 in discussion. It is not a like-for-like comparison — the two platforms

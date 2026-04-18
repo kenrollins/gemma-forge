@@ -87,10 +87,10 @@ judgment reduced to deterministic checks:
 - Are there new errors in the journal since the fix ran?
   (Deterministic, via `journalctl -p err`.)
 
-None of these required an LLM. They required *Python*. An LLM
-evaluator was adding latency, token spend, and a model of the
-world that could be wrong, when a deterministic check would give
-the same answer in a fraction of the time with zero ambiguity.
+None of these required an LLM. They required *Python*.
+
+!!! quote ""
+    An LLM evaluator was adding latency, token spend, and a model of the world that could be wrong, when a deterministic check would give the same answer in a fraction of the time with zero ambiguity.
 
 ### Two models on one box is a distraction, not an advantage
 

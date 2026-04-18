@@ -70,7 +70,12 @@ The thesis of the project is that the agentic harness shapes outcomes as much as
 
 But the curve is bending. The 23-point gain from Run 1 to Run 2 was driven by unblocking the RPM cascade. The 2-point gain from Run 2 to Run 3 was driven by targeted skill refinements (the immutable-audit ordering, the Worker prompt additions). Very little of the Run 3 gain came from the memory system alone doing more of what it did in Run 2.
 
-This is not a failure of the thesis. It is the thesis meeting its boundary. Memory accumulation produces improvement up to the point where stale memory starts costing more than it saves. Production systems will need mechanisms to curate what is stored: environment tagging, weight decay on rebuild, confidence dimensions, or explicit expiration. None of those are implemented yet. Run 4 would need them to avoid further regression.
+This is not a failure of the thesis. It is the thesis meeting its boundary.
+
+!!! quote ""
+    Memory accumulation produces improvement up to the point where stale memory starts costing more than it saves.
+
+Production systems will need mechanisms to curate what is stored: environment tagging, weight decay on rebuild, confidence dimensions, or explicit expiration. None of those are implemented yet. Run 4 would need them to avoid further regression.
 
 ## What we learned about the ordering constraint fix
 

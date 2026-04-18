@@ -163,10 +163,8 @@ story is real here. The same four L4s will get meaningfully faster
 as the inference stack matures. But today, you ship with what
 works.
 
-The lesson for anyone deploying open models at the edge: budget
-time for this maze. The model download is the easy part. Making it
-actually run at acceptable throughput on your specific hardware
-with your specific inference stack is where the real work lives.
+!!! quote ""
+    The model download is the easy part. Making it actually run at acceptable throughput on your specific hardware with your specific inference stack is where the real work lives.
 
 ---
 

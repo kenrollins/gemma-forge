@@ -73,9 +73,10 @@ property of the harness itself**. Properties like:
 
 Each of these is testable without referring to STIG or sudo or apply_fix
 or any specific bug. Each one is a **load-bearing claim about the harness
-architecture.** If a test for one of these properties fails, the right
-question is not "what's the bug?" but "is the abstraction missing or
-wrong?"
+architecture.**
+
+!!! quote ""
+    If a test for one of these properties fails, the right question is not "what's the bug?" but "is the abstraction missing or wrong?"
 
 ## The discipline
 

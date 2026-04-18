@@ -81,8 +81,10 @@ Iteration 6: Architect reads reflection → changes approach for ALL
 ```
 
 The Reflector produces meta-reasoning that changes the Architect's
-STRATEGY, not just its target selection. That's the difference between
-a retry loop and a learning loop.
+STRATEGY, not just its target selection.
+
+!!! quote ""
+    That's the difference between a retry loop and a learning loop.
 
 ## Where to put the Reflector
 

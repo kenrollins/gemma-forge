@@ -76,9 +76,8 @@ what we learned. It drafts the entry in a few seconds. You read it,
 fix the parts it got wrong or oversold, and you're back to building.
 The whole pause takes two minutes.
 
-The discipline isn't *writing*. It's *stopping*. The AI handles
-the writing. You have to be the one who says "wait, this is worth
-capturing" before the momentum carries you past it.
+!!! quote ""
+    The discipline isn't *writing*. It's *stopping*. The AI handles the writing. You have to be the one who says "wait, this is worth capturing" before the momentum carries you past it.
 
 ## The journal as long-term memory
 

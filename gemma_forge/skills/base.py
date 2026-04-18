@@ -66,6 +66,33 @@ class UIConfig(BaseModel):
     ]
 
 
+class DeferUntilConfig(BaseModel):
+    """One predicate expression for an ordering constraint.
+
+    ``predicate`` is the name of a predicate registered in
+    ``gemma_forge.harness.ordering._PREDICATES``. Remaining fields are
+    predicate-specific params passed through as a dict.
+    """
+
+    predicate: str
+    # Remaining fields are free-form per-predicate params; pydantic lets
+    # them through via model_config extra='allow' on the enclosing block.
+    model_config = {"extra": "allow"}
+
+
+class OrderingConstraintConfig(BaseModel):
+    """Skill-declared ordering constraint on a single rule.
+
+    The harness hides ``rule_id`` from the Architect's candidate pool
+    whenever ``defer_until`` evaluates True against current run state.
+    ``reason`` is logged on every rule_deferred event.
+    """
+
+    rule_id: str
+    defer_until: DeferUntilConfig
+    reason: str = ""
+
+
 class SkillManifest(BaseModel):
     """Schema for a skill.yaml manifest file."""
 
@@ -73,6 +100,10 @@ class SkillManifest(BaseModel):
     description: str
     version: str = "0.1.0"
     target_os: str = "Rocky Linux 9"
+
+    # Ordering constraints — skill-declared, harness-enforced. Closes
+    # the "prompt guidance is not enforcement" gap (entry 32, DEF-02).
+    ordering_constraints: list[OrderingConstraintConfig] = []
 
     # Agent prompts — paths relative to the skill directory
     prompts: dict[str, str] = {

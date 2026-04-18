@@ -57,6 +57,11 @@ from gemma_forge.harness.interfaces import (
     WorkItem,
 )
 from gemma_forge.harness.task_graph import TaskGraph, NodeState
+from gemma_forge.harness.ordering import (
+    OrderingConstraint,
+    filter_deferred,
+    load_constraints_from_manifest,
+)
 from gemma_forge.memory.reflector_parser import (
     TIPS_JSON_INSTRUCTIONS,
     parse_tips_json,
@@ -451,15 +456,25 @@ class RunState:
             self.episodic[rule_id] = EpisodicMemory(rule_id=rule_id)
         return self.episodic[rule_id]
 
-    def summary_for_architect(self, budget_tokens: int = 3000) -> tuple[str, dict]:
+    def summary_for_architect(
+        self,
+        budget_tokens: int = 3000,
+        visible_rules: Optional[list] = None,
+    ) -> tuple[str, dict]:
         """Budgeted run-state summary for the Architect's prompt.
 
         Returns (text, assembly_meta). Sections are prioritized so that even
         under tight budget, the architect always sees the high-level counts,
         the top remaining rules, and the semantic memory. Dropped first when
         budget is tight: older remediated / escalated entries.
+
+        If ``visible_rules`` is provided, the Architect's candidate pool is
+        filtered to that subset (used by ordering-constraint enforcement).
+        Otherwise all ``failing_rules`` are visible.
         """
         sections: list[tuple[int, str, str]] = []
+
+        candidate_pool = visible_rules if visible_rules is not None else self.failing_rules
 
         # 0: Run counts — always kept
         header = (
@@ -470,10 +485,10 @@ class RunState:
         sections.append((0, "header", header))
 
         # 1: Top of the failing-rules list (what architect will pick from)
-        if self.failing_rules:
-            n_show = min(15, len(self.failing_rules))
-            lines = [f"Remaining rules (top {n_show} of {len(self.failing_rules)}):"]
-            for r in self.failing_rules[:n_show]:
+        if candidate_pool:
+            n_show = min(15, len(candidate_pool))
+            lines = [f"Remaining rules (top {n_show} of {len(candidate_pool)}):"]
+            for r in candidate_pool[:n_show]:
                 lines.append(f"  - {r['rule_id']}: {r['title']}")
             sections.append((1, "failing_rules", "\n".join(lines)))
 
@@ -720,6 +735,20 @@ async def run_ralph(
 
     if runtime is None:
         raise RuntimeError("No skill specified — the harness requires a skill to run.")
+
+    # Load skill-declared ordering constraints. Empty list is a valid
+    # configuration (most skills won't have any). See ordering.py for
+    # the mechanism; DEF-02 for the motivating pattern.
+    ordering_constraints: list[OrderingConstraint] = (
+        load_constraints_from_manifest(skill.skill_dir) if skill else []
+    )
+    if ordering_constraints:
+        logger.info(
+            "Ordering constraints loaded: %d from %s",
+            len(ordering_constraints), skill.skill_dir.name,
+        )
+        for c in ordering_constraints:
+            logger.info("  - %s (defer via %s)", c.rule_id, c.predicate)
 
     # Single model config — all roles share Gemma bf16 tp=4
     gemma_cfg = models_cfg.get("gemma", {})
@@ -1067,7 +1096,35 @@ async def run_ralph(
             "rules_per_hour": round(rules_processed * 3600 / max(elapsed_run, 1), 2),
         }, include_gpu=True)
 
-        arch_body, arch_meta = state.summary_for_architect(budget_tokens=3000)
+        # Apply ordering constraints: compute which rules the Architect
+        # may see this iteration. Deferred rules are hidden from the
+        # candidate pool until their constraint releases (category
+        # nearly-complete, etc.). See ordering.py; DEF-02.
+        visible_rules, deferred_rules = filter_deferred(
+            state.failing_rules, ordering_constraints,
+        )
+        if deferred_rules:
+            run_log.log("rules_deferred", "harness", {
+                "count": len(deferred_rules),
+                "deferrals": [
+                    {
+                        "rule_id": rule["rule_id"],
+                        "predicate": constraint.predicate,
+                        "params": dict(constraint.params),
+                        "reason": constraint.reason,
+                    }
+                    for rule, constraint in deferred_rules
+                ],
+            })
+        # Fall back to full list if everything ended up deferred — that
+        # should never happen with well-formed constraints, but guard
+        # against a bad manifest locking the harness out of all rules.
+        candidate_pool = visible_rules if visible_rules else state.failing_rules
+
+        arch_body, arch_meta = state.summary_for_architect(
+            budget_tokens=3000,
+            visible_rules=candidate_pool,
+        )
         arch_msg = f"{arch_body}\n\nSelect ONE rule to remediate. Explain your approach."
         run_log.log("prompt_assembled", "architect", {
             "phase": "rule_selection",
@@ -1087,14 +1144,17 @@ async def run_ralph(
                     break
             continue
 
-        # Identify selected rule
+        # Identify selected rule — match against the visible pool only.
+        # If the Architect hallucinates a deferred rule_id (uncommon),
+        # fall back to the first visible rule rather than silently
+        # running a deferred rule.
         selected = None
-        for rule in state.failing_rules:
+        for rule in candidate_pool:
             if rule["rule_id"] in arch_resp or rule["title"].lower() in arch_resp.lower():
                 selected = rule
                 break
         if not selected:
-            selected = state.failing_rules[0]
+            selected = candidate_pool[0]
 
         state.current_rule = selected
         rule_category = selected.get("category", categorize_rule(selected["rule_id"]))

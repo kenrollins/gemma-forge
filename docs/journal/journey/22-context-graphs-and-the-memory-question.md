@@ -58,7 +58,7 @@ learns which strategies are most valuable. The headline result: **a
 4B model with this graph memory outperformed a baseline 8B model.**
 
 !!! quote ""
-    The memory is worth more than the extra parameters.
+    A 4B model with graph memory outperformed an 8B model without it. The memory is worth more than the extra parameters.
 
 That's this project's thesis in a paper. Small edge model + right
 harness + accumulated knowledge = effective solutions.
@@ -163,7 +163,7 @@ write clobbers another. PostgreSQL can, but it's overkill.
 - Portable — clone the repo, the DB creates itself on first run
 
 !!! quote ""
-    The SQLite decision didn't come from the context graph. It came from the clutch. The theoretical architecture is perfectly served by files. The practical mechanism demands concurrent access that only a proper database — even a lightweight one — can provide safely.
+    The SQLite decision didn't come from the context graph. It came from the clutch.
 
 ---
 

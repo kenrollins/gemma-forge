@@ -97,7 +97,14 @@ def _normalize_str_list(value: Any) -> Optional[list[str]]:
 def _validate_tip(obj: dict) -> Optional[dict]:
     """Return a clean tip dict, or None if invalid.
 
-    Required: ``text`` (non-empty), ``tip_type`` (one of the four).
+    Required: ``text`` (non-empty), ``tip_type`` (one of the four),
+    ``mechanism`` (non-empty). Mechanism became required in Run 6 —
+    Run 5 showed tip_type alone doesn't discriminate quality (entry 32).
+    A tip without a causal mechanism is a negative example the Worker
+    will avoid without knowing why, which is the exact failure mode
+    V2 was supposed to fix. Parser drops such tips rather than write
+    them to stig.tips.
+
     Optional: ``trigger_conditions`` (list[str]), ``application_context``
     (list[str]). Unknown fields are dropped silently.
     """
@@ -113,9 +120,17 @@ def _validate_tip(obj: dict) -> Optional[dict]:
     if tip_type not in _VALID_TIP_TYPES:
         logger.debug("reflector_parser: dropping tip with bad tip_type %r", tip_type)
         return None
+    mechanism = obj.get("mechanism")
+    if not isinstance(mechanism, str) or not mechanism.strip():
+        logger.info(
+            "reflector_parser: dropping tip without mechanism field (text=%r)",
+            text[:60],
+        )
+        return None
     return {
         "text": text.strip(),
         "tip_type": tip_type,
+        "mechanism": mechanism.strip(),
         "trigger_conditions": _normalize_str_list(obj.get("trigger_conditions")),
         "application_context": _normalize_str_list(obj.get("application_context")) or [],
     }
@@ -173,7 +188,7 @@ def parse_tips_json(ref_output: str) -> list[dict]:
 
 TIPS_JSON_INSTRUCTIONS = """After your free-text analysis, emit exactly ONE line starting with TIPS_JSON: followed by a JSON object of this shape:
 
-TIPS_JSON: {"tips_to_save": [{"text": "...", "tip_type": "strategy|recovery|optimization|warning", "trigger_conditions": ["...", "..."], "application_context": ["..."]}]}
+TIPS_JSON: {"tips_to_save": [{"text": "...", "tip_type": "strategy|recovery|optimization|warning", "mechanism": "...", "trigger_conditions": ["...", "..."], "application_context": ["..."]}]}
 
 Field guidance:
 - text: one actionable sentence. Self-contained — do not reference "this attempt" or "the Worker"; future runs will read this alone.
@@ -182,6 +197,7 @@ Field guidance:
     recovery — failure-derived advice where the prescription is vague or diagnostic
     optimization — a refinement of a working approach (edge cases, precision)
     warning — a specific pattern or command to avoid
+- mechanism: REQUIRED. One sentence on the CAUSAL WHY. For strategy: why this approach works. For recovery/warning: why the failed approach fails. Describe the mechanism, not the outcome. A tip whose text is "install /bin/true in modprobe.d failed" is not useful without the mechanism "the module was already loaded and modprobe.d only affects future loads, not runtime state." Tips without a mechanism will be dropped by the parser.
 - trigger_conditions: short phrases describing when the tip applies ("audit rule modification", "Rocky 9", "augenrules available"). Optional; emit null or [] when you cannot name any.
 - application_context: skill-scoped identifiers for what this tip applies to (category name, rule family prefix). Optional; defaults to the current rule's category.
 

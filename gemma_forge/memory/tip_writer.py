@@ -43,14 +43,17 @@ _VALID_TIP_TYPES = frozenset({"strategy", "recovery", "optimization", "warning"}
 class Tip:
     """A structured memory unit destined for ``stig.tips``.
 
-    Mirrors the schema in ``migrations/stig/0003_tips_schema.sql``.
+    Mirrors the schema in ``migrations/stig/0003_tips_schema.sql``
+    plus the ``mechanism`` column added in ``0004_tip_mechanism.sql``.
     ``embedding`` and ``trigger_conditions`` are NULL-allowed — Phase G
     populates them as retrieval starts needing them. The Reflector in
     Phase F-next emits trigger_conditions directly when the prompt change
-    lands.
+    lands. ``mechanism`` is optional at the dataclass level to tolerate
+    backfilled tips; the Reflector parser enforces it for new writes.
     """
     text: str
     tip_type: str = "recovery"                  # strategy | recovery | optimization | warning
+    mechanism: Optional[str] = None             # REQUIRED for new tips (Reflector parser enforces)
     trigger_conditions: Optional[list[str]] = None
     application_context: list[str] = field(default_factory=list)
     source_attempt_id: Optional[int] = None
@@ -100,17 +103,18 @@ class TipWriter:
                 cur.execute(
                     """
                     INSERT INTO tips (
-                        text, tip_type, trigger_conditions, application_context,
-                        source_attempt_id, source_run_id, source_rule_id,
-                        outcome_at_source_value, outcome_at_source_confidence,
-                        environment_tag
+                        text, tip_type, mechanism, trigger_conditions,
+                        application_context, source_attempt_id, source_run_id,
+                        source_rule_id, outcome_at_source_value,
+                        outcome_at_source_confidence, environment_tag
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING id
                     """,
                     (
                         tip.text,
                         tip.tip_type,
+                        tip.mechanism,
                         tip.trigger_conditions,        # psycopg maps list→text[]
                         tip.application_context,
                         tip.source_attempt_id,
@@ -150,17 +154,18 @@ class TipWriter:
                     cur.execute(
                         """
                         INSERT INTO tips (
-                            text, tip_type, trigger_conditions, application_context,
-                            source_attempt_id, source_run_id, source_rule_id,
-                            outcome_at_source_value, outcome_at_source_confidence,
-                            environment_tag
+                            text, tip_type, mechanism, trigger_conditions,
+                            application_context, source_attempt_id, source_run_id,
+                            source_rule_id, outcome_at_source_value,
+                            outcome_at_source_confidence, environment_tag
                         )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         RETURNING id
                         """,
                         (
                             tip.text,
                             tip.tip_type,
+                            tip.mechanism,
                             tip.trigger_conditions,
                             tip.application_context,
                             tip.source_attempt_id,

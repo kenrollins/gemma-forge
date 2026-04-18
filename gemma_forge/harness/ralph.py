@@ -836,6 +836,7 @@ async def run_ralph(
             tip = Tip(
                 text=p["text"],
                 tip_type=p["tip_type"],
+                mechanism=p.get("mechanism"),
                 trigger_conditions=p.get("trigger_conditions"),
                 application_context=p.get("application_context") or [category],
                 source_attempt_id=None,   # attempts persisted at rule_complete, FK set later
@@ -858,6 +859,7 @@ async def run_ralph(
                 "tip_id": tip_id,
                 "tip_type": p["tip_type"],
                 "text": p["text"],
+                "mechanism": p.get("mechanism"),  # required on new writes (Run 6+)
                 "rule_id": rule_id,
                 "category": category,
                 "trigger_conditions": p.get("trigger_conditions") or [],

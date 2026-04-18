@@ -1969,19 +1969,123 @@ async def run_ralph(
         "remediated_rules": state.remediated,
         "escalated_rules": state.escalated,
     }
-    run_log.log_summary(summary_data)
 
-    # Persist run summary and close memory store
+    # Persist run summary to Postgres stig.runs. This has to happen
+    # before the dream pass fires so run_dream_pass can read
+    # ended_at + find the completed run.
     mem_store.end_run(mem_run_id, summary_data)
-    # Persist all banned patterns discovered in this run
     for ban in state.semantic.banned_patterns:
-        # Save as attempt-level bans so they're queryable across runs
         mem_store.save_attempt(
             mem_run_id, "_global_ban", 0, "", False, "", "", "", ban, 0.0)
     logger.info("Memory store: %s", mem_store.summary())
     mem_store.close()
 
+    # -- Auto-consolidation: dream pass + eviction sweep -------------------
+    # Runs BEFORE log_summary so the consolidation_complete event lands
+    # in the same JSONL as the rest of the run, before the file closes.
+    # Both passes are idempotent (dream via dreamed_at guard, eviction
+    # via retired_at filter), so a Ctrl-C here and a later manual retry
+    # both work. Failures in either pass are logged but not raised —
+    # the run itself succeeded; consolidation is post-hoc enrichment
+    # that we can retry from the CLI. Entry 32 motivated this wiring.
+    _run_auto_consolidation(
+        run_id=mem_run_id, skill_schema=skill_schema,
+        run_log=run_log, repo_root=Path.cwd(),
+    )
+
+    # log_summary closes the run_log file, so every other event emission
+    # (consolidation_complete above, bans above) must be in the book
+    # by this point.
+    run_log.log_summary(summary_data)
+
     logger.info("Run log: %s", run_log.log_path)
+
+
+def _run_auto_consolidation(
+    run_id: str, skill_schema: str, run_log, repo_root: Path,
+) -> None:
+    """Dream pass + eviction sweep at run-end.
+
+    Both passes are optional from the run's perspective — any failure
+    here is logged and swallowed. Emits a ``consolidation_complete``
+    event with stats so post-hoc analysis can tell what happened.
+    """
+    from gemma_forge.dream.pass_ import run_dream_pass
+    from gemma_forge.memory.eviction import evict_low_utility_tips
+
+    stats: dict = {
+        "run_id": run_id,
+        "dream": {"status": "skipped", "reason": "not-attempted"},
+        "eviction": {"status": "skipped", "reason": "not-attempted"},
+    }
+
+    # Dream pass. The idempotency guard (migration 0005) means this
+    # no-ops if the run was already dreamed — safe to call unconditionally.
+    try:
+        result = asyncio.run(run_dream_pass(
+            run_id=run_id, repo_root=repo_root, skill=skill_schema,
+        ))
+        if result is None:
+            stats["dream"] = {"status": "already_dreamed"}
+        else:
+            stats["dream"] = {
+                "status": "completed",
+                "categories_analyzed": result.categories_analyzed,
+                "lessons_updated": result.lessons_updated,
+                "positive_credit": result.lessons_with_positive_credit,
+                "negative_credit": result.lessons_with_negative_credit,
+                "neutral_credit": result.lessons_with_neutral_credit,
+                "environment_tag": result.environment_tag,
+            }
+    except Exception as exc:  # noqa: BLE001 — consolidation must not block run completion
+        logger.warning("auto-consolidation: dream pass failed: %s", exc)
+        stats["dream"] = {"status": "failed", "error": str(exc)[:300]}
+
+    # Eviction sweep. Uses the skill's Evaluator.metadata for thresholds.
+    # Always runs — eviction is idempotent (WHERE retired_at IS NULL).
+    try:
+        # Load the skill's EvaluatorMetadata for thresholds. Keep this
+        # inline to avoid a tight coupling between ralph.py and the
+        # eviction CLI's helper.
+        import importlib.util
+        skill_dir_name = {"stig": "stig-rhel9"}.get(skill_schema, skill_schema)
+        runtime_path = repo_root / "skills" / skill_dir_name / "runtime.py"
+        spec = importlib.util.spec_from_file_location(
+            f"{skill_schema}_runtime_for_eviction", runtime_path,
+        )
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        ev_meta = None
+        for name in dir(mod):
+            cls = getattr(mod, name)
+            if (isinstance(cls, type) and name.endswith("Evaluator")
+                    and hasattr(cls, "metadata")):
+                ev_meta = cls.metadata
+                break
+        if ev_meta is None:
+            raise RuntimeError("no Evaluator class with .metadata on skill runtime")
+
+        report = evict_low_utility_tips(
+            skill=skill_schema,
+            min_retrievals=ev_meta.min_retrievals_before_eviction,
+            threshold=ev_meta.eviction_threshold,
+        )
+        stats["eviction"] = {
+            "status": "completed",
+            "active_before": report.total_active_tips,
+            "with_evidence": report.tips_with_sufficient_evidence,
+            "retired": report.tips_retired_this_sweep,
+            "active_after": report.remaining_active,
+            "min_retrievals": ev_meta.min_retrievals_before_eviction,
+            "threshold": ev_meta.eviction_threshold,
+        }
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("auto-consolidation: eviction failed: %s", exc)
+        stats["eviction"] = {"status": "failed", "error": str(exc)[:300]}
+
+    run_log.log("consolidation_complete", "system", stats)
+    logger.info("Auto-consolidation: dream=%s eviction=%s",
+                stats["dream"]["status"], stats["eviction"]["status"])
 
 
 def main() -> int:

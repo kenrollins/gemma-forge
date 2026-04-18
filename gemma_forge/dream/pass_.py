@@ -279,18 +279,27 @@ async def run_dream_pass(
     repo_root: Optional[Path] = None,
     skill: str = "stig",
     environment_tag: Optional[str] = None,
-) -> DreamResult:
+    force: bool = False,
+) -> Optional[DreamResult]:
     """Execute the dream pass for a completed run.
 
+    Idempotency: the dream pass updates confidences non-reversibly
+    (``new = old + signal × 0.3``) so running it twice on the same
+    run drifts values. Before starting, this function checks
+    ``stig.runs.dreamed_at`` and returns ``None`` if already set.
+    Pass ``force=True`` to override (policy-change backfills).
+
     Args:
-        run_id: The run identifier (e.g., '20260414-012052' or SQLite-era UUID).
+        run_id: The run identifier (e.g., '20260414-012052').
         repo_root: Path to the repo root (auto-detected if None).
         skill: Graphiti group_id / Postgres schema name.
         environment_tag: Baseline identity tag. Auto-generated from
             current timestamp if not provided.
+        force: Re-run even if dreamed_at is already set.
 
     Returns:
-        DreamResult with summary of what was updated.
+        DreamResult with summary of what was updated, or ``None`` if
+        the guard fired (already dreamed, force=False).
     """
     if repo_root is None:
         repo_root = Path(__file__).resolve().parents[2]
@@ -298,6 +307,21 @@ async def run_dream_pass(
 
     if environment_tag is None:
         environment_tag = f"baseline-{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%d')}"
+
+    # Idempotency guard (migration 0005). Skip if already dreamed
+    # unless explicitly forced. Returns None so the caller can log
+    # "already dreamed, skipping" rather than treating it as an error.
+    with psycopg.connect(_pg_conninfo("forge_admin")) as conn:
+        conn.execute("SET search_path TO stig")
+        row = conn.execute(
+            "SELECT dreamed_at FROM runs WHERE id = %s", (run_id,),
+        ).fetchone()
+    if row and row[0] is not None and not force:
+        logger.info(
+            "dream pass: run_id=%s already dreamed at %s — skipping (pass force=True to override)",
+            run_id, row[0],
+        )
+        return None
 
     logger.info("dream pass: starting for run_id=%s skill=%s env=%s", run_id, skill, environment_tag)
 
@@ -360,5 +384,16 @@ async def run_dream_pass(
     # Step 5: write dream report
     report_path = write_dream_report(result, repo_root)
     logger.info("dream pass: report written to %s", report_path)
+
+    # Step 6: mark the run as dreamed so the idempotency guard above
+    # fires on any subsequent call. Last — if any prior step failed
+    # we want the run eligible for a retry rather than stuck.
+    with psycopg.connect(_pg_conninfo("forge_admin")) as conn:
+        conn.execute("SET search_path TO stig")
+        conn.execute(
+            "UPDATE runs SET dreamed_at = now() WHERE id = %s", (run_id,),
+        )
+        conn.commit()
+    logger.info("dream pass: marked run %s as dreamed_at=now()", run_id)
 
     return result

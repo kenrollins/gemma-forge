@@ -23,7 +23,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
 
-async def main_async(run_id: str | None, env_tag: str | None, skill: str) -> int:
+async def main_async(run_id: str | None, env_tag: str | None, skill: str, force: bool = False) -> int:
     from gemma_forge.dream.pass_ import run_dream_pass
 
     if run_id is None:
@@ -53,7 +53,12 @@ async def main_async(run_id: str | None, env_tag: str | None, skill: str) -> int
         repo_root=REPO_ROOT,
         skill=skill,
         environment_tag=env_tag,
+        force=force,
     )
+
+    if result is None:
+        print(f"dream pass: run {run_id} was already dreamed — skipped (pass --force to re-run)")
+        return 0
 
     print()
     print(f"Dream pass complete for run {result.run_id}")
@@ -72,6 +77,8 @@ def main() -> int:
     ap.add_argument("--run-id", default=None, help="Run ID to analyze (default: most recent)")
     ap.add_argument("--env-tag", default=None, help="Environment baseline tag (default: auto)")
     ap.add_argument("--skill", default="stig", help="Skill / group_id (default: stig)")
+    ap.add_argument("--force", action="store_true",
+                    help="Re-run even if run has already been dreamed (overrides idempotency guard).")
     args = ap.parse_args()
 
     logging.basicConfig(
@@ -80,7 +87,7 @@ def main() -> int:
         datefmt="%H:%M:%S",
     )
 
-    return asyncio.run(main_async(args.run_id, args.env_tag, args.skill))
+    return asyncio.run(main_async(args.run_id, args.env_tag, args.skill, args.force))
 
 
 if __name__ == "__main__":

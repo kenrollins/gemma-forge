@@ -165,6 +165,16 @@ def _retire_tips(
     return updated
 
 
+def _skill_to_schema(skill: str) -> str:
+    """Normalize a caller's ``skill`` string to the Postgres schema name.
+
+    Callers pass either the short schema name (``stig``) or the full
+    skill directory name (``stig-rhel9``). The DB role and schema
+    always use the short form. Strip any hyphen-suffix.
+    """
+    return skill.split("-", 1)[0]
+
+
 def evict_low_utility_tips(
     *,
     skill: str = "stig",
@@ -184,7 +194,8 @@ def evict_low_utility_tips(
     reports them, but performs no UPDATE. Useful for the dream report
     preview before committing.
     """
-    pool = pool or get_pool(f"forge_{skill}")
+    schema = _skill_to_schema(skill)
+    pool = pool or get_pool(f"forge_{schema}")
 
     total_active = _count_active_tips(pool)
     candidates, n_sufficient = _find_eviction_candidates(

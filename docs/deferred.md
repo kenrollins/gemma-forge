@@ -59,14 +59,17 @@ promoted out of this file into active work.
 
 ### DEF-02 — Architect ignores prompt-level ordering guidance
 
+- **Status**: STIG instance **closed 2026-04-18** (commit `16e7b43`) —
+  `audit_rules_immutable` now filtered out of the candidate pool by the
+  skill-declared `ordering_constraints` mechanism. General pattern
+  remains open for future skills.
 - **What**: The Architect's STIG prompt contains the literal instruction
   `"IMPORTANT: Process audit_rules_immutable LAST within audit rules."`
   The Architect read it and ignored it in every run since it was added.
-- **Why deferred**: We fixed the STIG-specific instance via the
-  skill-declared ordering-constraint mechanism (Run 6 work). The general
-  *pattern* — "prompt guidance is not enforcement" — still persists wherever
-  we rely on prompt text for behavioral constraints the Architect might
-  skip.
+- **Why deferred**: The general *pattern* — "prompt guidance is not
+  enforcement" — still persists wherever we rely on prompt text for
+  behavioral constraints the Architect might skip. Next instance will
+  need its own skill-manifest declaration or a richer predicate.
 - **Revisit when**: Any future skill needs rule ordering, sequencing, or
   preconditions that aren't already covered by the `ordering_constraints`
   manifest schema. Candidates we'll see: CVE-response ("apply kernel
@@ -100,34 +103,6 @@ promoted out of this file into active work.
   Cross-check query: lessons where `confidence > 0.5 AND avg_utility < 0.1`.
 - **Context**: [journey/28](journal/journey/28-run-4-and-the-coarseness-problem.md),
   this conversation.
-
-### DEF-08 — Per-prompt lesson-ID logging is missing
-
-- **What**: The harness assembles lessons into each Worker prompt but
-  does not log which lesson IDs were loaded into which rule's
-  invocation. Without that log, the dream pass cannot compute per-(rule,
-  lesson) credit — it has to fall back to category-level, which is
-  exactly what DEF-03 flags as miscalibrated. Run 4's postmortem named
-  this as **highest priority** V2 work.
-- **Why deferred**: V1 of the dream pass shipped against the data we
-  had (category-level), producing Run 4's negative-aggregate result.
-  Adding prompt-time lesson logging is a harness-level change (Worker
-  prompt assembly + event schema) rather than a dream-pass patch, so
-  it sequenced as its own piece of work. Fixing DEF-03 without this
-  first is not possible.
-- **Revisit when**: Before the next attempt at DEF-03. Prompt logging
-  is the precondition — it has to land first, then the dream pass can
-  compute per-lesson credit against real evidence.
-- **Pain signal**: Any time we try to answer "did lesson L help rule
-  R?" and realize the JSONL trace doesn't contain the (rule → lesson)
-  edge at prompt-assembly time. Run 4's postmortem reverse-engineered
-  it from Worker output text — doable once, not sustainable.
-- **Context**: [journey/27](journal/journey/27-building-the-dream-pass.md#L123)
-  ("the harness should log which lesson IDs were loaded into each
-  rule's Worker prompt"),
-  [journey/28](journal/journey/28-run-4-and-the-coarseness-problem.md#L107)
-  ("Per-prompt lesson logging would let the dream pass do real
-  per-lesson credit assignment in V2. **Highest priority.**").
 
 ---
 

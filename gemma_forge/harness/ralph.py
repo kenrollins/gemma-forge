@@ -1988,7 +1988,7 @@ async def run_ralph(
     # both work. Failures in either pass are logged but not raised —
     # the run itself succeeded; consolidation is post-hoc enrichment
     # that we can retry from the CLI. Entry 32 motivated this wiring.
-    _run_auto_consolidation(
+    await _run_auto_consolidation(
         run_id=mem_run_id, skill_schema=skill_schema,
         run_log=run_log, repo_root=Path.cwd(),
     )
@@ -2001,7 +2001,7 @@ async def run_ralph(
     logger.info("Run log: %s", run_log.log_path)
 
 
-def _run_auto_consolidation(
+async def _run_auto_consolidation(
     run_id: str, skill_schema: str, run_log, repo_root: Path,
 ) -> None:
     """Dream pass + eviction sweep at run-end.
@@ -2009,6 +2009,12 @@ def _run_auto_consolidation(
     Both passes are optional from the run's perspective — any failure
     here is logged and swallowed. Emits a ``consolidation_complete``
     event with stats so post-hoc analysis can tell what happened.
+
+    Must be awaited from inside the ralph loop's event loop — calling
+    ``asyncio.run`` here would fail with "cannot be called from a
+    running event loop." The smoke run caught that on first try
+    (entry 33 candidate — the bug that proved smoke runs earn their
+    keep).
     """
     from gemma_forge.dream.pass_ import run_dream_pass
     from gemma_forge.memory.eviction import evict_low_utility_tips
@@ -2022,9 +2028,9 @@ def _run_auto_consolidation(
     # Dream pass. The idempotency guard (migration 0005) means this
     # no-ops if the run was already dreamed — safe to call unconditionally.
     try:
-        result = asyncio.run(run_dream_pass(
+        result = await run_dream_pass(
             run_id=run_id, repo_root=repo_root, skill=skill_schema,
-        ))
+        )
         if result is None:
             stats["dream"] = {"status": "already_dreamed"}
         else:

@@ -14,7 +14,6 @@ one_line: "I spent most of a day wiring up a cross-model architecture where Nemo
 
 # The Nemotron Experiment: Cross-Model Architecture, and Why I Walked It Back
 
-## The story in one sentence
 I spent most of a day building a cross-model architecture where
 Nemotron 30B MoE ran as the Auditor role — a second foundation model
 providing independent judgment — and discovered that while the

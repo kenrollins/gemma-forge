@@ -1,7 +1,7 @@
 ---
 id: journey-08-model-architecture-revision
 type: journey
-title: "Journey: Model Architecture Revision — From "One GPU Per Role" to "Right Model Per Role""
+title: "Model Architecture Revision — From "One GPU Per Role" to "Right Model Per Role""
 date: 2026-04-10
 tags: [L3-model, L4-orchestration, refactor]
 related:
@@ -10,9 +10,8 @@ related:
 one_line: "I started with four models assigned to four GPUs because there were four GPUs, recognized it as hardware-first thinking, and redesigned around what each agent role actually needs."
 ---
 
-# Journey: Model Architecture Revision — From "One GPU Per Role" to "Right Model Per Role"
+# Model Architecture Revision — From "One GPU Per Role" to "Right Model Per Role"
 
-## The story in one sentence
 I started with four models assigned to four GPUs because there were
 four GPUs, caught it as hardware-first thinking, and redesigned around
 what each agent role actually NEEDS.

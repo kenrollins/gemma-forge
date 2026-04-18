@@ -13,8 +13,6 @@ one_line: "I thought picking a parallelism strategy would be a configuration cho
 
 # The Parallelism Maze: When the Ecosystem Says No
 
-## The story in one sentence
-
 I spent real time exploring multi-model parallelism strategies,
 convinced I could get 4-5x throughput with the right combination
 of tensor parallelism and pipeline parallelism — and the ecosystem

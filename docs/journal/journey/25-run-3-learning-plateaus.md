@@ -13,8 +13,6 @@ one_line: "Run 3 moved the fix rate from 58% to 60%. Two percentage points after
 
 # Run 3: When the Learning Curve Bends
 
-## The story in one sentence
-
 Run 3 delivered a modest improvement over Run 2 (58% to 60%), but with ten regressions against fourteen wins, longer runtime, and higher token cost. It is the clearest signal yet that naive lesson accumulation has a ceiling, and that the environment fidelity problem we described hypothetically in the last entry is now showing up in the data.
 
 ## The headline numbers

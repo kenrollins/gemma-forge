@@ -1,7 +1,7 @@
 ---
 id: journey-05-infrastructure-gap
 type: journey
-title: "Journey: The Infrastructure Gap — Model Release ≠ Infrastructure Readiness"
+title: "The Infrastructure Gap — Model Release ≠ Infrastructure Readiness"
 date: 2026-04-09
 tags: [L3-model, discovery, supply-chain]
 related:
@@ -11,7 +11,7 @@ related:
 one_line: "A model release does not mean the surrounding inference infrastructure is ready on the same day — a structural property of open-source AI infrastructure that matters at the edge more than in the cloud."
 ---
 
-# Journey: The Infrastructure Gap — Model Release ≠ Infrastructure Readiness
+# The Infrastructure Gap — Model Release ≠ Infrastructure Readiness
 
 ## The insight
 

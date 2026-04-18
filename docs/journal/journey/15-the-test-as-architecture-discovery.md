@@ -1,7 +1,7 @@
 ---
 id: journey-15-test-as-architecture-discovery
 type: journey
-title: "Journey: When Testing Becomes Architecture Discovery"
+title: "When Testing Becomes Architecture Discovery"
 date: 2026-04-11
 tags: [L4-orchestration, reflexion-loop, refactor]
 related:
@@ -10,9 +10,8 @@ related:
 one_line: "After the overnight run revealed five architectural flaws and I fixed them in a half-day push, I caught myself about to write verification tests for the fixes — and realized the real product is not the fixes but the abstract harness properties they embody."
 ---
 
-# Journey: When Testing Becomes Architecture Discovery
+# When Testing Becomes Architecture Discovery
 
-## The story in one sentence
 After the overnight run revealed five distinct architectural flaws and I
 fixed them all in a half-day push, I caught myself about to write
 "verification tests" for the fixes — and realized that the real product of

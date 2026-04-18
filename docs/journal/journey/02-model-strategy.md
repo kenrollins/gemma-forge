@@ -1,7 +1,7 @@
 ---
 id: journey-02-model-strategy
 type: journey
-title: "Journey: The Model Strategy — bf16, NVFP4, and the VRAM Reality"
+title: "The Model Strategy — bf16, NVFP4, and the VRAM Reality"
 date: 2026-04-09
 tags: [L3-model, quantization, decision]
 related:
@@ -11,9 +11,8 @@ related:
 one_line: "I tried four different configurations of the Gemma 4 31B model on L4 GPUs before finding the one that actually works, and the answer turned out to be both the most practical AND the most compelling."
 ---
 
-# Journey: The Model Strategy — bf16, NVFP4, and the VRAM Reality
+# The Model Strategy — bf16, NVFP4, and the VRAM Reality
 
-## The story in one sentence
 I tried four different configurations of the Gemma 4 31B model on
 L4 GPUs before finding the one that actually works, and the answer
 (NVFP4 + tp=2) turned out to be both the most practical AND the

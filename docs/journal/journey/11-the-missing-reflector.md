@@ -1,7 +1,7 @@
 ---
 id: journey-11-the-missing-reflector
 type: journey
-title: "Journey: The Missing Reflector — What Vibe Coding Misses"
+title: "The Missing Reflector — What Vibe Coding Misses"
 date: 2026-04-10
 tags: [L4-orchestration, reflexion-loop, discovery]
 related:
@@ -11,9 +11,8 @@ related:
 one_line: "I built three agents, proved tool calling worked, ran successful overnight tests, celebrated — and then realized I was missing a foundational component of the reflexion architecture the project set out to prove."
 ---
 
-# Journey: The Missing Reflector — What Vibe Coding Misses
+# The Missing Reflector — What Vibe Coding Misses
 
-## The story in one sentence
 I built three agents, proved tool calling worked, ran successful
 overnight tests, celebrated — and then realized the architecture
 was missing a foundational component of the reflexion loop the

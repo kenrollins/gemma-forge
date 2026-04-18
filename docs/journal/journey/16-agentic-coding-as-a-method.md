@@ -13,8 +13,6 @@ one_line: "The agentic coding velocity was real — too real. Things moved so fa
 
 # Capturing Lightning: How the Journal Became the Memory
 
-## The story in one sentence
-
 The velocity of building with an agentic coding partner is genuine —
 and that velocity is exactly why you have to force yourself to stop
 and capture what just happened, because the AI will happily keep

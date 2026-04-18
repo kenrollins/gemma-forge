@@ -1,7 +1,7 @@
 ---
 id: journey-03-observability
 type: journey
-title: "Journey: Observability — From Langfuse to OTel-Pure"
+title: "Observability — From Langfuse to OTel-Pure"
 date: 2026-04-10
 tags: [L2-platform-mlops, decision, supply-chain]
 related:
@@ -9,9 +9,8 @@ related:
 one_line: "The original plan was Langfuse; it evolved to OTel primary, Langfuse secondary; then during Phase 0.5 I discovered security concerns with Langfuse and dropped it entirely in favor of an OTel-pure stack that is more Federal-credible anyway."
 ---
 
-# Journey: Observability — From Langfuse to OTel-Pure
+# Observability — From Langfuse to OTel-Pure
 
-## The story in one sentence
 The original PRD specified Langfuse; it evolved to "OTel primary,
 Langfuse secondary"; then during Phase 0.5 I discovered Langfuse
 was already running on the host AND had security concerns, which

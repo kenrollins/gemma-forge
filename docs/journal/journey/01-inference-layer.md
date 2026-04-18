@@ -12,9 +12,8 @@ related:
 one_line: "I started with Triton Inference Server for dynamic model management, hit a Gemma 4 version gap, pivoted to plain vLLM containers, and ended with a cleaner operational model that's ready for Triton when it catches up."
 ---
 
-# Journey: The Inference Layer Evolution
+# The Inference Layer Evolution
 
-## The story in one sentence
 I started with Triton Inference Server for dynamic model management,
 discovered it couldn't run Gemma 4 yet, pivoted to plain vLLM containers,
 and ended up with a cleaner operational model that's ready for Triton

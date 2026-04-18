@@ -1,7 +1,7 @@
 ---
 id: journey-13-ralph-persistence-retry-budget
 type: journey
-title: "Journey: The Retry Budget That Wasn't Ralph"
+title: "The Retry Budget That Wasn't Ralph"
 date: 2026-04-10
 tags: [L4-orchestration, reflexion-loop, decision]
 related:
@@ -11,9 +11,8 @@ related:
 one_line: "I built a reflexion loop with a 3-retry cap because that is what the academic paper does — and then realized that capping retries is the opposite of what makes Ralph interesting, so I replaced the counter with a wall-clock budget and let the loop actually grind."
 ---
 
-# Journey: The Retry Budget That Wasn't Ralph
+# The Retry Budget That Wasn't Ralph
 
-## The story in one sentence
 I built a reflexion loop with a 3-retry cap because that's what the academic
 paper does — and then realized that capping retries is the *opposite* of what
 makes Ralph interesting, so I replaced the counter with a wall-clock budget

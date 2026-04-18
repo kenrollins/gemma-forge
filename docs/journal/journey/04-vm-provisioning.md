@@ -1,7 +1,7 @@
 ---
 id: journey-04-vm-provisioning
 type: journey
-title: "Journey: VM Provisioning — OpenTofu, libvirt, and the GRUB Hang"
+title: "VM Provisioning — OpenTofu, libvirt, and the GRUB Hang"
 date: 2026-04-09
 tags: [L1-data-infrastructure, decision]
 related:
@@ -11,9 +11,8 @@ related:
 one_line: "I chose OpenTofu for Federal-credible IaC, hit a breaking API change in the libvirt provider v0.9.7, researched the correct API instead of falling back to shell scripts, then spent an hour debugging a GRUB hang and AppArmor denials."
 ---
 
-# Journey: VM Provisioning — OpenTofu, libvirt, and the GRUB Hang
+# VM Provisioning — OpenTofu, libvirt, and the GRUB Hang
 
-## The story in one sentence
 I chose OpenTofu for Federal-credible IaC, hit a breaking API change
 in the libvirt provider v0.9.7, researched the correct API rather than
 falling back to shell scripts, then spent an hour debugging a GRUB hang

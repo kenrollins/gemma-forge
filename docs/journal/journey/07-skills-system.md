@@ -12,8 +12,6 @@ one_line: "The loop worked for STIG, but every variable said 'STIG.' The next mo
 
 # The Skills System: Making the Harness Worth More Than the Demo
 
-## The story in one sentence
-
 The STIG remediation loop worked, but the whole point of gemma-forge
 was never STIG — it was the harness. If the harness couldn't run a
 different skill without code changes, there was no platform. Just a

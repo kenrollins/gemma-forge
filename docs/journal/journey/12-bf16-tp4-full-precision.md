@@ -1,7 +1,7 @@
 ---
 id: journey-12-bf16-tp4-full-precision
 type: journey
-title: "Journey: Full Precision bf16 on All 4 L4s — No Quantization, No Compromises"
+title: "Full Precision bf16 on All 4 L4s — No Quantization, No Compromises"
 date: 2026-04-10
 tags: [L3-model, parallelism, quantization, discovery]
 related:
@@ -11,9 +11,8 @@ related:
 one_line: "bf16 TP=4 on 4× L4 matched NVFP4 TP=2 throughput at full precision — an unexpected finding that reshaped the demo configuration and surfaced when PCIe aggregate bandwidth beats NVLink intuition."
 ---
 
-# Journey: Full Precision bf16 on All 4 L4s — No Quantization, No Compromises
+# Full Precision bf16 on All 4 L4s — No Quantization, No Compromises
 
-## The story in one sentence
 I expected bf16 tp=4 to be painfully slow on the XR7620's 4 L4s without
 NVLink, tested it anyway, and discovered it matches the NVFP4 tp=2
 throughput while running at full precision — an unexpected finding that

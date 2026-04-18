@@ -1,7 +1,7 @@
 ---
 id: journey-06-tool-calling
 type: journey
-title: "Journey: Tool Calling and the Ralph Loop — From Script to Agent"
+title: "Tool Calling and the Ralph Loop — From Script to Agent"
 date: 2026-04-09
 tags: [L4-orchestration, tool-calling, refactor]
 related:
@@ -11,9 +11,8 @@ related:
 one_line: "I built a working STIG remediation loop, realized it was a script pretending to be an agent, tore it apart, and rebuilt it with real tool calling — discovering along the way that Gemma 4 function calling through vLLM is production-capable on edge hardware."
 ---
 
-# Journey: Tool Calling and the Ralph Loop — From Script to Agent
+# Tool Calling and the Ralph Loop — From Script to Agent
 
-## The story in one sentence
 I built a working STIG remediation loop, realized it was a script
 pretending to be an agent, tore it apart, and rebuilt it with real
 tool calling — discovering along the way that Gemma 4's function

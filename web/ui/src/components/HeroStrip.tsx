@@ -187,8 +187,10 @@ function deriveNarrative(events: RunEvent[], stage: Stage): { text: string; colo
         return { text: "Scanner-gap detected — multiple approaches rejected", color: "#F59E0B" };
       case "revert":
         return { text: "Reverting to last known-good snapshot", color: "#EF4444" };
-      case "attempt_start":
-        return { text: `Starting attempt ${d.attempt}`, color: "#9CA3AF" };
+      // attempt_start narrative removed — the top-right of the rule
+      // header already shows "attempt N · Ns", so surfacing "Starting
+      // attempt N" as a sentence below the cards is redundant. Fall
+      // through to stage-based fallback.
     }
   }
   // Fallback: stage-only hint
@@ -239,22 +241,45 @@ function extractReflectionHeadline(raw: string | undefined): string | undefined 
 }
 
 /**
- * Derive a detail block per agent for the AgentFlow cards. The boxes
- * were previously just "Architect / selected" — four sparse labels
- * stretched across the screen. These details give each card a
- * concrete signal: Architect's category + resolve count, Worker's
- * last tool call, Eval's pass/fail tally, Reflector's latest pattern
- * preview. Single backward pass so we get freshest values for
- * headlines while counting totals as we go.
+ * Derive a detail block per agent for the AgentFlow cards, scoped to
+ * the *current rule* only. The previous version aggregated across the
+ * whole run, which duplicated information already surfaced in the
+ * RUN PULSE ribbon below and hid the signal the viewer actually
+ * needs: what's happening on THIS rule, and how much token spend
+ * has it cost so far. Per-rule token counts per agent make the raw-
+ * intelligence thesis visceral.
+ *
+ * Walks forward from the most recent `rule_selected` (the boundary
+ * that starts the current rule's window) so every counter is scoped
+ * to the rule currently in flight. Run-wide totals like "65/269
+ * resolved" or "re-engaged 61×" belong in the top header strip, not
+ * inside these per-rule cards.
  */
-function deriveStageDetails(
-  events: RunEvent[],
-  totalRules: number,
-  doneRules: number,
-): StageDetails {
-  let architectHeadline: string | undefined;
-  let architectCategory: string | undefined;
-  let reengageCount = 0;
+function deriveStageDetails(events: RunEvent[]): StageDetails {
+  // Find the most recent rule_selected — the start of the current
+  // rule's window. If there isn't one, nothing to show yet.
+  let startIdx = -1;
+  for (let i = events.length - 1; i >= 0; i--) {
+    if (events[i].event_type === "rule_selected") {
+      startIdx = i;
+      break;
+    }
+  }
+  if (startIdx < 0) return {};
+
+  const startEvent = events[startIdx];
+  const startData = startEvent.data || {};
+
+  // Per-rule state that accumulates as we walk forward.
+  const architectTokens = { prompt: 0, completion: 0 };
+  const workerTokens = { prompt: 0, completion: 0 };
+  const reflectorTokens = { prompt: 0, completion: 0 };
+  let lastWorkerTokPerSec = 0;
+  let lastArchitectTokPerSec = 0;
+  let lastReflectorTokPerSec = 0;
+
+  let architectReengages = 0;
+  let lastArchitectVerdict: string | undefined;
 
   let workerHeadline: string | undefined;
   let toolCalls = 0;
@@ -265,106 +290,131 @@ function deriveStageDetails(
   let scanFail = 0;
 
   let reflectorHeadline: string | undefined;
-  let lessonCount = 0;
-  let banCount = 0;
+  let reflectionCount = 0;
 
-  for (let i = events.length - 1; i >= 0; i--) {
+  for (let i = startIdx; i < events.length; i++) {
     const e = events[i];
     const d = e.data || {};
+
+    // A different rule being selected means the current rule's window
+    // closed — shouldn't happen during "in flight" but guard anyway.
+    if (i > startIdx && e.event_type === "rule_selected") break;
+
     switch (e.event_type) {
-      case "rule_selected":
-        if (!architectHeadline) {
-          architectHeadline =
-            (d.title as string) || (d.rule_id as string) || undefined;
-          architectCategory = d.category as string | undefined;
-        }
-        break;
       case "architect_reengaged":
-        reengageCount++;
-        if (!architectHeadline) {
-          architectHeadline = `re-engaged: ${d.verdict || "\u2026"}`;
-        }
+        architectReengages++;
+        lastArchitectVerdict = d.verdict as string | undefined;
         break;
       case "tool_call": {
         toolCalls++;
-        if (!workerHeadline) {
-          const tool = (d.tool || d.name) as string | undefined;
-          const arg = (d.command || d.target || d.path || d.arg) as
-            | string
-            | undefined;
-          if (tool && arg) workerHeadline = `${tool}: ${arg}`;
-          else if (tool) workerHeadline = tool;
-          else if (arg) workerHeadline = String(arg);
-        }
+        const tool = (d.tool || d.name) as string | undefined;
+        const arg = (d.command || d.target || d.path || d.arg) as
+          | string
+          | undefined;
+        if (tool && arg) workerHeadline = `${tool}: ${arg}`;
+        else if (tool) workerHeadline = tool;
+        else if (arg) workerHeadline = String(arg);
         break;
       }
       case "evaluation": {
         scanCount++;
         if (d.passed === true) scanPass++;
         else if (d.passed === false) scanFail++;
-        if (!evalHeadline) {
-          evalHeadline =
-            d.passed === true
-              ? "verdict: passed"
-              : d.passed === false
-                ? "verdict: failed"
-                : "scan running\u2026";
+        evalHeadline =
+          d.passed === true
+            ? "verdict: passed"
+            : d.passed === false
+              ? "verdict: failed"
+              : "scan running\u2026";
+        break;
+      }
+      case "reflection": {
+        reflectionCount++;
+        const raw =
+          (d.pattern as string) ||
+          (d.summary as string) ||
+          (d.text as string);
+        reflectorHeadline =
+          extractReflectionHeadline(raw) || reflectorHeadline || "new pattern noted";
+        break;
+      }
+      case "agent_response": {
+        const tokens = d.tokens as { prompt?: number; completion?: number } | undefined;
+        const timing = d.timing as { tok_per_sec?: number } | undefined;
+        const p = tokens?.prompt || 0;
+        const c = tokens?.completion || 0;
+        const tps = timing?.tok_per_sec || 0;
+        if (e.agent === "architect") {
+          architectTokens.prompt += p;
+          architectTokens.completion += c;
+          if (tps) lastArchitectTokPerSec = tps;
+        } else if (e.agent === "worker") {
+          workerTokens.prompt += p;
+          workerTokens.completion += c;
+          if (tps) lastWorkerTokPerSec = tps;
+        } else if (e.agent === "reflector") {
+          reflectorTokens.prompt += p;
+          reflectorTokens.completion += c;
+          if (tps) lastReflectorTokPerSec = tps;
         }
         break;
       }
-      case "reflection":
-        lessonCount++;
-        if (!reflectorHeadline) {
-          const raw =
-            (d.pattern as string) ||
-            (d.summary as string) ||
-            (d.text as string);
-          reflectorHeadline = extractReflectionHeadline(raw) || "new pattern noted";
-        }
-        break;
-      case "ban_added":
-        banCount++;
-        break;
     }
   }
 
   const details: StageDetails = {};
 
-  const archHeadline = architectCategory
-    ? architectCategory.replace(/_/g, " ").toLowerCase()
-    : architectHeadline;
-  if (archHeadline || totalRules > 0) {
-    details.architect = {
-      headline: archHeadline || "\u2014",
-      sub:
-        reengageCount > 0
-          ? `re-engaged ${reengageCount}\u00d7 \u00b7 ${doneRules}/${totalRules || "?"} resolved`
-          : totalRules > 0
-            ? `${doneRules}/${totalRules} resolved`
-            : undefined,
-    };
-  }
-  if (workerHeadline || toolCalls > 0) {
-    details.worker = {
-      headline: workerHeadline || "\u2014",
-      sub: `${toolCalls} tool ${toolCalls === 1 ? "call" : "calls"}`,
-    };
-  }
-  if (scanCount > 0 || evalHeadline) {
-    details.eval = {
-      headline: evalHeadline || "\u2014",
-      sub:
-        scanCount > 0
-          ? `${scanCount} scans \u00b7 ${scanPass} pass \u00b7 ${scanFail} fail`
-          : undefined,
-    };
-  }
-  if (reflectorHeadline || lessonCount > 0 || banCount > 0) {
-    details.reflector = {
-      headline: reflectorHeadline || "\u2014",
-      sub: `${lessonCount} lesson${lessonCount === 1 ? "" : "s"} \u00b7 ${banCount} ban${banCount === 1 ? "" : "s"}`,
-    };
-  }
+  // Architect: rule title/category as the headline, re-engagement count
+  // for this rule only as the sub. Run-wide resolve tally moved out.
+  const title = (startData.title as string) || (startData.rule_id as string) || "";
+  const category = startData.category as string | undefined;
+  const archHeadline = category
+    ? category.replace(/_/g, " ").toLowerCase()
+    : title || "\u2014";
+  details.architect = {
+    headline: archHeadline,
+    sub:
+      architectReengages > 0
+        ? `re-engaged ${architectReengages}\u00d7${lastArchitectVerdict ? ` \u00b7 ${lastArchitectVerdict.toLowerCase()}` : ""}`
+        : "planning",
+    tokens: {
+      prompt: architectTokens.prompt,
+      completion: architectTokens.completion,
+      tokPerSec: lastArchitectTokPerSec || undefined,
+    },
+  };
+
+  details.worker = {
+    headline: workerHeadline || "\u2014",
+    sub: `${toolCalls} tool ${toolCalls === 1 ? "call" : "calls"}`,
+    tokens: {
+      prompt: workerTokens.prompt,
+      completion: workerTokens.completion,
+      tokPerSec: lastWorkerTokPerSec || undefined,
+    },
+  };
+
+  details.eval = {
+    headline: evalHeadline || "\u2014",
+    sub:
+      scanCount > 0
+        ? `${scanCount} scan${scanCount === 1 ? "" : "s"} \u00b7 ${scanPass} pass \u00b7 ${scanFail} fail`
+        : undefined,
+    // Eval is tool-driven — no LLM tokens. Omit the token line.
+  };
+
+  details.reflector = {
+    headline: reflectorHeadline || "\u2014",
+    sub:
+      reflectionCount > 0
+        ? `${reflectionCount} reflection${reflectionCount === 1 ? "" : "s"} this rule`
+        : undefined,
+    tokens: {
+      prompt: reflectorTokens.prompt,
+      completion: reflectorTokens.completion,
+      tokPerSec: lastReflectorTokPerSec || undefined,
+    },
+  };
 
   return details;
 }
@@ -533,7 +583,22 @@ export default function HeroStrip({
   // Pipeline stage + the prose narrative for AgentFlow
   const { stage, evalPassed } = detectPipelineStage(events);
   const narrative = deriveNarrative(events, stage as Stage);
-  const stageDetails = deriveStageDetails(events, total, done);
+  const stageDetails = deriveStageDetails(events);
+
+  // Run-cumulative token counter — every agent_response across the
+  // whole current run's events buffer. Resets naturally on a new run
+  // because openStream() clears `events` when activeRun changes, so
+  // this sum starts over at zero. Long runs get fun to watch climb.
+  let runPromptTokens = 0;
+  let runCompletionTokens = 0;
+  for (const e of events) {
+    if (e.event_type === "agent_response") {
+      const t = e.data?.tokens as { prompt?: number; completion?: number } | undefined;
+      if (t?.prompt) runPromptTokens += t.prompt;
+      if (t?.completion) runCompletionTokens += t.completion;
+    }
+  }
+  const runTotalTokens = runPromptTokens + runCompletionTokens;
 
   // V2 Phase G retrieval. Returns undefined when the backend hasn't
   // emitted tips_loaded yet — strip simply doesn't render in that case.
@@ -670,15 +735,86 @@ export default function HeroStrip({
             <RetrievalStrip tips={retrievedTips} workItem={skillUI.work_item} />
           )}
 
-          {/* AgentFlow — handoff cards with active-stage pulse + narrative */}
-          <AgentFlow
-            stage={stage as Stage}
-            evalPassed={evalPassed}
-            narrative={narrative}
-            details={stageDetails}
-          />
+          {/* Run-cumulative token counter on the left + AgentFlow cards
+              on the right. Counter fills the otherwise-empty space next
+              to the pipeline strip and makes total-tokens-spent visible
+              at a glance — the raw-intelligence thesis in one big number. */}
+          <div className="flex items-stretch gap-5">
+            <RunTokenCounter
+              prompt={runPromptTokens}
+              completion={runCompletionTokens}
+              total={runTotalTokens}
+            />
+            <div className="flex-1 min-w-0">
+              <AgentFlow
+                stage={stage as Stage}
+                evalPassed={evalPassed}
+                narrative={narrative}
+                details={stageDetails}
+              />
+            </div>
+          </div>
         </div>
       )}
     </div>
   );
+}
+
+/**
+ * Big cumulative token counter for the current run. Sits to the left
+ * of the AgentFlow cards, filling space that used to be empty. Shows
+ * one very large total with a small in/out breakdown underneath —
+ * the viewer gets to watch raw intelligence accumulate as the run
+ * progresses. Resets to zero on a new run (handled upstream by
+ * openStream clearing `events`).
+ */
+function RunTokenCounter({
+  prompt,
+  completion,
+  total,
+}: {
+  prompt: number;
+  completion: number;
+  total: number;
+}) {
+  return (
+    <div
+      className="shrink-0 flex flex-col justify-center py-1"
+      style={{ minWidth: 140 }}
+      title={`Cumulative tokens this run: ${prompt.toLocaleString()} in + ${completion.toLocaleString()} out`}
+    >
+      <div className="text-[9px] uppercase tracking-[0.18em] text-[#4B5563] leading-tight">
+        Tokens this run
+      </div>
+      <div
+        className="font-bold tabular-nums leading-none mt-1"
+        style={{
+          fontSize: 36,
+          color: total > 0 ? "#E8EAED" : "#3F4451",
+          letterSpacing: "-0.02em",
+        }}
+      >
+        {formatRunTotal(total)}
+      </div>
+      <div className="text-[10px] font-mono tabular-nums text-[#6B7280] mt-1.5 leading-tight">
+        <span style={{ color: "#60A5FA" }}>{formatRunTotal(prompt)}</span>
+        <span className="text-[#4B5563]"> in</span>
+        <span className="text-[#3F4451] mx-1.5">+</span>
+        <span style={{ color: "#22D3EE" }}>{formatRunTotal(completion)}</span>
+        <span className="text-[#4B5563]"> out</span>
+      </div>
+    </div>
+  );
+}
+
+// Big-number formatter tuned for the run counter: keeps four
+// significant figures at most and switches to k / M as the count
+// climbs. A long overnight run can easily push millions of tokens,
+// so the header would otherwise overflow.
+function formatRunTotal(n: number): string {
+  if (n < 1000) return n.toString();
+  if (n < 10000) return (n / 1000).toFixed(2) + "k";
+  if (n < 1_000_000) return (n / 1000).toFixed(1) + "k";
+  if (n < 10_000_000) return (n / 1_000_000).toFixed(2) + "M";
+  return (n / 1_000_000).toFixed(1) + "M";
 }

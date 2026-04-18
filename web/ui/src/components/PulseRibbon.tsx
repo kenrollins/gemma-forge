@@ -64,11 +64,14 @@ function outcomeColor(outcome: Outcome, skillUI: SkillUI): string {
 }
 
 // Walk the recent event tail to figure out which agent phase is
-// currently active. First matching event type wins — `rule_selected`
-// always overrides older activity because it marks a fresh item
-// starting up. Returns null when no in-progress rule is detected.
+// currently active. First matching event type wins. Only events that
+// represent an actual agent doing work count — harness boundary events
+// like `attempt_start`, `iteration_start`, `prompt_assembled`,
+// `graph_state` are skipped so the dot color stays aligned with which
+// agent last actually emitted something. Returns null when the most
+// recent activity was a rule resolving.
 function detectActivePhase(events: RunEvent[]): Phase | null {
-  const window = events.slice(-25);
+  const window = events.slice(-40);
   for (let i = window.length - 1; i >= 0; i--) {
     const e = window[i];
     switch (e.event_type) {
@@ -89,7 +92,6 @@ function detectActivePhase(events: RunEvent[]): Phase | null {
         return "harness";
       case "tool_call":
       case "tool_result":
-      case "attempt_start":
         return "worker";
       case "agent_response":
         if (e.agent === "architect") return "architect";
@@ -97,6 +99,9 @@ function detectActivePhase(events: RunEvent[]): Phase | null {
         if (e.agent === "worker") return "worker";
         continue;
       default:
+        // attempt_start, iteration_start, prompt_assembled, graph_state,
+        // ban_added, tip_added, post_mortem, etc — none represent an
+        // agent actively thinking, so we scan past them.
         continue;
     }
   }

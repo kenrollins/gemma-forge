@@ -43,6 +43,40 @@ function getApiBase(): string {
   return `http://${window.location.hostname}:8080`;
 }
 
+// Shallow value-equality check for GPU snapshots. The backend
+// emits a fresh list on every gpu-bearing event (new reference
+// every time), so we compare the fields that actually drive the UI:
+// util, memory used, temperature, power. If none changed we can
+// skip a setState call — at live-mode event rates the cumulative
+// savings prevent React from tripping its re-render safety check.
+function gpuSnapshotsEqual(a: GpuState[] | null, b: GpuState[] | null): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i];
+    const y = b[i];
+    if (
+      x.memory_used_mib !== y.memory_used_mib ||
+      x.memory_total_mib !== y.memory_total_mib ||
+      x.utilization_pct !== y.utilization_pct ||
+      x.temperature_c !== y.temperature_c ||
+      x.power_w !== y.power_w
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function vllmSnapshotsEqual(a: VllmState | null, b: VllmState | null): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  // Compare JSON as a cheap deep-ish equality — VllmState is a small
+  // flat object and not hot enough to warrant per-field comparison.
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 function isReplaySpeed(n: number): n is ReplaySpeed {
   return (SPEEDS as readonly number[]).includes(n);
 }
@@ -216,11 +250,17 @@ export default function Dashboard() {
         latestVllm = ev.vllm_state;
       }
     }
-    if (latestGpu && latestGpu !== latestGpuStateRef.current) {
+    // Each event carrying gpu_state gets a FRESH array from the
+    // backend (new reference every time), so reference-equality alone
+    // would call setGpus on every such event — which at live-mode rate
+    // can push React past its re-render safety threshold with a large
+    // event log. Compare values instead: skip the state update if
+    // every GPU's util/mem/temp/power is unchanged.
+    if (latestGpu && !gpuSnapshotsEqual(latestGpu, latestGpuStateRef.current)) {
       latestGpuStateRef.current = latestGpu;
       setGpus(latestGpu.map((g) => ({ ...g, role: "gemma", model: "Gemma-4-31B-it bf16" })));
     }
-    if (latestVllm && latestVllm !== latestVllmStateRef.current) {
+    if (latestVllm && !vllmSnapshotsEqual(latestVllm, latestVllmStateRef.current)) {
       latestVllmStateRef.current = latestVllm;
       setVllm(latestVllm);
     }

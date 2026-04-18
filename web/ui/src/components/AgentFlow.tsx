@@ -28,6 +28,12 @@ export interface StageDetail {
   headline?: string;
   /** Secondary line, usually a running counter or context. */
   sub?: string;
+  /** Optional per-rule token spend for this agent. When provided,
+   *  the active card grows a third line showing prompt+completion
+   *  tokens (and a live tok/s when available) — the raw-intelligence
+   *  signal that makes "how hard are we thinking on this rule"
+   *  immediately felt. */
+  tokens?: { prompt: number; completion: number; tokPerSec?: number };
 }
 
 export type StageDetails = Partial<Record<Exclude<Stage, "idle">, StageDetail>>;
@@ -80,6 +86,15 @@ function stageColor(s: Stage, evalPassed?: boolean): string {
   if (s === "worker") return AGENT_COLORS.worker;
   if (s === "reflector") return AGENT_COLORS.reflector;
   return "#6B7280";
+}
+
+// Compact token counts for the active-card's token line. The cards
+// are narrow (~220px) so "12,345" wastes horizontal space and the
+// viewer doesn't care about the last three digits on big numbers.
+function formatTokens(n: number): string {
+  if (n < 1000) return n.toString();
+  if (n < 10000) return (n / 1000).toFixed(1) + "k";
+  return Math.round(n / 1000) + "k";
 }
 
 export default function AgentFlow({ stage, evalPassed, narrative, details }: AgentFlowProps) {
@@ -274,6 +289,24 @@ function StageCard({
           >
             {detail?.sub || "\u00a0"}
           </div>
+          {detail?.tokens && (detail.tokens.prompt > 0 || detail.tokens.completion > 0) && (
+            <div
+              className="text-[9px] font-mono tabular-nums truncate leading-tight h-[12px] mt-0.5 text-[#9CA3AF]"
+              title={`input (prompt) ${detail.tokens.prompt.toLocaleString()} tokens / output (completion) ${detail.tokens.completion.toLocaleString()} tokens${detail.tokens.tokPerSec ? ` @ ${detail.tokens.tokPerSec.toFixed(1)} tok/s` : ""}`}
+            >
+              <span style={{ color: "#60A5FA" }}>{formatTokens(detail.tokens.prompt)}</span>
+              <span className="text-[#6B7280] ml-0.5">in</span>
+              <span className="text-[#4B5563] mx-1.5">+</span>
+              <span style={{ color: "#22D3EE" }}>{formatTokens(detail.tokens.completion)}</span>
+              <span className="text-[#6B7280] ml-0.5">out</span>
+              {detail.tokens.tokPerSec !== undefined && detail.tokens.tokPerSec > 0 && (
+                <>
+                  <span className="text-[#4B5563] mx-1.5">{"\u00b7"}</span>
+                  <span style={{ color: "#22D3EE" }}>{detail.tokens.tokPerSec.toFixed(1)} tok/s</span>
+                </>
+              )}
+            </div>
+          )}
         </div>
       )}
 

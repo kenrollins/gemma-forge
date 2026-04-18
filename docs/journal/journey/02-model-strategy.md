@@ -75,8 +75,8 @@ FIPS key exchange). The model produced:
 - Included `sshd -t` for config syntax validation
 - Provided the exact `ssh -vv` validation command
 
-!!! quote ""
-    Architect-grade reasoning from a quantized model. The NVFP4 recipe's attention-preservation strategy works.
+NVFP4 didn't degrade the reasoning. The recipe's attention-preservation
+strategy works.
 
 ## TP vs PP comparison
 

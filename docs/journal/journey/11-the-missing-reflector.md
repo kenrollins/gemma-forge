@@ -84,7 +84,7 @@ The Reflector produces meta-reasoning that changes the Architect's
 STRATEGY, not just its target selection.
 
 !!! quote ""
-    That's the difference between a retry loop and a learning loop.
+    Without a Reflector, the Architect avoids specific failed targets. With a Reflector, it changes the strategy that caused them.
 
 ## Where to put the Reflector
 

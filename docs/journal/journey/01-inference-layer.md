@@ -96,7 +96,7 @@ untouched.
    are four independent release trains.
 
    !!! quote ""
-       Sovereign edge operators must treat them as such. Day-0 from one vendor is not Day-0 from the stack.
+       Day-0 from one vendor is not Day-0 from the stack.
 
 2. **The "shared host service" pattern survived the pivot.** Even
    though the serving layer switched from Triton to plain vLLM, the

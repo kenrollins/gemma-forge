@@ -83,7 +83,7 @@ A fixed attempt cap directly undercuts that thesis. It says "the model failed
 opposite of what persistence-first means.
 
 !!! quote ""
-    Persistence-first says the model keeps working until *physics* says stop, and physics means wall clock or provably diminishing returns — not an arbitrary counter.
+    The right stopping rule is wall clock or provably diminishing returns — not an arbitrary attempt counter.
 
 The academic cap of 3 makes sense in a paper where the experiment is measuring
 a benchmark of 200 tasks and you need bounded runtime per task. This experiment

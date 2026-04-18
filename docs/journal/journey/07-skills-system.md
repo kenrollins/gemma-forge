@@ -42,9 +42,6 @@ harness should separate *what it does* from *how it orchestrates*
 has moved from novel to expected. gemma-forge needed to follow
 that pattern — not because it was trendy, but because it was right.
 
-!!! quote ""
-    A harness that can only run one demo is a prototype. A harness with a skills interface is infrastructure.
-
 ## The design: folder-per-skill manifests
 
 The design tracked emerging standards: each skill is a

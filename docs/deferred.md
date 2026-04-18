@@ -301,6 +301,32 @@ promoted out of this file into active work.
   recovery ..., A-MEM-style semantic linking. All deferred to V2
   because they require LLM calls.").
 
+### DEF-15 — Dream-pass silent fallback picks wrong run on mismatched run_id
+
+- **What**: When `run_dream_pass` is called with a `run_id` that has no
+  `work_items` rows (e.g., passing the JSONL filename `20260417-154947`
+  instead of the Postgres UUID `5444a199-cbc`), it silently falls back
+  to "most recent run with outcomes" and dreams against that run's
+  data. The caller sees the dream complete with a different run_id
+  buried in the INFO log.
+- **Why deferred**: The harness auto-consolidation path always passes
+  the correct Postgres UUID (`mem_run_id`), so in production the
+  fallback never fires. The footgun is limited to manual CLI use by
+  someone who confuses the two id formats. Fixing it is a one-line
+  change (raise instead of fall back) plus a clearer error message,
+  but it's below the Run 6 cutline.
+- **Revisit when**: Someone runs the CLI manually with the wrong id
+  format again, or we add a second entry point that might route a
+  JSONL id to the dream pass.
+- **Pain signal**: `runs/dreams/dream-<run_id>.md` filename doesn't
+  match the `run_id` the caller passed in.
+- **Context**: Observed 2026-04-18 during Run-6 prep manual
+  consolidation sweep. Fix: in `run_dream_pass`, if
+  `compute_category_credits(run_id)` returns empty, raise
+  `ValueError("run_id has no work_items; did you pass a JSONL id
+  instead of a Postgres UUID?")` rather than scanning for a recent
+  alternative.
+
 ### DEF-14 — Harness as training-data factory (fine-tuning pipeline)
 
 - **What**: Every run produces structured (context, action, outcome)

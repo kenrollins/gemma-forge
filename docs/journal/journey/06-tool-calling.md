@@ -36,8 +36,10 @@ if "APPLY_FAILED" in apply_result or "UNHEALTHY" in health:
 ```
 
 That's automation, not autonomy. Any bash script with `if` and `ssh`
-can do that. The models were generating text that looked like
-decisions, but Python was making the actual decisions.
+can do that.
+
+!!! quote ""
+    The models were generating text that looked like decisions, but Python was making the actual decisions. That's a script pretending to be an agent.
 
 The Ralph loop story — "agents that fail, reason through failures,
 and persist" — requires the AGENTS to reason, not the orchestrator.

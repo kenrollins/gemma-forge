@@ -85,6 +85,9 @@ No kernel load, no network traffic, no DHCP lease.
    The libvirt provider v0.9.7 does NOT set ACPI/APIC by default
    (virt-install with `--os-variant` does).
 
+   !!! quote ""
+       Declarative IaC defaults differ from interactive tool defaults in ways that only surface when a VM refuses to boot. Always XML-diff a working VM against your broken one.
+
 ### The fix
 
 ```hcl

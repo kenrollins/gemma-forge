@@ -72,9 +72,10 @@ Five containers vs Langfuse's six. Net headcount actually goes down.
 
 Every Federal observability team already runs OTel + Prometheus + Grafana.
 gemma-forge's traces are immediately legible in their existing tools
-without translation. "We use the same observability stack you do" is a
-stronger answer than "we use this third-party LLM-specific product you
-haven't heard of."
+without translation.
+
+!!! quote ""
+    "We use the same observability stack you do" is a stronger answer than "we use this third-party LLM-specific product you haven't heard of."
 
 ## Key artifacts
 

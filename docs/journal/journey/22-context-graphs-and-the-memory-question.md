@@ -14,23 +14,9 @@ one_line: "A research spiral — from a podcast memory about context graphs to F
 
 # Context Graphs and the Memory Question
 
-## The story in one sentence
+The research spiral started with a podcast episode and ended with SQLite. In between: Foundation Capital's trillion-dollar thesis about decision provenance, a November 2025 paper where a 4B model with graph memory outperformed an 8B model without, a NIST policy initiative that reframed audit logs as compliance artifacts, and the eventual realization that none of it actually determined the storage substrate. What did was a feature I hadn't built yet.
 
-I almost added PostgreSQL, then almost went with plain JSON files,
-and ended up at SQLite — not because of the context graph, but because
-the adaptive concurrency controller I hadn't built yet required
-concurrent read/write that only a proper database can provide safely.
-
-## Why this is its own entry
-
-This is the most important architectural decision in the v5 cycle,
-and it came from *two directions at once*: a theoretical insight about
-decision provenance (context graphs) and a practical constraint from
-a feature we hadn't implemented (the clutch). When a theoretical
-argument and a practical requirement converge on the same answer,
-you're probably in the right place.
-
----
+I almost added PostgreSQL. I almost went with plain JSON files. I ended up at SQLite — not because of the context graph, but because the adaptive concurrency controller I hadn't built yet required concurrent read/write that only a proper database can provide safely. When a theoretical argument and a practical requirement converge on the same simple answer, you're probably in the right place.
 
 ## The spark: context graphs
 
@@ -70,7 +56,9 @@ that builds a three-layer graph for agent memory:
 The edges have *learned weights* via REINFORCE — the graph literally
 learns which strategies are most valuable. The headline result: **a
 4B model with this graph memory outperformed a baseline 8B model.**
-The memory is worth more than the extra parameters.
+
+!!! quote ""
+    The memory is worth more than the extra parameters.
 
 That's this project's thesis in a paper. Small edge model + right
 harness + accumulated knowledge = effective solutions.
@@ -174,11 +162,8 @@ write clobbers another. PostgreSQL can, but it's overkill.
 - SQL queries for aggregation and cross-run analysis
 - Portable — clone the repo, the DB creates itself on first run
 
-The SQLite decision didn't come from the context graph. It came
-from the clutch. The theoretical architecture (decision provenance
-graphs) is perfectly served by files. The practical mechanism
-(real-time adaptive concurrency) demands concurrent access that
-only a proper database — even a lightweight one — can provide safely.
+!!! quote ""
+    The SQLite decision didn't come from the context graph. It came from the clutch. The theoretical architecture is perfectly served by files. The practical mechanism demands concurrent access that only a proper database — even a lightweight one — can provide safely.
 
 ---
 

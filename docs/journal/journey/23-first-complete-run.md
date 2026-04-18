@@ -14,20 +14,13 @@ one_line: "Run 1 processed all 270 STIG rules — 85 remediated, 157 escalated �
 
 # The First Complete Run
 
-## The story in one sentence
+The v5 harness ran overnight. It finished — 270 rules processed, no crashes, no hangs, no unrecoverable states. After weeks of runs that died mid-way through from context overflows, broken checkpoints, and infinite retry loops, just *finishing* felt like a milestone.
 
-The v5 harness ran overnight, processed every single STIG rule without
-crashing, and the result was simultaneously a triumph (it finished!)
-and a wake-up call (the learning system I built isn't actually
-learning).
+Then the forensics started, and the morning turned into an audit of the entire cross-run architecture. The system had dutifully stored 644 lessons in its SQLite memory. 397 of them were about the same thing. And the agents had never read any of them.
 
 ## The overnight result
 
-Run 1 kicked off at 5:38 PM on Saturday. By the Sunday morning check at
-7:07 AM — 13.5 hours later — it had finished. Every rule processed.
-No crashes, no hangs, no unrecoverable states. After weeks of runs
-that died mid-way through from context overflows, broken checkpoints,
-and infinite retry loops, just *finishing* felt like a milestone.
+Run 1 kicked off at 5:38 PM on Saturday. By the Sunday morning check at 7:07 AM — 13.5 hours later — it had finished. Every rule processed.
 
 The numbers:
 
@@ -124,8 +117,10 @@ the entire run, might not even appear.
 
 Five gaps. Every one was a case where the *storage* side was
 implemented correctly and the *retrieval-and-injection* side was
-either missing or truncated. The database was learning. The agents
-weren't reading.
+either missing or truncated.
+
+!!! quote ""
+    The database was learning. The agents weren't reading.
 
 ## The meta-question
 

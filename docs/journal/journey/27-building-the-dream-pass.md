@@ -14,13 +14,9 @@ one_line: "In a single session, we built the memory architecture pivot end-to-en
 
 # Building the Dream Pass: One Session, Four Bugs, and a Closed Loop
 
-## The story in one sentence
+Four bugs tried to sink Run 4 before it started, and three of them were not in any unit test because unit tests cannot cover the Supabase pooler's tenant registration, psycopg-pool's refusal to hand back a connection with a dangling transaction, Graphiti's batch-episode API returning `None`, or Neo4j Community Edition's one-database limit. Each one surfaced inside a day of building against the real host. Each one would have crashed the overnight run on first contact.
 
-We went from "SQLite with weighted lessons" to "Graphiti-on-Neo4j plus shared Supabase Postgres with a working dream pass that scores 1,746 lessons by outcome-driven confidence" in a single session, and the progressive testing discipline caught four bugs that would have crashed Run 4 if we had shipped without it.
-
-## Why this is its own entry
-
-[Entry 26](26-dreaming-and-real-databases.md) was the decision: adopt Graphiti, pivot to real databases, build a dream pass as the distinctive contribution. This entry is the build. The decision was the right one. The build is where the decisions met the host — and where four assumptions died on contact with reality.
+The progressive testing discipline — apply a migration, run it end-to-end against real infrastructure, only then move on — is the only reason any of this works. Entry 26 was the decision to rebuild the memory layer on Graphiti-on-Neo4j plus Supabase Postgres. This entry is the build, and the four places the build met reality and reality won.
 
 ## What we built (Phases A through D)
 

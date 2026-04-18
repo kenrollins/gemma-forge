@@ -13,24 +13,11 @@ one_line: "After three runs and a diminishing-returns plateau, an hour-long disc
 
 # The Little Engine That Could Needs Real Databases (and a Nap)
 
-## The story in one sentence
+Run 3 plateaued at 60% fix rate with a 1.4-to-1 win-to-regression ratio — barely better than noise. The regressions were scattered across categories, the signature of stale lessons misdirecting the Worker on problems it would otherwise handle cleanly. The memory system couldn't tell the difference between "this is always true" and "this was true last time."
 
-Run 3 plateaued, we sat down for "coffee and contemplation," and an
-hour of honest back-and-forth ended with the clearest architectural
-pivot since the interface extraction: the memory system is getting
-real databases, the Reflective tier is adopting Graphiti, and the
-distinctive contribution is the dream pass on top — not the memory
-primitives underneath.
+An hour of coffee-and-contemplation ended with the clearest architectural pivot since the interface extraction: the memory system is getting real databases, the Reflective tier is adopting Graphiti (a 2026-era bi-temporal graph store that already solved the provenance problem), and the distinctive contribution — the thing that makes this project different from anyone else's agent-memory work — is the dream pass built on top, not the memory primitives underneath.
 
-## Why this is its own entry
-
-Run 3's journal entry ([25](25-run-3-learning-plateaus.md)) named two
-failure modes — environment fidelity and abstraction loss — but
-stopped short of committing to an architectural response. This entry
-is the response. It captures an hour of discussion where the plan
-moved from "build a /dream skill on top of SQLite" to "no, we are
-catching up to a real frontier, and the right move is to adopt what
-already works and focus our effort on what is actually distinctive."
+The uncomfortable part of the conversation was realizing the project was not as far ahead of the frontier as I'd hoped. The vocabulary of "dreaming" for memory consolidation, the bi-temporal graph pattern, the sleep-inspired consolidation papers — all had crystallized in the last six months, in public, with code. I was catching up. That admission made the architecture sharper, not smaller.
 
 ## The starting position
 

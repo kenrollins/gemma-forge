@@ -14,13 +14,9 @@ one_line: "Run 2 doubled the fix rate (35% → 58%), flipped 59 rules from escal
 
 # Run 2: The Learning Worked, and Then We Found the Next Wall
 
-## The story in one sentence
+Fifty-nine rules flipped from escalated to remediated. One regressed. A 59-to-1 win-to-loss ratio from memory alone, with no code changes and no skill changes between Run 1 and Run 2. That number proves the cross-run learning thesis.
 
-The cross-run learning system we fixed that morning worked exactly
-as designed — 59 rules flipped from failure to success, the fix
-rate nearly doubled — and then the run hit a completely different
-cascade that taught us something deeper about ordering, memory
-fidelity, and the limits of what text-based lessons can carry.
+The thesis is proven. Now for the things the thesis didn't predict: a new cascade from a STIG rule that actively *prevents* other STIG rules from applying, a regression that taught us what lessons lose when they compress into text, and the uncomfortable discovery that memory that was right yesterday can be wrong tomorrow.
 
 ## The numbers
 
@@ -124,10 +120,10 @@ it lost the *implementation*: use `whoami`. Run 2's Worker knew
 it needed to preserve "the agent" but didn't know the agent's
 username. It guessed across 9 attempts. All wrong.
 
-This is a lesson quality problem that the weight system can't
-catch. The lesson kept firing (it's relevant to sudo rules), it
-just didn't carry enough information to be actionable. Weight
-reflects frequency of use, not implementation completeness.
+The lesson kept firing — it's relevant to sudo rules, and it accumulated weight on repeated use. It just didn't carry enough information to be actionable.
+
+!!! quote ""
+    Weight reflects frequency, not fidelity.
 
 ## The uncomfortable memory question
 
@@ -145,11 +141,10 @@ weights because the system has no way to know they're
 environment-specific.
 
 This is the question we hadn't considered when we built the
-memory system: **a lesson that was right in one environment can
-be wrong in another, and the weight system can't tell the
-difference.** Weight measures "how often has this lesson been
-present when things went well." It doesn't measure "is this
-lesson still true."
+memory system.
+
+!!! quote ""
+    A lesson that was right in one environment can be wrong in another, and the weight system can't tell the difference. Weight measures *how often has this lesson been present when things went well*. It doesn't measure *is this lesson still true*.
 
 We don't have a solution yet. The options range from simple
 (decay all weights on VM rebuild) to complex (tag lessons with

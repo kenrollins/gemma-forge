@@ -327,6 +327,87 @@ promoted out of this file into active work.
   instead of a Postgres UUID?")` rather than scanning for a recent
   alternative.
 
+### DEF-17 — Scanner-gap threshold is likely triggering too eagerly
+
+- **What**: The `scanner_gap_detected` event fires when N distinct
+  approaches hit `evaluator_gap` without the target being unhealthy.
+  Current threshold is 3 distinct approaches. Run 6 logged **391
+  scanner_gap events vs Run 5's 205** — a 91% increase while the
+  run length only grew 33%. Given that scanner gaps trigger Architect
+  reengagement (PIVOT jumped 120→327 in Run 6, a 173% increase), the
+  threshold may be causing too-frequent pivots on rules that would
+  have resolved in one or two more attempts.
+- **Why deferred**: Tuning a harness-wide threshold against one
+  skill's data is the same trap Track A runtime work was flagged
+  for. Waiting on CVE run data to see whether the same pattern
+  holds. If CVE also shows scanner-gap inflation, the threshold
+  is genuinely too tight; if it shows differently, the tuning
+  should be per-skill or per-category.
+- **Revisit when**: First full CVE run provides a second data
+  distribution, OR PIVOT reengagement rate continues to grow
+  disproportionately to run length.
+- **Pain signal**: Run N's `architect_reengaged` PIVOT count is
+  more than 2× Run N-1's while wall time and rule count grew less
+  than 1.5×. This indicates the loop is pivoting on rules that
+  would have converged on their own.
+- **Context**: Run 6 post-mortem (journey/34). Specific numbers:
+  Run 5 (14.3h, 205 scanner_gaps, 120 PIVOTs) vs Run 6 (19.1h, 391
+  scanner_gaps, 327 PIVOTs). The scanner_gap_threshold config key
+  defaults to 3; candidates for tuning are 4 or 5.
+
+### DEF-18 — Skill-dir aliases should live in SkillManifest, not hardcoded
+
+- **What**: Three places in the codebase hardcode the mapping
+  between skill schema names (short: `stig`, `cve`) and skill
+  directory names (long: `stig-rhel9`, `cve-response`):
+  `ralph.py`'s `_run_auto_consolidation` skill_dir_map, `eviction.py`'s
+  `_skill_to_schema`, and `tools/evict_tips.py`'s
+  `_skill_evaluator_metadata`. Each one grew its CVE entry
+  independently today. A future skill (`cve-ubuntu`, `stig-rhel10`,
+  etc.) would require three more edits.
+- **Why deferred**: Cleanup refactor; not blocking any functionality.
+  The `SkillManifest` pydantic model is the right place to declare
+  both names — maybe a `schema_name` field that defaults to the
+  first segment of the directory name. Registering the alias in one
+  place and reading it from the three call sites is the target.
+- **Revisit when**: A third skill lands (and requires three more
+  hardcoded edits), or when any of the three mapping sites develops
+  a real bug because they drifted apart.
+- **Pain signal**: Someone adds a skill and the harness crashes
+  with a confusing error message that points to the wrong directory.
+  Or: grep finds four sites with the same mapping logic.
+- **Context**: Noted in the commit message for the CVE eviction
+  fix (commit `152842a`, 2026-04-19). Three hardcoded sites
+  identified during the smoke-test-catches-bug debug today.
+
+### DEF-19 — dac_modification fchown / fchownat regressed R5→R6
+
+- **What**: Two rules in the `audit_rules_dac_modification_*` family
+  regressed from first-try wins in Run 5 to escalations at attempt 5
+  in Run 6. `audit_rules_dac_modification_fchown` and
+  `audit_rules_dac_modification_fchownat`. The ordering constraint
+  isn't at fault — `audit_rules_immutable` didn't run until t=19h
+  in Run 6, so the kernel wasn't locked when these ran. Something
+  about the prompt state or retrieved tips made these harder, not
+  easier, between runs.
+- **Why deferred**: Two rules out of 247, running against a
+  functional ordering-constraint fix that helped 7 other
+  dac_modification family members. The regression is small
+  relative to the net gain, and diagnosing it requires comparing
+  the V2 tip retrievals between R5 and R6 for those specific rules
+  — non-trivial analysis that's worth doing but not Run-7 blocking.
+- **Revisit when**: The same pair regresses in Run 7, or a
+  similar pattern (R5-first-try → R6-escalate-mid-grind) emerges
+  on another category.
+- **Pain signal**: Cross-run first-try-loss analysis shows more
+  than 5 rules per category moving backwards between consecutive
+  runs. Single-rule regressions are noise; pattern-level regressions
+  are signal.
+- **Context**: Run 6 post-mortem (journey/34), cross-run analysis
+  section. Retrievals logged in Run 6's JSONL; comparison against
+  Run 5's prompt_assembled events would reveal what specific tips
+  were surfaced to those two rules.
+
 ### DEF-16 — Cross-scale harness validation (larger-model follow-on project)
 
 - **What**: This project is rooted in Gemma 4 31B. The harness interfaces

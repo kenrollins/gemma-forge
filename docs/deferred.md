@@ -442,6 +442,44 @@ promoted out of this file into active work.
   larger-model infrastructure surfaced; decision was to capture the
   opportunity as a future project rather than absorb into this one.
 
+### DEF-20 — Different-model adversarial critic for Reflector output
+
+- **What**: Run a second model (different family — Qwen, Llama, Mistral)
+  as a one-pass adversarial critic of the Reflector's tip emissions.
+  The critic reads the Reflector's proposed tip + mechanism and either
+  confirms it or flags it as low-signal / wrong-direction /
+  already-failed-before. One extra LLM call per reflection, not a
+  full multi-round debate — the parse-time mechanism-field filter
+  plus outcome-driven eviction already do most of the adversarial
+  work; the critic catches the ~10% where a plausible mechanism is
+  actually wrong.
+- **Why deferred**: Requires different-model infrastructure we don't
+  have on the XR7620. Gemma-vs-Gemma debate mode-collapses — both
+  agents share priors, training data, and blind spots; literature
+  (Du et al. ICML 2024) shows same-model debate provides a fraction
+  of the lift different-model debate does. We'd spend 2× Reflector
+  inference for marginal gain. When DEF-16's cross-scale hardware
+  (2× A6000 host or build.nvidia.com API access) lands, routing
+  Reflector output through a genuinely different model is the
+  experiment worth running.
+- **Revisit when**: DEF-16 hardware is active, AND we've exhausted
+  the cheaper adversarial mechanisms (mechanism-field filter,
+  outcome-driven eviction, ATLANTIS two-level enforcement) and
+  still see Reflector tips with plausible-but-wrong mechanisms
+  surviving into the prompt.
+- **Pain signal**: Post-run tip audit finds tips with reasonable-
+  looking mechanisms that never help (repeated zero-utility retrievals
+  despite the mechanism field passing the parser). When the parser-
+  level filter isn't enough because the mechanism is plausible-but-
+  false, only a different model can catch it.
+- **Context**: Discussed 2026-04-19. Same-Gemma debate would slow
+  runs 2-3× with marginal quality gain; different-model debate has
+  real literature-backed lift. Relevant prior work: Du et al.,
+  "Improving Factuality and Reasoning in Language Models through
+  Multiagent Debate" (arXiv 2305.14325, ICML 2024); Liang et al.,
+  "Encouraging Divergent Thinking in LLMs through Multi-Agent
+  Debate" (arXiv 2305.19118).
+
 ### DEF-14 — Harness as training-data factory (fine-tuning pipeline)
 
 - **What**: Every run produces structured (context, action, outcome)

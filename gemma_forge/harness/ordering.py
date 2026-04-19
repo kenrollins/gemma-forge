@@ -75,8 +75,37 @@ def _category_nearly_complete(params: dict, failing_rules: list[dict]) -> bool:
     return same_category_count > remaining_lte
 
 
+def _deferrable_reboot(params: dict, failing_rules: list[dict]) -> bool:
+    """Predicate: batch reboot-required items to end-of-run.
+
+    The rule that carries this constraint is deferred whenever there
+    is at least one non-reboot rule still pending in the queue. Once
+    all remaining rules are reboot-required (or this rule is the last
+    one left), the constraint releases.
+
+    The reboot flag lives on the rule's ``metadata['requires_reboot']``
+    (populated by the skill's WorkQueue.scan from Vuls). Rules without
+    that flag are treated as not-reboot-required.
+
+    Unlike ``category_nearly_complete``, this predicate applies per-item
+    based on its metadata — the skill declares the constraint with a
+    wildcard rule_id in the manifest, and the filter applies it to any
+    rule whose metadata says requires_reboot=True.
+    """
+    # The predicate is evaluated per-rule from ``filter_deferred``, but
+    # it runs with the rule under evaluation still present in failing_rules.
+    # So "non-reboot rules still pending" = any rule whose
+    # requires_reboot metadata is falsy.
+    non_reboot_pending = sum(
+        1 for r in failing_rules
+        if not (r.get("metadata") or {}).get("requires_reboot")
+    )
+    return non_reboot_pending > 0
+
+
 _PREDICATES: dict[str, Callable[[dict, list[dict]], bool]] = {
     "category_nearly_complete": _category_nearly_complete,
+    "deferrable_reboot": _deferrable_reboot,
 }
 
 
@@ -150,6 +179,19 @@ def is_deferred(
         return False
 
 
+def _matches_rule_id(constraint_rule_id: str, actual_rule_id: str) -> bool:
+    """True if a constraint's rule_id pattern matches an actual rule id.
+
+    Supports:
+      - Exact match (STIG uses this — a specific rule_id)
+      - Wildcard ``"*"`` (CVE uses this — constraint applies to every
+        item; the predicate filters based on rule metadata)
+    """
+    if constraint_rule_id == "*":
+        return True
+    return constraint_rule_id == actual_rule_id
+
+
 def filter_deferred(
     failing_rules: list[dict],
     constraints: list[OrderingConstraint],
@@ -159,23 +201,75 @@ def filter_deferred(
     Deferred entries carry the constraint that deferred them so the
     harness can log a ``rule_deferred`` event with reason intact.
     Rules not covered by any constraint are always visible.
+
+    Supports both specific-rule-id constraints (STIG's
+    ``audit_rules_immutable``) and wildcard constraints (CVE's
+    ``deferrable_reboot`` applied to every work item, with the
+    predicate filtering by metadata).
     """
     if not constraints:
         return failing_rules, []
 
-    # Build rule_id -> matching constraint map for O(1) lookup
-    by_rule: dict[str, OrderingConstraint] = {c.rule_id: c for c in constraints}
+    # Split constraints by scope: exact rule_id (fast path) vs wildcard
+    # (broadcast path, evaluated per-rule).
+    exact: dict[str, OrderingConstraint] = {
+        c.rule_id: c for c in constraints if c.rule_id != "*"
+    }
+    wildcard: list[OrderingConstraint] = [c for c in constraints if c.rule_id == "*"]
 
     visible: list[dict] = []
     deferred: list[tuple[dict, OrderingConstraint]] = []
     for rule in failing_rules:
         rid = rule.get("rule_id", "")
-        constraint = by_rule.get(rid)
-        if constraint is None:
-            visible.append(rule)
+
+        # First: exact match. If present, it wins (specific beats wildcard).
+        if rid in exact:
+            c = exact[rid]
+            if is_deferred(c, failing_rules):
+                deferred.append((rule, c))
+            else:
+                visible.append(rule)
             continue
-        if is_deferred(constraint, failing_rules):
-            deferred.append((rule, constraint))
+
+        # Then: wildcards. Rule is deferred if ANY wildcard defers it.
+        # (Most skills have one wildcard; if a skill adds more, this
+        # composition stays sensible.)
+        deferred_by_wildcard: OrderingConstraint | None = None
+        for c in wildcard:
+            if _is_deferred_per_rule(c, rule, failing_rules):
+                deferred_by_wildcard = c
+                break
+        if deferred_by_wildcard is not None:
+            deferred.append((rule, deferred_by_wildcard))
         else:
             visible.append(rule)
     return visible, deferred
+
+
+def _is_deferred_per_rule(
+    constraint: OrderingConstraint,
+    rule: dict,
+    failing_rules: list[dict],
+) -> bool:
+    """Evaluate a wildcard constraint's predicate against a specific rule.
+
+    Wildcard constraints act on per-rule metadata (e.g., ``requires_reboot``)
+    so the predicate needs both the rule under consideration AND the full
+    rule list. Rather than extend the predicate signature (which would
+    break every existing predicate), we pass the rule as a single-rule
+    "focused view" by temporarily filtering failing_rules to just items
+    whose metadata matches the constraint's intent.
+
+    For ``deferrable_reboot``: if this rule itself is reboot-required,
+    check whether any non-reboot rule is still pending. Otherwise the
+    rule isn't a candidate for the constraint at all — visible.
+    """
+    # Only reboot-required rules are candidates for deferrable_reboot.
+    if constraint.predicate == "deferrable_reboot":
+        metadata = rule.get("metadata") or {}
+        if not metadata.get("requires_reboot"):
+            return False  # rule doesn't need reboot → not deferred by this constraint
+        return is_deferred(constraint, failing_rules)
+
+    # Future wildcard predicates: add similar per-rule gating here.
+    return is_deferred(constraint, failing_rules)

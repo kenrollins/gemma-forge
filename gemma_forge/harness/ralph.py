@@ -704,6 +704,29 @@ def _build_skill_runtime(skill: Skill, harness_cfg: dict) -> SkillRuntime:
         datastream = stig_cfg.get("datastream", "/usr/share/xml/scap/ssg/content/ssg-rl9-ds.xml")
         return StigSkillRuntime(ssh_config, profile, datastream)
 
+    if skill.name == "cve-response" or skill.skill_dir.name == "cve-response":
+        import importlib.util
+        runtime_path = Path("skills/cve-response/runtime.py")
+        spec = importlib.util.spec_from_file_location("cve_runtime", runtime_path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        CveSkillRuntime = mod.CveSkillRuntime
+
+        # Pull skill-specific CVE config from the manifest's `cve` block
+        # (see skills/cve-response/skill.yaml). Falls back to sensible
+        # defaults if the block is missing or partial.
+        raw = {}
+        manifest_path = skill.skill_dir / "skill.yaml"
+        if manifest_path.is_file():
+            import yaml as _yaml
+            with open(manifest_path) as _f:
+                raw = _yaml.safe_load(_f) or {}
+        cve_cfg = raw.get("cve", {}) or {}
+        vuls_config_path = cve_cfg.get("vuls_config", "/data/vuls/config/config.toml")
+        scan_mode = cve_cfg.get("scan_mode", "fast")
+        severity_filter = cve_cfg.get("severity_filter", ["Critical", "Important"])
+        return CveSkillRuntime(ssh_config, vuls_config_path, scan_mode, severity_filter)
+
     raise ValueError(f"No runtime implementation for skill '{skill.name}'")
 
 

@@ -228,6 +228,15 @@ async def run_vuls_scan_report(
         raise RuntimeError(f"vuls report failed (rc={proc.returncode}): {stdout.decode('utf-8', errors='replace')[:500]}")
     logger.info("vuls: report completed")
 
+    # The Docker containers write output as root; chmod so the harness
+    # can read it back. Passwordless sudo is expected on the host (same
+    # pattern bin/forge uses for libvirt snapshots).
+    chmod_proc = await asyncio.create_subprocess_exec(
+        "sudo", "chmod", "-R", "a+rX", f"{vuls_data_dir}/results",
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+    )
+    await chmod_proc.communicate()
+
     # Phase 3: find the latest result JSON
     results_root = Path(vuls_data_dir) / "results"
     if not results_root.is_dir():

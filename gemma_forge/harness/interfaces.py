@@ -116,6 +116,13 @@ class FailureMode(Enum):
     EVALUATOR_GAP = "evaluator_gap"     # target healthy but evaluator says fail
     FALSE_NEGATIVE = "false_negative"   # evaluator says pass but noise caused revert
     CLEAN_FAILURE = "clean_failure"     # normal failure, safe to retry
+    # CVE-skill additions (entry 33). Harness routing:
+    #   NEEDS_REBOOT      → partial success; defer via deferrable_reboot ordering
+    #   RPM_CONFLICT      → clean failure with a specific diagnostic angle
+    #   POLICY_VIOLATION  → immediate revert + ban the approach (e.g., dnf remove as "fix")
+    NEEDS_REBOOT = "needs_reboot"
+    RPM_CONFLICT = "rpm_conflict"
+    POLICY_VIOLATION = "policy_violation"
 
 
 @dataclass

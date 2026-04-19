@@ -953,8 +953,25 @@ async def run_ralph(
     graph = TaskGraph()
     graph.add_items(work_items)
     for item in work_items:
-        state.failing_rules.append({"rule_id": item.id, "title": item.title,
-                                     "category": item.category, "_item": item})
+        # Propagate ALL WorkItem fields to the top-level dict so
+        # harness-level consumers (ordering predicates, parallel
+        # conflict detection, dependency resolution) can read them
+        # without reaching into `_item`. WorkItem's interface has six
+        # fields; the prior implementation copied only three, which
+        # caused the deferrable_reboot predicate silently no-op for
+        # CVE until we caught it via smoke. Fixing the full interface
+        # now instead of re-fixing it one field at a time as each
+        # future skill uses a field STIG never touched. dict() /
+        # list() copies handle mutable-default safety.
+        state.failing_rules.append({
+            "rule_id": item.id,
+            "title": item.title,
+            "category": item.category,
+            "metadata": dict(item.metadata),
+            "resources": list(item.resources),
+            "depends_on": list(item.depends_on),
+            "_item": item,
+        })
     logger.info("Found %d work items", len(state.failing_rules))
     run_log.log("scan_complete", "system", {"failing_count": len(state.failing_rules)}, include_gpu=True)
     # Emit initial graph state for dashboard

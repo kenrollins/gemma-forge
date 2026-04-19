@@ -51,7 +51,8 @@ class TestEvalResult:
     def test_property_all_failure_modes_are_distinct(self):
         modes = list(FailureMode)
         assert len(modes) == len(set(m.value for m in modes))
-        assert len(modes) == 4  # HEALTH_FAILURE, EVALUATOR_GAP, FALSE_NEGATIVE, CLEAN_FAILURE
+        # 4 STIG-era + 3 CVE-era (NEEDS_REBOOT, RPM_CONFLICT, POLICY_VIOLATION)
+        assert len(modes) == 7
 
 
 # =============================================================================

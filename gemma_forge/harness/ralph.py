@@ -2077,7 +2077,15 @@ async def _run_auto_consolidation(
         # inline to avoid a tight coupling between ralph.py and the
         # eviction CLI's helper.
         import importlib.util
-        skill_dir_name = {"stig": "stig-rhel9"}.get(skill_schema, skill_schema)
+        # Map schema → skill directory. Skill dirs sometimes carry an
+        # os-suffix (stig-rhel9) while the schema is short (stig); skills
+        # added later must register their own mapping here. Falls back to
+        # the schema name itself for skills where it matches the dir.
+        _skill_dir_map = {
+            "stig": "stig-rhel9",
+            "cve":  "cve-response",
+        }
+        skill_dir_name = _skill_dir_map.get(skill_schema, skill_schema)
         runtime_path = repo_root / "skills" / skill_dir_name / "runtime.py"
         spec = importlib.util.spec_from_file_location(
             f"{skill_schema}_runtime_for_eviction", runtime_path,

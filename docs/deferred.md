@@ -327,6 +327,40 @@ promoted out of this file into active work.
   instead of a Postgres UUID?")` rather than scanning for a recent
   alternative.
 
+### DEF-16 — Cross-scale harness validation (larger-model follow-on project)
+
+- **What**: This project is rooted in Gemma 4 31B. The harness interfaces
+  are provider-agnostic — swapping to a 400B+ model via build.nvidia.com
+  API or to larger local hardware (e.g., 2× A6000 on a separate host)
+  is a config change, not a refactor. That makes a natural follow-on
+  project: same harness + same memory architecture + same skills, run
+  against progressively larger models. Measure which improvements are
+  harness-contributed vs model-contributed. Explore whether memory's
+  hit-rate signal still improves outcomes at frontier scale, or whether
+  it was papering over 31B's context limits.
+- **Why deferred**: This is a **separate project**, not a scope
+  expansion. GemmaForge's distinctive positioning is "small edge model +
+  harness at sovereign/airgap deployments." Mixing in larger-model
+  experiments inside this project muddies that story. The follow-on
+  project would start from this project's published baseline and
+  explicitly ask different questions (cross-scale behavior, model
+  scaling laws under fixed architecture, multi-tier routing patterns).
+  Hardware for the follow-on exists (2× A6000 host + NVIDIA API
+  access) but starting it now would derail the Gemma 4 thesis.
+- **Revisit when**: GemmaForge publishes its whitepaper + the CVE
+  skill is stable + the cross-run data corpus is large enough to be
+  a defensible baseline. Then a new project charter: "Scale the
+  harness — how does GemmaForge's architecture behave at 70B, 200B,
+  400B+ model sizes?"
+- **Pain signal**: Federal reviewers / practitioners asking "does
+  this only work because 31B is the smallest viable model, or does
+  the architecture generalize?" The cross-scale study is the answer
+  that question needs, and it's better answered by a dedicated
+  follow-on than by expanding GemmaForge's scope.
+- **Context**: Discussed 2026-04-19 during the CVE pivot. Access to
+  larger-model infrastructure surfaced; decision was to capture the
+  opportunity as a future project rather than absorb into this one.
+
 ### DEF-14 — Harness as training-data factory (fine-tuning pipeline)
 
 - **What**: Every run produces structured (context, action, outcome)

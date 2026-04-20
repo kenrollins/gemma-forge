@@ -1,0 +1,25 @@
+# Smoke config specifically for testing the deferred-verification
+# reboot-verify pass. Needs enough rules to exhaust non-reboot
+# advisories and release the deferrable_reboot predicate, then
+# process at least one kernel RLSA to trigger NEEDS_REBOOT.
+#
+# On Rocky 9 baseline: ~29 non-reboot + ~15 reboot = 44 total.
+# This config processes all of them with a tight wall budget.
+# Expected wall time: 30-60 min (most non-reboot at ~20s each,
+# kernel at ~30s each, plus one reboot + reverify at ~90s).
+loop:
+  max_iterations: 200
+  max_rules_per_run: 100        # enough for all 44 advisories
+  max_retries_per_rule: 10
+  max_wall_time_per_rule_s: 120 # tight — CVE rules are fast
+  architect_reengage_every_n_attempts: 3
+  architect_reengage_on_plateau: true
+stig:
+  datastream: /usr/share/xml/scap/ssg/content/ssg-rl9-ds.xml
+  profile: xccdf_org.ssgproject.content_profile_stig
+  results_dir: /tmp/gemma-forge-stig
+vm:
+  healthcheck_cmd: /usr/local/bin/mission-healthcheck.sh
+  ip: 192.168.122.43
+  ssh_key: /data/vm/gemma-forge/keys/adm-forge
+  user: adm-forge

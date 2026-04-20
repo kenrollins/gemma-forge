@@ -446,6 +446,11 @@ class RunState:
     remediated: list = field(default_factory=list)
     escalated: list = field(default_factory=list)  # failed after max retries OR time budget
     skipped: list = field(default_factory=list)
+    # Deferred verification — items whose fix was applied but can't be
+    # verified until an external event (reboot, service restart, etc.).
+    # Populated by eval-triage when FailureMode is in the skill's
+    # deferrable_failure_modes. Post-loop phase resolves + re-evaluates.
+    pending_verification: list = field(default_factory=list)
     current_rule: Optional[dict] = None
     current_iteration: int = 0
     semantic: SemanticMemory = field(default_factory=SemanticMemory)
@@ -1464,6 +1469,48 @@ async def run_ralph(
                         "threshold": scanner_gap_threshold,
                     })
 
+            # Deferred verification — skill declared this failure mode as
+            # deferrable. The fix was applied (don't revert), but can't be
+            # verified until an external event (reboot, restart, etc.).
+            # Mark as pending, remove from failing pool, move to next rule.
+            # Post-loop phase resolves + re-evaluates. Skill-agnostic:
+            # the harness doesn't know what "needs_reboot" means — just
+            # that the skill said "defer this, I'll handle it later."
+            _deferrable = runtime.evaluator.metadata.deferrable_failure_modes
+            if (not eval_result_obj.passed
+                    and eval_result_obj.failure_mode.value in _deferrable):
+                logger.info("  >>> DEFERRED VERIFICATION: %s (reason=%s) <<<",
+                            selected["rule_id"], eval_result_obj.failure_mode.value)
+                state.pending_verification.append({
+                    "rule_id": selected["rule_id"],
+                    "title": selected["title"],
+                    "category": rule_category,
+                    "attempt": attempt,
+                    "iteration": outer_iter,
+                    "deferred_reason": eval_result_obj.failure_mode.value,
+                    "eval_summary": eval_result_obj.summary[:300],
+                    "_item": work_item,
+                })
+                state.failing_rules = [r for r in state.failing_rules
+                                       if r["rule_id"] != selected["rule_id"]]
+                rules_processed += 1
+                graph.mark_completed(selected["rule_id"], attempts=attempt,
+                                     wall_time_s=time.time() - rule_start_wall)
+                run_log.log("deferred_verification", "harness", {
+                    "rule_id": selected["rule_id"],
+                    "reason": eval_result_obj.failure_mode.value,
+                    "attempt": attempt,
+                    "wall_time_s": round(time.time() - rule_start_wall, 1),
+                    "eval_summary": eval_result_obj.summary[:300],
+                })
+                # Save progress — the package IS upgraded on disk even
+                # though verification is deferred. Don't revert it.
+                try:
+                    await runtime.checkpoint.save("progress")
+                except Exception:
+                    pass
+                break  # move to next rule — don't reflect, don't reengage
+
             if eval_result_obj.passed:
                 # SUCCESS
                 logger.info("  >>> RULE REMEDIATED: %s <<<", selected["rule_id"])
@@ -1977,6 +2024,100 @@ async def run_ralph(
             "architect_reengagements": reengagements_count,
             "iteration": outer_iter,
         })
+
+    # -- Deferred-verification resolution phase ----------------------------
+    # If any items were deferred (FailureMode in deferrable_failure_modes),
+    # group by reason and ask the skill runtime to resolve each group.
+    # Then re-evaluate each item. Items that now pass → remediated.
+    # Items that still fail → escalated. Skill-agnostic: the harness
+    # doesn't know what "needs_reboot" means, only that the skill said
+    # "defer this" and the runtime's resolve_deferred() handles it.
+    if state.pending_verification:
+        from collections import defaultdict as _ddict
+        by_reason = _ddict(list)
+        for pv in state.pending_verification:
+            by_reason[pv["deferred_reason"]].append(pv)
+
+        logger.info("\n" + "=" * 60)
+        logger.info("DEFERRED VERIFICATION PHASE — %d items across %d reason(s)",
+                     len(state.pending_verification), len(by_reason))
+        logger.info("=" * 60)
+
+        for reason, items in by_reason.items():
+            logger.info("Resolving '%s' for %d items...", reason, len(items))
+            run_log.log("deferred_resolve_start", "harness", {
+                "reason": reason,
+                "count": len(items),
+                "rule_ids": [i["rule_id"] for i in items],
+            })
+
+            try:
+                ok, detail = await runtime.resolve_deferred(reason, items)
+            except Exception as exc:  # noqa: BLE001
+                ok, detail = False, f"resolve_deferred raised: {exc}"
+                logger.exception("resolve_deferred failed for reason=%s", reason)
+
+            run_log.log("deferred_resolve_complete", "harness", {
+                "reason": reason,
+                "success": ok,
+                "detail": detail[:500],
+            })
+
+            if not ok:
+                # Resolution failed — move all items to escalated
+                logger.warning("Deferred resolution FAILED for '%s': %s", reason, detail[:200])
+                for pv in items:
+                    state.escalated.append({
+                        **pv,
+                        "attempts": pv["attempt"],
+                        "reason": f"deferred_resolution_failed_{reason}",
+                    })
+                continue
+
+            # Resolution succeeded — re-evaluate each item
+            logger.info("Resolution succeeded for '%s'. Re-evaluating %d items...", reason, len(items))
+            for pv in items:
+                work_item = pv.get("_item")
+                if work_item is None:
+                    logger.warning("Deferred item %s has no _item; moving to escalated", pv["rule_id"])
+                    state.escalated.append({**pv, "attempts": pv["attempt"], "reason": "missing_item_ref"})
+                    continue
+
+                try:
+                    re_eval = await runtime.evaluator.evaluate(work_item)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("Re-eval failed for %s: %s", pv["rule_id"], exc)
+                    state.escalated.append({**pv, "attempts": pv["attempt"], "reason": "re_eval_failed"})
+                    continue
+
+                run_log.log("post_deferred_evaluation", "harness", {
+                    "rule_id": pv["rule_id"],
+                    "passed": re_eval.passed,
+                    "summary": re_eval.summary[:300],
+                    "deferred_reason": reason,
+                })
+
+                if re_eval.passed:
+                    logger.info("  >>> POST-REBOOT VERIFIED: %s <<<", pv["rule_id"])
+                    state.remediated.append({
+                        "rule_id": pv["rule_id"],
+                        "title": pv["title"],
+                        "category": pv["category"],
+                        "attempt": pv["attempt"],
+                        "iteration": pv["iteration"],
+                        "deferred_reason": reason,
+                        "deferred_verified": True,
+                    })
+                else:
+                    logger.warning("  POST-REBOOT STILL FAILING: %s — %s", pv["rule_id"], re_eval.summary[:100])
+                    state.escalated.append({
+                        **pv,
+                        "attempts": pv["attempt"],
+                        "reason": f"deferred_still_failing_{reason}",
+                    })
+
+        # Clear the pending list — all items have been resolved or escalated
+        state.pending_verification.clear()
 
     # -- Summary --
     logger.info("\n" + "=" * 60)

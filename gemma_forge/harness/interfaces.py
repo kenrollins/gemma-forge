@@ -82,6 +82,14 @@ class EvaluatorMetadata:
     # shape; binary skills override to lower values in their declaration).
     min_retrievals_before_eviction: int = 10
     eviction_threshold: float = 0.5
+    # Deferred-verification modes. If a skill's Evaluator returns a
+    # FailureMode whose .value is in this list, the harness defers the
+    # item instead of escalating — no revert, no reflect. After the
+    # main loop, the harness calls runtime.resolve_deferred() grouped
+    # by reason, then re-evaluates each item. Empty list (default)
+    # means no deferred modes — every failure escalates normally.
+    # CVE declares ["needs_reboot"]; STIG declares [].
+    deferrable_failure_modes: list[str] = field(default_factory=list)
 
 
 def outcome_signal_from_eval_result(
@@ -264,3 +272,32 @@ class SkillRuntime(Protocol):
     def get_scan_tool(self):
         """Return the ADK tool function for the Architect's scan capability."""
         ...
+
+    async def resolve_deferred(
+        self,
+        reason: str,
+        items: list,
+    ) -> tuple[bool, str]:
+        """Resolve a deferred-verification condition for a batch of items.
+
+        Called by the harness's post-loop phase when items were deferred
+        (not escalated) because their FailureMode was in the skill's
+        ``deferrable_failure_modes``. The skill owns the resolution
+        mechanics — e.g., rebooting a VM and waiting for SSH (CVE),
+        restarting a service (network-reconfig), waiting for propagation
+        (crypto-recovery).
+
+        Args:
+            reason: The FailureMode.value that caused deferral
+                (e.g., ``"needs_reboot"``).
+            items: The deferred WorkItems to resolve as a batch.
+
+        Returns:
+            (success, detail): whether the resolution action succeeded
+            (e.g., VM rebooted and came back healthy) and a human-
+            readable detail string for logging.
+
+        Default: no-op returning ``(True, "no deferred items")``.
+        Skills that declare ``deferrable_failure_modes`` MUST override.
+        """
+        return (True, "no deferred items — skill has no resolve_deferred implementation")

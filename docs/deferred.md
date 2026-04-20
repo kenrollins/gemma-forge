@@ -26,11 +26,11 @@ promoted out of this file into active work.
 
 ### DEF-01 — Clutch adaptive concurrency is dead code after init
 
-- **What**: [`gemma_forge/harness/clutch.py`](../gemma_forge/harness/clutch.py)
+- **What**: [`gemma_forge/harness/clutch.py`](https://github.com/kenrollins/gemma-forge/blob/main/gemma_forge/harness/clutch.py)
   implements `Clutch.recommend_workers()` and `Clutch.select_batch()`. Both are
-  tested ([`tests/test_memory_and_clutch.py`](../tests/test_memory_and_clutch.py))
-  and smoke-tested ([`tools/smoke_memory_e2e.py`](../tools/smoke_memory_e2e.py)).
-  In [`ralph.py`](../gemma_forge/harness/ralph.py) the clutch is initialized,
+  tested ([`tests/test_memory_and_clutch.py`](https://github.com/kenrollins/gemma-forge/blob/main/tests/test_memory_and_clutch.py))
+  and smoke-tested ([`tools/smoke_memory_e2e.py`](https://github.com/kenrollins/gemma-forge/blob/main/tools/smoke_memory_e2e.py)).
+  In [`ralph.py`](https://github.com/kenrollins/gemma-forge/blob/main/gemma_forge/harness/ralph.py) the clutch is initialized,
   snapshotted once, and never consulted again. Every run is fully serial
   despite a working adaptive-concurrency controller sitting there.
 - **Why deferred**: The UI has no way to represent N concurrent in-flight
@@ -85,7 +85,7 @@ promoted out of this file into active work.
 
 ### DEF-03 — Dream pass uses category-level credit assignment
 
-- **What**: [`gemma_forge/dream/pass_.py`](../gemma_forge/dream/pass_.py)
+- **What**: [`gemma_forge/dream/pass_.py`](https://github.com/kenrollins/gemma-forge/blob/main/gemma_forge/dream/pass_.py)
   computes fix rate per category and applies `signal × 0.3` as a confidence
   nudge to *every* lesson in that category. A bad lesson in a high-success
   category gets boosted by its neighbors; a good lesson in a struggling
@@ -129,7 +129,7 @@ promoted out of this file into active work.
 
 - **What**: V2 plan proposed mirroring `stig.tips` into Neo4j as `Tip` nodes
   with `HELPED` edges to `Rule` nodes, enabling graph-shaped queries.
-  Deferred at [`v2-architecture-plan.md:939`](drafts/v2-architecture-plan.md#L939).
+  Deferred at [`v2-architecture-plan.md:939`](https://github.com/kenrollins/gemma-forge/blob/main/docs/drafts/v2-architecture-plan.md#L939).
 - **Why deferred**: Postgres `tip_retrievals` is sufficient for hit-rate
   computation and the eviction policy. Neo4j adds nothing until we want
   graph-shaped queries we can't express in SQL.
@@ -142,7 +142,7 @@ promoted out of this file into active work.
 
 - **What**: Cross-link semantically similar tips so retrieval can expand
   outward from a seed tip rather than only querying by rule prefix. From
-  V2 plan at [`v2-architecture-plan.md:462`](drafts/v2-architecture-plan.md#L462).
+  V2 plan at [`v2-architecture-plan.md:462`](https://github.com/kenrollins/gemma-forge/blob/main/docs/drafts/v2-architecture-plan.md#L462).
 - **Why deferred**: V2 retrieval uses lexical-prefix similarity + category
   + hit-rate. That's enough to test the thesis. Embedding-based links add
   complexity and a cold-start problem.
@@ -157,7 +157,7 @@ promoted out of this file into active work.
 
 - **What**: Train a memory retention/retrieval policy via RL, as proposed
   in the AgeMem paper. Explicitly V3 in
-  [`v2-architecture-plan.md:692`](drafts/v2-architecture-plan.md#L692).
+  [`v2-architecture-plan.md:692`](https://github.com/kenrollins/gemma-forge/blob/main/docs/drafts/v2-architecture-plan.md#L692).
 - **Why deferred**: V2's hand-designed composite score (base + category
   bonus + hit-rate × 0.5 + source prior) is still uncalibrated. Learning
   a policy on top of uncalibrated features is premature.

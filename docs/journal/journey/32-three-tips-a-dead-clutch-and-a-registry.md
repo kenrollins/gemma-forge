@@ -72,7 +72,7 @@ That maps to a concrete Run-6 change: the Reflector's prompt now requires a `mec
 
 Writing up the three traces, a question landed: *what else in the codebase has this same shape — built, claimed, not actually doing what we think it's doing?* Three minutes of grep against the harness found it.
 
-[`gemma_forge/harness/clutch.py`](../../../gemma_forge/harness/clutch.py) implements adaptive concurrency. `Clutch.recommend_workers()` computes how many parallel workers to spawn per category based on prior-run success rate. `Clutch.select_batch()` pulls runnable items from a task graph respecting the recommendation. Both methods are covered in `tests/test_memory_and_clutch.py`. Both are exercised in `tools/smoke_memory_e2e.py`. Both are imported in `ralph.py`. The import path in the harness loop:
+[`gemma_forge/harness/clutch.py`](https://github.com/kenrollins/gemma-forge/blob/main/gemma_forge/harness/clutch.py) implements adaptive concurrency. `Clutch.recommend_workers()` computes how many parallel workers to spawn per category based on prior-run success rate. `Clutch.select_batch()` pulls runnable items from a task graph respecting the recommendation. Both methods are covered in `tests/test_memory_and_clutch.py`. Both are exercised in `tools/smoke_memory_e2e.py`. Both are imported in `ralph.py`. The import path in the harness loop:
 
 ```python
 clutch = Clutch(config=clutch_cfg, mem_store=mem_store)

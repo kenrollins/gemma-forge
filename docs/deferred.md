@@ -480,6 +480,44 @@ promoted out of this file into active work.
   "Encouraging Divergent Thinking in LLMs through Multi-Agent
   Debate" (arXiv 2305.19118).
 
+### DEF-21 — Bisection within a failed reboot-verify family
+
+- **What**: The per-package-family reboot-verify pass (journey/36)
+  groups pending advisories by family (kernel, glibc, openssl,
+  etc.), applies + reboots + verifies each family as a unit. On
+  family failure, every advisory in the family is marked failed
+  with the family-level reason (`family_reboot_failed`,
+  `family_health_failed`). No attempt is made to isolate which
+  specific advisory within the failed family caused the problem.
+  Bisection would: split the failed family into halves, reboot
+  each half separately, binary-search to the specific bad
+  advisory. `log₂(N)` extra reboots in the worst case.
+- **Why deferred**: In practice, kernel/glibc/systemd batches
+  mostly fail for cross-cutting reasons (hardware regression,
+  cross-package interaction) rather than one individually bad
+  advisory. Family-level attribution is usually the right
+  granularity for operator triage. Bisection doubles the
+  engineering complexity of the reboot-verify pass and pays off
+  only when single-advisory isolation matters more than the
+  extra reboot cost. We need to see families fail often enough
+  that bisection's value is obvious before we build it.
+- **Revisit when**: Family-failure logs show ≥3 runs where a
+  single family failed and operator review concluded only one
+  advisory in the bundle was the cause. That's the signal that
+  bisection would have isolated the bad apple and saved the
+  rest. Until then, "whole family escalated" is fine.
+- **Pain signal**: Operator reviews a family failure, manually
+  tests each advisory in isolation, finds only one was the
+  culprit, and re-runs with the bad advisory removed. If this
+  happens more than a couple times across skills with reboot-
+  required advisories, bisection-on-failure earns its keep.
+- **Context**: [journey/36](journal/journey/36-per-family-reboot-batching.md)
+  (the design decision that deferred this). Implementation layer
+  would be inside `CveSkillRuntime.resolve_deferred` — the
+  snapshot infrastructure is already there for per-family
+  rollback, bisection is a retry loop with halved batches on top
+  of the existing snapshot/apply/reboot/verify primitives.
+
 ### DEF-14 — Harness as training-data factory (fine-tuning pipeline)
 
 - **What**: Every run produces structured (context, action, outcome)

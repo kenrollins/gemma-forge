@@ -145,6 +145,7 @@ nav:
       - "33 - The Second Skill: CVE Response": journal/journey/33-second-skill-cve-pivot.md
       - "34 - Run 6: Ordering Works, Runtime Doesn't": journal/journey/34-run-6-ordering-works-runtime-doesnt.md
       - 35 - Building the CVE Skill in a Day: journal/journey/35-building-cve-in-a-day.md
+      - 36 - Per-Family Reboot Batching: journal/journey/36-per-family-reboot-batching.md
   - Futures:
       - Overview: journal/futures/index.md
       - The Harness Is a Training Data Factory: journal/futures/harness-as-training-data-factory.md

@@ -140,6 +140,11 @@ nav:
       - 28 - Run 4 and the Coarseness Problem: journal/journey/28-run-4-and-the-coarseness-problem.md
       - 29 - The Classifier Cheat and the Honesty Check: journal/journey/29-the-classifier-cheat-and-the-honesty-check.md
       - 30 - Building V2 — The Memory Rewrite: journal/journey/30-building-v2.md
+      - "31 - Run 5: Grading the Bets": journal/journey/31-run-5-grading-the-bets.md
+      - 32 - Three Tips, a Dead Clutch, and a Registry: journal/journey/32-three-tips-a-dead-clutch-and-a-registry.md
+      - "33 - The Second Skill: CVE Response": journal/journey/33-second-skill-cve-pivot.md
+      - "34 - Run 6: Ordering Works, Runtime Doesn't": journal/journey/34-run-6-ordering-works-runtime-doesnt.md
+      - 35 - Building the CVE Skill in a Day: journal/journey/35-building-cve-in-a-day.md
   - Futures:
       - Overview: journal/futures/index.md
       - The Harness Is a Training Data Factory: journal/futures/harness-as-training-data-factory.md

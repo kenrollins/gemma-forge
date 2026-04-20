@@ -88,6 +88,14 @@ is meant to be readable on its own.
 - [**29. The Classifier Cheat and the Honesty Check**](29-the-classifier-cheat-and-the-honesty-check.md) — a near-miss while building V2: a prompt-tuned classifier that almost snuck a thumb-on-scale into the lesson backfill, and why the fix was not a better prompt but no classifier at all.
 - [**30. Building V2 — The Memory Rewrite**](30-building-v2.md) — the seven-commit, one-day rewrite of the cross-run memory layer (V2, replacing V1's dream pass): structured tips, rule-prefix similarity, per-(tip, rule) hit-tracking, history-based eviction. Ships alongside V1 so Run 5 carries both rankings per prompt. Ends with seven graded bets for Run 5.
 
+### Phase 12 — Run 5, the deferred registry, and the CVE pivot
+
+- [**31. Run 5: Grading the Bets**](31-run-5-grading-the-bets.md) — four of seven bets won, three lost. V2 is neutral on aggregate (+0.1pp) but better on loop shape (escalated attempts −35%). The immutable cascade moved from position 50 to position 11 and killed the aggregate; the ordering constraint for Run 6 emerges from that diagnosis.
+- [**32. Three Tips, a Dead Clutch, and a Registry**](32-three-tips-a-dead-clutch-and-a-registry.md) — Run 5's post-mortem exposed three separate architectural problems the aggregate hid: tips without causal mechanisms mislead the Worker, the clutch is dead code since V5, and neither consolidation pass auto-runs. Seeded `docs/deferred.md` as the debt registry.
+- [**33. The Second Skill: CVE Response**](33-second-skill-cve-pivot.md) — the pivot: every Track A runtime tuning we were about to ship was STIG-specific vocabulary dressed as architecture work. 90 minutes of research collapsed CVE from 1-2 weeks to one day (Vuls exists, ATLANTIS is open source, CVE-Bench doesn't fit our regime). The commercial landscape check confirmed no vendor ships autonomous host-level execution.
+- [**34. Run 6: Ordering Works, Runtime Doesn't**](34-run-6-ordering-works-runtime-doesnt.md) — fix rate 61.9% (+5.6pp vs Run 5). The ordering constraint completely closed the audit_rules_immutable cascade (position 84/84 vs 11/83). Mechanism field held at 100% across 781 tips. Auto-consolidation retired 356 low-utility tips. Cost: +4.8h wall time (14.3→19.1h). Runtime is now the binding constraint.
+- [**35. Building the CVE Skill in a Day**](35-building-cve-in-a-day.md) — eleven hours from decision to working MVP. Zero edits to the ralph loop; three harness extension points (FailureMode enum, ordering predicate, skill-dir map). Five ATLANTIS patterns adopted, six skipped. MVP smoke 3/3 first-try — validated plumbing, not architectural value. Four predictions for the first full CVE run.
+
 ## Related
 
 - [Architecture overview](../architecture/00-system-architecture.md) — the same content organized by layer instead of by time.

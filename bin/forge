@@ -190,12 +190,15 @@ cmd_down() {
 cmd_run() {
     local skill="stig-rhel9"
     local config=""
+    local snapshot="baseline"
 
-    # Parse args: first positional is skill (optional); --config <path> optional.
+    # Parse args: first positional is skill (optional);
+    # --config <path> and --snapshot <name> optional.
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --config) config="$2"; shift 2 ;;
-            -h|--help) echo "Usage: forge run [skill] [--config path]"; return 0 ;;
+            --snapshot) snapshot="$2"; shift 2 ;;
+            -h|--help) echo "Usage: forge run [skill] [--config path] [--snapshot name]"; return 0 ;;
             *) skill="$1"; shift ;;
         esac
     done
@@ -225,7 +228,7 @@ cmd_run() {
         adm-forge@192.168.122.43 "echo ok" 2>/dev/null || echo "fail")
     if [[ "$vm_check" != "ok" ]]; then
         echo -e "  ${YELLOW}VM not reachable — attempting restore from baseline snapshot...${NC}"
-        "${FORGE_ROOT}/infra/vm/scripts/vm-snapshot.sh" restore baseline 2>&1 | tail -1
+        "${FORGE_ROOT}/infra/vm/scripts/vm-snapshot.sh" restore "${snapshot}" 2>&1 | tail -1
         sleep 5
         vm_check=$(ssh -i /data/vm/gemma-forge/keys/adm-forge -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
             adm-forge@192.168.122.43 "echo ok" 2>/dev/null || echo "fail")
@@ -237,8 +240,8 @@ cmd_run() {
     echo -e "  ${GREEN}VM reachable${NC}"
 
     # Restore baseline snapshot
-    echo -e "  Restoring VM to baseline..."
-    "${FORGE_ROOT}/infra/vm/scripts/vm-snapshot.sh" restore baseline 2>&1 | tail -1
+    echo -e "  Restoring VM to snapshot '${snapshot}'..."
+    "${FORGE_ROOT}/infra/vm/scripts/vm-snapshot.sh" restore "${snapshot}" 2>&1 | tail -1
 
     # Wait for SSH after snapshot restore
     for i in $(seq 1 12); do

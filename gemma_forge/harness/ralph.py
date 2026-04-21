@@ -1223,6 +1223,7 @@ async def run_ralph(
 
         # -- Inner loop: Ralph-style. Keep grinding until time budget runs out. --
         rule_succeeded = False
+        rule_deferred = False
         escalation_reason: Optional[str] = None
         attempt = 0
         # Track the last attempt at which the architect re-engaged, so we
@@ -1509,6 +1510,10 @@ async def run_ralph(
                     await runtime.checkpoint.save("progress")
                 except Exception:
                     pass
+                # Flag this rule as deferred so the post-inner-loop
+                # escalation block doesn't fire. Post-loop phase owns
+                # its verdict via DeferredItemOutcome.
+                rule_deferred = True
                 break  # move to next rule — don't reflect, don't reengage
 
             if eval_result_obj.passed:
@@ -1947,7 +1952,7 @@ async def run_ralph(
         # --- Rule complete (success or escalation) ---
         rule_wall_time = time.time() - rule_start_wall
 
-        if not rule_succeeded:
+        if not rule_succeeded and not rule_deferred:
             # ESCALATED — time budget or retry ceiling exhausted
             reason = escalation_reason or "unknown"
             logger.warning("  >>> ESCALATED: %s (reason=%s, attempts=%d, wall_time=%ds) <<<",
@@ -1996,10 +2001,12 @@ async def run_ralph(
                 "",  # banned patterns are in semantic memory, not per-attempt
                 0.0,
             )
-        # Save distilled lessons from failed approaches
+        # Save distilled lessons from failed approaches. Skip for deferred
+        # items — their verdict isn't known until the post-loop phase,
+        # so storing "lessons" from intermediate attempts is premature.
         for att in episodic.attempts:
             lesson = att.get("lesson", "").strip()
-            if lesson and not rule_succeeded:
+            if lesson and not rule_succeeded and not rule_deferred:
                 mem_store.save_lesson(rule_category, lesson,
                                      mem_run_id, selected["rule_id"])
 
@@ -2009,13 +2016,18 @@ async def run_ralph(
         # Emit rich rule_complete summary — the key event for per-rule timeline views
         reflections_for_rule = [a.get("reflection", "") for a in episodic.attempts]
         final_plateau = detect_plateau(reflections_for_rule, window=3)
+        _outcome_for_log = (
+            "remediated" if rule_succeeded
+            else "deferred" if rule_deferred
+            else "escalated"
+        )
         run_log.log("rule_complete", "harness", {
             "rule_id": selected["rule_id"],
             "title": selected["title"],
             "category": rule_category,
-            "outcome": "remediated" if rule_succeeded else "escalated",
-            "escalation_reason": None if rule_succeeded else escalation_reason,
-            "attempts": attempt if rule_succeeded else (attempt - 1),
+            "outcome": _outcome_for_log,
+            "escalation_reason": None if (rule_succeeded or rule_deferred) else escalation_reason,
+            "attempts": attempt if (rule_succeeded or rule_deferred) else (attempt - 1),
             "wall_time_s": round(rule_wall_time, 1),
             "approaches_tried": [a[:160] for a in approaches_tried],
             "reflections_count": len(episodic.attempts),
@@ -2028,10 +2040,12 @@ async def run_ralph(
     # -- Deferred-verification resolution phase ----------------------------
     # If any items were deferred (FailureMode in deferrable_failure_modes),
     # group by reason and ask the skill runtime to resolve each group.
-    # Then re-evaluate each item. Items that now pass → remediated.
-    # Items that still fail → escalated. Skill-agnostic: the harness
-    # doesn't know what "needs_reboot" means, only that the skill said
-    # "defer this" and the runtime's resolve_deferred() handles it.
+    # The runtime returns per-item DeferredItemOutcome objects with the
+    # verdict already baked in — the harness consumes them directly and
+    # does NOT re-evaluate. This matters because the skill can do things
+    # the harness's Evaluator can't (e.g., CVE's per-family batch tracks
+    # which dnf transaction succeeded and which reboot timed out). See
+    # journey/36 and interfaces.py::DeferredItemOutcome.
     if state.pending_verification:
         from collections import defaultdict as _ddict
         by_reason = _ddict(list)
@@ -2051,54 +2065,61 @@ async def run_ralph(
                 "rule_ids": [i["rule_id"] for i in items],
             })
 
+            # Pass the underlying WorkItems (the skill reads their
+            # metadata for family classification etc.); keep the pv
+            # envelope indexed by rule_id for outcome routing below.
+            work_items = [pv["_item"] for pv in items if pv.get("_item") is not None]
+            pv_by_id = {pv["rule_id"]: pv for pv in items}
+
             try:
-                ok, detail = await runtime.resolve_deferred(reason, items)
+                ok, detail, outcomes = await runtime.resolve_deferred(reason, work_items)
             except Exception as exc:  # noqa: BLE001
-                ok, detail = False, f"resolve_deferred raised: {exc}"
-                logger.exception("resolve_deferred failed for reason=%s", reason)
+                logger.exception("resolve_deferred raised for reason=%s", reason)
+                err_tag = type(exc).__name__.lower()
+                run_log.log("deferred_resolve_complete", "harness", {
+                    "reason": reason,
+                    "success": False,
+                    "detail": f"resolve_deferred raised: {exc}"[:500],
+                })
+                for pv in items:
+                    state.escalated.append({
+                        **pv,
+                        "attempts": pv["attempt"],
+                        "reason": f"deferred_exception_{err_tag}",
+                    })
+                continue
 
             run_log.log("deferred_resolve_complete", "harness", {
                 "reason": reason,
                 "success": ok,
                 "detail": detail[:500],
+                "outcome_count": len(outcomes),
+                "passed_count": sum(1 for o in outcomes if o.passed),
             })
 
-            if not ok:
-                # Resolution failed — move all items to escalated
-                logger.warning("Deferred resolution FAILED for '%s': %s", reason, detail[:200])
-                for pv in items:
-                    state.escalated.append({
-                        **pv,
-                        "attempts": pv["attempt"],
-                        "reason": f"deferred_resolution_failed_{reason}",
-                    })
-                continue
-
-            # Resolution succeeded — re-evaluate each item
-            logger.info("Resolution succeeded for '%s'. Re-evaluating %d items...", reason, len(items))
-            for pv in items:
-                work_item = pv.get("_item")
-                if work_item is None:
-                    logger.warning("Deferred item %s has no _item; moving to escalated", pv["rule_id"])
-                    state.escalated.append({**pv, "attempts": pv["attempt"], "reason": "missing_item_ref"})
+            # Route each per-item outcome directly — no re-evaluation.
+            seen_ids: set[str] = set()
+            for outcome in outcomes:
+                pv = pv_by_id.get(outcome.rule_id)
+                if pv is None:
+                    logger.warning(
+                        "resolve_deferred returned outcome for unknown id %s — ignoring",
+                        outcome.rule_id,
+                    )
                     continue
-
-                try:
-                    re_eval = await runtime.evaluator.evaluate(work_item)
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning("Re-eval failed for %s: %s", pv["rule_id"], exc)
-                    state.escalated.append({**pv, "attempts": pv["attempt"], "reason": "re_eval_failed"})
-                    continue
+                seen_ids.add(outcome.rule_id)
 
                 run_log.log("post_deferred_evaluation", "harness", {
-                    "rule_id": pv["rule_id"],
-                    "passed": re_eval.passed,
-                    "summary": re_eval.summary[:300],
+                    "rule_id": outcome.rule_id,
+                    "passed": outcome.passed,
+                    "outcome_reason": outcome.reason,
                     "deferred_reason": reason,
+                    "metadata": outcome.metadata,
                 })
 
-                if re_eval.passed:
-                    logger.info("  >>> POST-REBOOT VERIFIED: %s <<<", pv["rule_id"])
+                if outcome.passed:
+                    logger.info("  >>> DEFERRED-VERIFIED: %s (%s) <<<",
+                                outcome.rule_id, outcome.reason)
                     state.remediated.append({
                         "rule_id": pv["rule_id"],
                         "title": pv["title"],
@@ -2107,13 +2128,30 @@ async def run_ralph(
                         "iteration": pv["iteration"],
                         "deferred_reason": reason,
                         "deferred_verified": True,
+                        "outcome_reason": outcome.reason,
                     })
                 else:
-                    logger.warning("  POST-REBOOT STILL FAILING: %s — %s", pv["rule_id"], re_eval.summary[:100])
+                    logger.warning("  DEFERRED-FAILED: %s — %s",
+                                   outcome.rule_id, outcome.reason)
                     state.escalated.append({
                         **pv,
                         "attempts": pv["attempt"],
-                        "reason": f"deferred_still_failing_{reason}",
+                        "reason": outcome.reason,
+                    })
+
+            # Any item the skill didn't return an outcome for → escalate
+            # as a contract violation. This protects against skill bugs
+            # that silently drop items.
+            for pv in items:
+                if pv["rule_id"] not in seen_ids:
+                    logger.warning(
+                        "resolve_deferred returned no outcome for %s — escalating",
+                        pv["rule_id"],
+                    )
+                    state.escalated.append({
+                        **pv,
+                        "attempts": pv["attempt"],
+                        "reason": f"deferred_no_outcome_{reason}",
                     })
 
         # Clear the pending list — all items have been resolved or escalated

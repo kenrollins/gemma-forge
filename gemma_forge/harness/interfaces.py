@@ -277,7 +277,7 @@ class SkillRuntime(Protocol):
         self,
         reason: str,
         items: list,
-    ) -> tuple[bool, str]:
+    ) -> tuple[bool, str, list["DeferredItemOutcome"]]:
         """Resolve a deferred-verification condition for a batch of items.
 
         Called by the harness's post-loop phase when items were deferred
@@ -285,7 +285,9 @@ class SkillRuntime(Protocol):
         ``deferrable_failure_modes``. The skill owns the resolution
         mechanics — e.g., rebooting a VM and waiting for SSH (CVE),
         restarting a service (network-reconfig), waiting for propagation
-        (crypto-recovery).
+        (crypto-recovery). The skill also owns attribution — the returned
+        per-item outcomes carry the specific reason each item passed or
+        failed, which the harness uses directly without re-evaluating.
 
         Args:
             reason: The FailureMode.value that caused deferral
@@ -293,11 +295,41 @@ class SkillRuntime(Protocol):
             items: The deferred WorkItems to resolve as a batch.
 
         Returns:
-            (success, detail): whether the resolution action succeeded
-            (e.g., VM rebooted and came back healthy) and a human-
-            readable detail string for logging.
+            (overall_success, detail, outcomes) — overall_success is a
+            rollup for logging; outcomes is the load-bearing return.
+            Each DeferredItemOutcome carries the specific per-item verdict
+            (``family_verified``, ``family_reboot_failed``, etc.) that the
+            harness translates directly into remediated vs escalated.
 
-        Default: no-op returning ``(True, "no deferred items")``.
+        Default: no-op returning ``(True, "no items", [])``.
         Skills that declare ``deferrable_failure_modes`` MUST override.
         """
-        return (True, "no deferred items — skill has no resolve_deferred implementation")
+        return (True, "no deferred items — skill has no resolve_deferred implementation", [])
+
+
+@dataclass(frozen=True)
+class DeferredItemOutcome:
+    """One item's outcome from a ``resolve_deferred`` batch.
+
+    The skill's ``resolve_deferred`` returns a list of these, one per
+    item it was given. The harness consumes the list directly — items
+    with ``passed=True`` move to remediated; items with ``passed=False``
+    move to escalated with ``reason`` as the escalation attribution.
+
+    ``reason`` is free-form but should be skill-stable so log analysis
+    can distinguish failure modes. CVE's vocabulary:
+
+    - ``family_verified``           — applied + rebooted + re-scan cleared
+    - ``family_still_listed``       — applied + rebooted but advisory still pending
+    - ``family_reboot_failed``      — reboot timed out / VM didn't come back
+    - ``family_health_failed``      — post-reboot mission healthcheck failed
+    - ``family_apply_failed``       — dnf exited non-zero during the family apply
+    - ``family_exception_<type>``   — any other exception type during resolution
+
+    Additional keys (``detail``, ``family``, ``wall_time_s``) go in
+    ``metadata`` for observability without cluttering the contract.
+    """
+    rule_id: str
+    passed: bool
+    reason: str
+    metadata: dict = field(default_factory=dict)

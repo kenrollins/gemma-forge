@@ -2071,8 +2071,19 @@ async def run_ralph(
             work_items = [pv["_item"] for pv in items if pv.get("_item") is not None]
             pv_by_id = {pv["rule_id"]: pv for pv in items}
 
+            # Progress-event callback — the skill streams phase
+            # boundaries into the run log so the UI has events to
+            # paint during long reboot/SSH waits instead of ~3min
+            # of silence between resolve_start and resolve_complete.
+            def _emit_skill_progress(event_type: str, data: dict,
+                                     _reason: str = reason) -> None:
+                run_log.log(event_type, "harness",
+                            {"deferred_reason": _reason, **data})
+
             try:
-                ok, detail, outcomes = await runtime.resolve_deferred(reason, work_items)
+                ok, detail, outcomes = await runtime.resolve_deferred(
+                    reason, work_items, emit=_emit_skill_progress,
+                )
             except Exception as exc:  # noqa: BLE001
                 logger.exception("resolve_deferred raised for reason=%s", reason)
                 err_tag = type(exc).__name__.lower()

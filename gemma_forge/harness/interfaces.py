@@ -24,7 +24,17 @@ Design notes:
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Literal, Protocol, runtime_checkable
+from typing import Callable, Literal, Optional, Protocol, runtime_checkable
+
+
+# Callback the harness hands to ``SkillRuntime.resolve_deferred`` so the
+# skill can stream structured progress events during a long-running
+# deferred-resolution phase (CVE's per-family reboot batches emit 5-6
+# events per family, spanning the ~2-minute SSH wait). The harness
+# wires this to ``run_log.log(event_type, "harness", data)`` so the UI
+# sees a narrative instead of 3 minutes of silence between
+# ``deferred_resolve_start`` and ``deferred_resolve_complete``.
+EmitEvent = Callable[[str, dict], None]
 
 
 # -- Skill-agnostic outcome signal -------------------------------------------
@@ -277,6 +287,7 @@ class SkillRuntime(Protocol):
         self,
         reason: str,
         items: list,
+        emit: Optional[EmitEvent] = None,
     ) -> tuple[bool, str, list["DeferredItemOutcome"]]:
         """Resolve a deferred-verification condition for a batch of items.
 
@@ -293,6 +304,11 @@ class SkillRuntime(Protocol):
             reason: The FailureMode.value that caused deferral
                 (e.g., ``"needs_reboot"``).
             items: The deferred WorkItems to resolve as a batch.
+            emit: Optional progress-event callback. If provided, the
+                skill should call ``emit(event_type, data)`` at phase
+                boundaries so the run log captures a narrative instead
+                of 3 minutes of silence. Event naming is skill-chosen
+                but stable across runs so replay UIs can key off it.
 
         Returns:
             (overall_success, detail, outcomes) — overall_success is a

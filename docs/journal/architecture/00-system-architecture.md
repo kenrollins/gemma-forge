@@ -201,10 +201,10 @@ flowchart TD
     S -->|end-of-run consolidation<br/>+ dream pass| P
     P -.->|rule-prefix retrieval<br/>at new item / new run| E
 
-    classDef working   fill:#1e3a5f,stroke:#93C5FD,color:#EFF6FF
-    classDef episodic  fill:#15305c,stroke:#60A5FA,color:#DBEAFE
-    classDef semantic  fill:#0d2650,stroke:#3B82F6,color:#DBEAFE
-    classDef persistent fill:#061838,stroke:#1E40AF,color:#DBEAFE
+    classDef working   fill:#E0F2FE,stroke:#3B82F6,color:#0F172A
+    classDef episodic  fill:#1E3A5F,stroke:#60A5FA,color:#DBEAFE
+    classDef semantic  fill:#0A2955,stroke:#3B82F6,color:#DBEAFE
+    classDef persistent fill:#020A24,stroke:#1E3A8A,color:#DBEAFE
     class W working
     class E episodic
     class S semantic

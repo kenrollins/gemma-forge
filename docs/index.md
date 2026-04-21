@@ -12,28 +12,6 @@ hide:
 
     By **Ken Rollins**, Chief AI Technology Strategist in Dell Federal.
 
-![gemma-forge dashboard during a STIG remediation run — rule heatmap, live agent pipeline, event stream, and the reflexion loop visible in a single view](assets/media/gemma-forge-screenshot.png){ .hero-screenshot }
-
----
-
-## See it run
-
-**The harness live, during a STIG remediation run** — Architect picks a rule, Worker applies the fix, Evaluator scans, Reflector distills a lesson on failure, repeat:
-
-<video controls autoplay loop muted playsinline width="100%" poster="assets/media/gemma-forge-screenshot.png" style="border-radius: 8px; margin: 1rem 0;">
-  <source src="assets/media/gemma-forge-stig-main.mp4" type="video/mp4">
-  Your browser does not support embedded video —
-  <a href="assets/media/gemma-forge-stig-main.mp4">download the STIG run recording</a>.
-</video>
-
-**Cross-run memory working in the background** — V2 tip retrieval, rule-prefix similarity firing, per-(tip, rule) utility updating as evaluations land:
-
-<video controls autoplay loop muted playsinline width="100%" style="border-radius: 8px; margin: 1rem 0;">
-  <source src="assets/media/gemma-forge-stig-memory.mp4" type="video/mp4">
-  Your browser does not support embedded video —
-  <a href="assets/media/gemma-forge-stig-memory.mp4">download the memory recording</a>.
-</video>
-
 ---
 
 ## What this is
@@ -93,6 +71,28 @@ same harness, the same Gemma 4 deployment, and the same four-agent
 reflexion loop. The harness itself doesn't know which workflow it's
 doing: it processes work items through interfaces, and adding a new
 skill is a folder and five small Python classes.
+
+---
+
+## See it run
+
+![gemma-forge dashboard during a STIG remediation run — rule heatmap, live agent pipeline, event stream, and the reflexion loop visible in a single view](assets/media/gemma-forge-screenshot.png){ .hero-screenshot }
+
+**The harness live, during a STIG remediation run** — Architect picks a rule, Worker applies the fix, Evaluator scans, Reflector distills a lesson on failure, repeat:
+
+<video controls autoplay loop muted playsinline width="100%" poster="assets/media/gemma-forge-screenshot.png" style="border-radius: 8px; margin: 1rem 0;">
+  <source src="assets/media/gemma-forge-stig-main.mp4" type="video/mp4">
+  Your browser does not support embedded video —
+  <a href="assets/media/gemma-forge-stig-main.mp4">download the STIG run recording</a>.
+</video>
+
+**Cross-run memory working in the background** — V2 tip retrieval, rule-prefix similarity firing, per-(tip, rule) utility updating as evaluations land:
+
+<video controls autoplay loop muted playsinline width="100%" style="border-radius: 8px; margin: 1rem 0;">
+  <source src="assets/media/gemma-forge-stig-memory.mp4" type="video/mp4">
+  Your browser does not support embedded video —
+  <a href="assets/media/gemma-forge-stig-memory.mp4">download the memory recording</a>.
+</video>
 
 ## Why all this documentation?
 

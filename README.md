@@ -14,6 +14,28 @@
 > own. Read the full [disclaimer](https://kenrollins.github.io/gemma-forge/about/)
 > before extracting anything as Dell policy.
 
+![gemma-forge dashboard — live STIG run with reflexion loop visible](docs/assets/media/gemma-forge-screenshot.png)
+
+---
+
+## 🎥 See it run
+
+**The harness, live, during a STIG remediation run** — Architect picks a rule, Worker applies the fix, Evaluator scans, Reflector distills a lesson on failure, repeat:
+
+<video controls muted width="100%" poster="docs/assets/media/gemma-forge-screenshot.png">
+  <source src="docs/assets/media/gemma-forge-stig-main.mp4" type="video/mp4">
+  Your browser doesn't support embedded video —
+  <a href="docs/assets/media/gemma-forge-stig-main.mp4">download the STIG run recording</a>.
+</video>
+
+**Cross-run memory in action** — the V2 tip store retrieving prior-run lessons, rule-prefix similarity firing, and per-(tip, rule) utility updating as evaluations come in:
+
+<video controls muted width="100%">
+  <source src="docs/assets/media/gemma-forge-stig-memory.mp4" type="video/mp4">
+  Your browser doesn't support embedded video —
+  <a href="docs/assets/media/gemma-forge-stig-memory.mp4">download the memory recording</a>.
+</video>
+
 ---
 
 ## What this is
@@ -30,12 +52,18 @@ right harness. It combines two architectures:
   attempt smarter.
 
 The harness is **skill-agnostic** — a core with abstract interfaces
-that any use case can implement. DISA STIG remediation on Rocky Linux
-9 is the anchor use case because it exercises every interesting
-property of the architecture (persistence, revert-on-failure,
-verifiable outcomes, real side effects), but the harness doesn't know
-it's doing STIG. Adding a new skill is a folder and five Python
-classes.
+that any use case can implement. Two skills ship today:
+
+- **DISA STIG remediation** on Rocky Linux 9 — the hard case. 270
+  rules, multi-attempt fixes, genuine reflexion cycles. 61.9% fix
+  rate in Run 6 over 19 hours.
+- **CVE Response** on Rocky Linux 9 — the easy case. Vuls scan +
+  `dnf upgrade --advisory`, per-package-family reboot batching. 44
+  of 44 advisories remediated in 35 minutes, every one first-try.
+
+Both run on the same harness, same Gemma 4 deployment, same
+four-agent reflexion loop, without modification between them.
+Adding a third skill is a folder and five Python classes.
 
 ---
 
@@ -50,16 +78,18 @@ It contains:
 - **[Architecture Brief](https://kenrollins.github.io/gemma-forge/brief/)** —
   the one-document overview. Start here if you have 10 minutes.
 - **[Journey](https://kenrollins.github.io/gemma-forge/journal/journey/)** —
-  22 chronological field notes of how this was built, with honest
+  37 chronological field notes of how this was built, with honest
   failures and discoveries. Start at
   [00 — Origin](https://kenrollins.github.io/gemma-forge/journal/journey/00-origin/)
   or jump to
-  [14 — The Overnight Run](https://kenrollins.github.io/gemma-forge/journal/journey/14-overnight-run-findings/).
+  [33 — The Second Skill: CVE Response](https://kenrollins.github.io/gemma-forge/journal/journey/33-second-skill-cve-pivot/) and
+  [37 — Per-Family Reboot Batching Lands](https://kenrollins.github.io/gemma-forge/journal/journey/37-per-family-reboot-batching-landed/)
+  for the latest work.
 - **[Failure Modes](https://kenrollins.github.io/gemma-forge/journal/architecture/01-reflexive-agent-harness-failure-modes/)** —
-  a project-agnostic taxonomy of six failure modes in reflexive agent
-  harnesses, with prescribed mechanisms for each.
+  a project-agnostic taxonomy of seven failure modes in reflexive
+  agent harnesses, with prescribed mechanisms for each.
 - **[Gotchas](https://kenrollins.github.io/gemma-forge/journal/gotchas/)** —
-  13 atomic "X breaks Y because Z" lessons that cost hours to discover.
+  atomic "X breaks Y because Z" lessons that cost hours to discover.
 
 ---
 
@@ -67,19 +97,25 @@ It contains:
 
 | Layer | Component | Role |
 |---|---|---|
-| **5 — Application** | STIG Remediation Skill + Dashboard | What the user sees |
-| **4 — Orchestration** | Ralph Loop + ADK + Skills + SQLite Memory + Clutch | Agents, reflexion, cross-run learning, adaptive concurrency |
+| **5 — Application** | STIG Skill + CVE Response Skill + Dashboard | What the user sees |
+| **4 — Orchestration** | Ralph Loop + ADK + Skills + V2 Memory (Postgres + Neo4j/Graphiti) | Agents, reflexion, cross-run learning via structured tips |
 | **3 — Model** | Gemma 4 31B bf16 + vLLM 0.19.0 | Full precision, TP=4 across 4 L4s, ~14 tok/s |
 | **2 — Platform** | OTel + Jaeger + Prometheus + Grafana | Observability, no commercial LLM proxy |
 | **1 — Infrastructure** | Dell PowerEdge XR7620 + 4× NVIDIA L4 + libvirt | Rugged 2U edge server, air-gappable |
 
-The harness is ~4,000 lines of Python. It operates on five abstract
-interfaces (WorkQueue, Executor, Evaluator, Checkpoint, SkillRuntime)
-so the core loop is completely decoupled from any specific use case.
-Memory is tiered: working (per-attempt), episodic (per-item), semantic
-(per-run), and persistent (cross-run via SQLite). An adaptive
-concurrency controller ("clutch") learns per-category difficulty from
-prior runs and adjusts parallelism automatically.
+The harness operates on five abstract interfaces (WorkQueue,
+Executor, Evaluator, Checkpoint, SkillRuntime) so the core loop is
+completely decoupled from any specific use case. Memory is tiered:
+working (per-attempt), episodic (per-item), semantic (per-run), and
+persistent (cross-run as structured tips with per-(tip, rule)
+utility tracking, rule-prefix similarity retrieval, and history-
+based eviction — see
+[ADR-0016](https://kenrollins.github.io/gemma-forge/adr/0016-graphiti-neo4j-postgres-memory-stack/)).
+The harness's extension points have grown alongside the skill
+portfolio: CVE added `FailureMode.NEEDS_REBOOT`,
+`DeferredItemOutcome` for per-item post-loop attribution, and an
+`EmitEvent` callback for long-running skill phases, all without
+touching the Ralph loop itself.
 
 ---
 
@@ -101,8 +137,9 @@ sudo systemctl start gemma-forge-gemma
 # Start the services
 ./bin/forge up     # vLLM, FastAPI, UI
 
-# Kick off a STIG remediation run
-./bin/forge run stig-rhel9
+# Kick off a run — both skills are available
+./bin/forge run stig-rhel9      # the hard case
+./bin/forge run cve-response    # the easy case
 
 # Watch it go
 open http://localhost:3333     # dashboard
@@ -117,9 +154,10 @@ for how to author a new skill.
 
 ## 🧪 Tests
 
-128 property tests across 8 tiers — harness helpers, verdict parsing,
-fault injection, task graph scheduling, interface contracts, memory
-store, clutch concurrency, and integration.
+212 property tests across the harness helpers, verdict parsing,
+fault injection, task graph scheduling, Protocol interface contracts,
+memory store (both V1 legacy and V2), ordering predicates, reflector
+parser, retrieval, eviction, and integration.
 
 ```bash
 # Fast tests (no LLM, no VM): ~13 seconds

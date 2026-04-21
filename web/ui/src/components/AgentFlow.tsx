@@ -108,12 +108,12 @@ export default function AgentFlow({ stage, evalPassed, narrative, details }: Age
     // display and read as a row of mostly-empty boxes. Centered so the
     // flow still lines up under the rule headline above.
     <div className="flex flex-col gap-2 max-w-[1280px] mx-auto w-full">
-      {/* items-start (not items-stretch) so the inactive cards keep
-          their natural compact height. The ACTIVE card grows taller
-          because it's the one rendering the detail block; the height
-          asymmetry is intentional — it's the visual "you are here"
-          for the pipeline stage. */}
-      <div className="flex items-start gap-1.5">
+      {/* items-stretch so all four cards share the same height. Detail
+          blocks are rendered on inactive cards too (with invisible
+          content) which keeps heights identical frame-to-frame —
+          the row no longer shifts every time the active stage cycles
+          at 100x/1000x replay. */}
+      <div className="flex items-stretch gap-1.5">
         {STAGES.map((s, idx) => {
           const isActive = idx === activeIdx;
           const isPast = activeIdx >= 0 && idx < activeIdx;
@@ -264,36 +264,42 @@ function StageCard({
         {subText}
       </div>
 
-      {/* Detail block — only shown on the currently ACTIVE stage card.
-          Past/upcoming cards stay compact so (a) the row doesn't steal
-          vertical space for stale info, and (b) the reader isn't
-          confused by Worker showing "apply_fix" while Eval is the
-          active turn. The active card grows taller than its siblings —
-          the height asymmetry deliberately draws the eye to the stage
-          actually doing work right now. */}
-      {active && (
+      {/* Detail block. Rendered on ALL cards (not just active) so the
+          row's total height is constant — the active card fills it
+          with headline/sub/tokens while inactive cards render an
+          invisible placeholder of the same size. Without this, the
+          row height oscillated every few frames at 100x/1000x as the
+          active stage cycled, shaking everything below it. */}
+      <div
+        className="relative mt-2 pt-2 border-t"
+        style={{ borderColor: active ? `${color}30` : "transparent" }}
+      >
         <div
-          className="relative mt-2 pt-2 border-t"
-          style={{ borderColor: `${color}30` }}
+          className="text-[10.5px] font-mono truncate leading-tight h-[13px] text-[#E8EAED]"
+          title={active ? detail?.headline || "" : ""}
+          style={{ visibility: active ? "visible" : "hidden" }}
         >
-          <div
-            className="text-[10.5px] font-mono truncate leading-tight h-[13px] text-[#E8EAED]"
-            title={detail?.headline || ""}
-          >
-            {detail?.headline || "\u2014"}
-          </div>
-          <div
-            className="text-[9px] font-mono uppercase tracking-wider truncate leading-tight h-[12px] mt-0.5"
-            style={{ color: `${color}CC` }}
-            title={detail?.sub || ""}
-          >
-            {detail?.sub || "\u00a0"}
-          </div>
-          {detail?.tokens && (detail.tokens.prompt > 0 || detail.tokens.completion > 0) && (
-            <div
-              className="text-[9px] font-mono tabular-nums truncate leading-tight h-[12px] mt-0.5 text-[#9CA3AF]"
-              title={`input (prompt) ${detail.tokens.prompt.toLocaleString()} tokens / output (completion) ${detail.tokens.completion.toLocaleString()} tokens${detail.tokens.tokPerSec ? ` @ ${detail.tokens.tokPerSec.toFixed(1)} tok/s` : ""}`}
-            >
+          {active ? (detail?.headline || "\u2014") : "\u00a0"}
+        </div>
+        <div
+          className="text-[9px] font-mono uppercase tracking-wider truncate leading-tight h-[12px] mt-0.5"
+          style={{
+            color: active ? `${color}CC` : "transparent",
+            visibility: active ? "visible" : "hidden",
+          }}
+          title={active ? detail?.sub || "" : ""}
+        >
+          {active ? (detail?.sub || "\u00a0") : "\u00a0"}
+        </div>
+        {/* Tokens line — always-reserved height so the active card
+            itself doesn't grow/shrink when tokens go from 0 → n. */}
+        <div
+          className="text-[9px] font-mono tabular-nums truncate leading-tight h-[12px] mt-0.5 text-[#9CA3AF]"
+          style={{ visibility: active && detail?.tokens && (detail.tokens.prompt > 0 || detail.tokens.completion > 0) ? "visible" : "hidden" }}
+          title={active && detail?.tokens ? `input (prompt) ${detail.tokens.prompt.toLocaleString()} tokens / output (completion) ${detail.tokens.completion.toLocaleString()} tokens${detail.tokens.tokPerSec ? ` @ ${detail.tokens.tokPerSec.toFixed(1)} tok/s` : ""}` : ""}
+        >
+          {active && detail?.tokens ? (
+            <>
               <span style={{ color: "#60A5FA" }}>{formatTokens(detail.tokens.prompt)}</span>
               <span className="text-[#6B7280] ml-0.5">in</span>
               <span className="text-[#4B5563] mx-1.5">+</span>
@@ -305,10 +311,12 @@ function StageCard({
                   <span style={{ color: "#22D3EE" }}>{detail.tokens.tokPerSec.toFixed(1)} tok/s</span>
                 </>
               )}
-            </div>
+            </>
+          ) : (
+            "\u00a0"
           )}
         </div>
-      )}
+      </div>
 
       <style jsx>{`
         @keyframes agentFlowPulse {

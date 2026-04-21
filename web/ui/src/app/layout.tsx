@@ -41,8 +41,8 @@ export default function RootLayout({
           <div className="flex items-center justify-between px-4 h-9">
             {/* Brand only — primary navigation moved into the in-page
                 ChromeBar to colocate it with the mode/speed controls. */}
-            <span className="text-[12px] font-bold tracking-wide">
-              GEMMA<span className="text-[#3B82F6]">FORGE</span>
+            <span className="text-[12px] font-bold tracking-wide lowercase">
+              gemma-<span className="text-[#3B82F6]">forge</span>
             </span>
 
             {/* Hardware identity + external links, both quiet. */}

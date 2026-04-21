@@ -39,8 +39,17 @@ import FocusPanel from "../components/FocusPanel";
 import EventLog from "../components/EventLog";
 
 function getApiBase(): string {
+  return "";
+}
+
+// SSE needs a direct origin, not a Next.js rewrite. Turbopack's
+// rewrite proxy buffers streaming responses, which makes
+// EventSource open-but-silent (UI says "live" but no events land).
+// All non-streaming fetches still go through "" → rewrite → :8080,
+// which preserves the same-origin benefits for CORS/devtunnels.
+function getLiveStreamOrigin(): string {
   if (typeof window === "undefined") return "http://localhost:8080";
-  return `http://${window.location.hostname}:8080`;
+  return `${window.location.protocol}//${window.location.hostname}:8080`;
 }
 
 // Shallow value-equality check for GPU snapshots. The backend
@@ -150,10 +159,14 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState<Tab>("live");
   const [eventLogExpanded, setEventLogExpanded] = useState(false);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
-  // Replay pause: closes the EventSource and freezes UI state. Resume
-  // reopens with start_from=<current elapsed>, reusing the same
-  // seek-preserve path as a speed change.
+  // Replay pause: freezes the local playback clock. Resume rebases
+  // startWallMs to Date.now() at the current baseElapsed so the run
+  // picks up exactly where it was. Speed-change uses the same rebase.
   const [paused, setPaused] = useState(false);
+  // Loading: set while fetching a run's full event list. For large
+  // (~20h) runs that's ~3 MB gzipped so the wait is visible on
+  // high-latency links — we surface it in the chrome.
+  const [loading, setLoading] = useState(false);
 
   // Did we initialize from /api/state yet? Used to skip the first
   // render's effect cycle so we don't open a stream against a stale
@@ -162,6 +175,29 @@ export default function Dashboard() {
   const evtSourceRef = useRef<EventSource | null>(null);
   const eventBufferRef = useRef<RunEvent[]>([]);
   const flushFrameRef = useRef<number | null>(null);
+  // In-flight run fetch — aborted when the user switches runs or mode
+  // mid-download so we don't race two payloads into the same state.
+  const fetchAbortRef = useRef<AbortController | null>(null);
+
+  // Replay playback is driven client-side from an in-memory event
+  // array. Pacing is done with a RAF loop against a local wall clock,
+  // so network jitter never stalls or bursts the visible stream the
+  // way server-paced SSE did over hotel wifi.
+  type ReplayPlayback = {
+    run: string;
+    events: RunEvent[];
+    nextIdx: number;
+    baseElapsed: number;  // elapsed_s corresponding to startWallMs
+    startWallMs: number;
+    speed: number;
+    rafId: number | null;
+    // Swap-on-loop: keeps the old run's last frame on screen until
+    // the first meaningful chunk of the restart has buffered, so the
+    // ribbon doesn't flash blank between loops at 100x/1000x.
+    swapPending: boolean;
+    swapBuf: RunEvent[];
+  };
+  const replayRef = useRef<ReplayPlayback | null>(null);
 
   // GPU state for the ArchitecturePanel. Hydrated from (a) gpu_state
   // snapshots embedded in stream events when the harness emits them
@@ -327,11 +363,22 @@ export default function Dashboard() {
       evtSourceRef.current.close();
       evtSourceRef.current = null;
     }
+    if (replayRef.current) {
+      if (replayRef.current.rafId !== null) {
+        cancelAnimationFrame(replayRef.current.rafId);
+      }
+      replayRef.current = null;
+    }
+    if (fetchAbortRef.current) {
+      fetchAbortRef.current.abort();
+      fetchAbortRef.current = null;
+    }
     if (flushFrameRef.current !== null) {
       cancelAnimationFrame(flushFrameRef.current);
       flushFrameRef.current = null;
     }
     setConnected(false);
+    setLoading(false);
   }, []);
 
   // Track current elapsed_s in a ref so the speed-change handler can
@@ -349,33 +396,110 @@ export default function Dashboard() {
     pausedRef.current = paused;
   }, [paused]);
 
+  // Shared RAF-coalesced setState for event emission. Both modes push
+  // into eventBufferRef and call scheduleFlush(); React gets at most
+  // one update per frame regardless of how many events arrived.
+  const scheduleFlush = useCallback(() => {
+    if (flushFrameRef.current !== null) return;
+    flushFrameRef.current = requestAnimationFrame(() => {
+      flushFrameRef.current = null;
+      const buffered = eventBufferRef.current;
+      if (buffered.length === 0) return;
+      eventBufferRef.current = [];
+      setEvents((prev) => prev.concat(buffered));
+    });
+  }, []);
+
+  // Local replay tick: advances through the in-memory event array
+  // using a wall-clock driven `targetElapsed`. No network in the
+  // loop — pausing, seeking, and speed-changes are all ref edits.
+  const SWAP_THRESHOLD_EVENTS = 40;
+  const tickReplay = useCallback(() => {
+    const p = replayRef.current;
+    if (!p) return;
+    const wallSec = (Date.now() - p.startWallMs) / 1000;
+    const target = p.baseElapsed + wallSec * p.speed;
+    const emitted: RunEvent[] = [];
+    while (
+      p.nextIdx < p.events.length &&
+      p.events[p.nextIdx].elapsed_s <= target
+    ) {
+      emitted.push(p.events[p.nextIdx++]);
+    }
+    if (emitted.length > 0) {
+      if (p.swapPending) {
+        p.swapBuf.push(...emitted);
+        const hasGraph = emitted.some((e) => e.event_type === "graph_state");
+        if (hasGraph || p.swapBuf.length >= SWAP_THRESHOLD_EVENTS) {
+          const frozen = p.swapBuf;
+          p.swapBuf = [];
+          p.swapPending = false;
+          setEvents(frozen);
+        }
+      } else {
+        eventBufferRef.current.push(...emitted);
+        scheduleFlush();
+      }
+    }
+    if (p.nextIdx >= p.events.length) {
+      // End of run. If a swap was still pending on a tiny run, commit
+      // it now so the frame isn't empty on the next loop.
+      if (p.swapPending && p.swapBuf.length > 0) {
+        setEvents(p.swapBuf);
+        p.swapBuf = [];
+        p.swapPending = false;
+      }
+      p.rafId = null;
+      setConnected(false);
+      // Demo loop: restart this same run after a brief hold, with
+      // swapOnFirstEvent so the chrome doesn't flash between loops.
+      setTimeout(() => {
+        if (pausedRef.current) return;
+        const cur = replayRef.current;
+        if (!cur || cur.run !== p.run) return;
+        cur.nextIdx = 0;
+        cur.baseElapsed = 0;
+        cur.startWallMs = Date.now();
+        cur.swapPending = true;
+        cur.swapBuf = [];
+        setConnected(true);
+        cur.rafId = requestAnimationFrame(tickReplay);
+      }, 800);
+      return;
+    }
+    p.rafId = requestAnimationFrame(tickReplay);
+  }, [scheduleFlush]);
+
   const openStream = useCallback(
-    (
+    async (
       m: "live" | "replay",
       run: string,
       speed: ReplaySpeed,
       opts?: {
         seekSeconds?: number;
         preserveEvents?: boolean;
-        // swapOnFirstEvent: keep the old events on screen until the
-        // new stream's first event arrives, then replace them
-        // atomically. Used for demo-loop restart so the pulse ribbon
-        // doesn't flash blank between loops at fast speeds.
+        // swapOnFirstEvent: keep the current events on screen until the
+        // restart has buffered enough to render meaningfully. Avoids a
+        // blank flash between loops at 100x/1000x.
         swapOnFirstEvent?: boolean;
       },
     ) => {
-      // `preserveEvents` = true means this is a resume/seek (e.g. speed
-      // change) — keep the existing state, reconnect at the seek point.
-      // `swapOnFirstEvent` = true means this is a demo-loop restart —
-      // keep the existing state on screen until the new stream emits
-      // its first event, then swap atomically. Both cases skip the
-      // up-front setEvents([]) that would otherwise cause a blank
-      // frame between the old stream ending and the new one starting.
       const preserve = opts?.preserveEvents ?? false;
       const swap = opts?.swapOnFirstEvent ?? false;
       const seek = opts?.seekSeconds ?? 0;
 
-      if (evtSourceRef.current) evtSourceRef.current.close();
+      // Tear down anything currently running — SSE, RAF, in-flight fetch.
+      if (evtSourceRef.current) {
+        evtSourceRef.current.close();
+        evtSourceRef.current = null;
+      }
+      if (replayRef.current?.rafId !== null && replayRef.current?.rafId !== undefined) {
+        cancelAnimationFrame(replayRef.current.rafId);
+      }
+      if (fetchAbortRef.current) {
+        fetchAbortRef.current.abort();
+        fetchAbortRef.current = null;
+      }
       eventBufferRef.current = [];
       if (flushFrameRef.current !== null) {
         cancelAnimationFrame(flushFrameRef.current);
@@ -383,97 +507,94 @@ export default function Dashboard() {
       }
       if (!preserve && !swap) setEvents([]);
 
-      const scheduleFlush = () => {
-        if (flushFrameRef.current !== null) return;
-        flushFrameRef.current = requestAnimationFrame(() => {
-          flushFrameRef.current = null;
-          const buffered = eventBufferRef.current;
-          if (buffered.length === 0) return;
-          eventBufferRef.current = [];
-          setEvents((prev) => prev.concat(buffered));
-        });
-      };
-
-      const apiBase = getApiBase();
-      const url =
-        m === "live"
-          ? `${apiBase}/api/live-stream?poll_interval=1`
-          : `${apiBase}/api/runs/${run}/stream?speed=${speed}` +
-            (seek > 0 ? `&start_from=${seek}` : "");
-
-      // Loop-transition buffer. When swapOnFirstEvent is true, we
-      // accumulate the new stream's events into `swapBuf` instead of
-      // showing them, keeping the OLD run's final state on screen.
-      // The atomic swap fires once the new stream has produced enough
-      // substance for the ribbon + hero to render meaningfully —
-      // specifically, once we've seen a graph_state (gives total rule
-      // count) OR accumulated a safety threshold. Swapping on the
-      // very first event (usually run_start) produced a visible flash
-      // where the ribbon briefly rendered with zero cells before real
-      // data arrived; this waits until there's actual state to show.
-      let swapPending = !!opts?.swapOnFirstEvent;
-      let swapBuf: RunEvent[] = [];
-      const SWAP_THRESHOLD_EVENTS = 40;
-
-      const evtSource = new EventSource(url);
-      evtSourceRef.current = evtSource;
-
-      evtSource.onopen = () => setConnected(true);
-      evtSource.onmessage = (msg) => {
-        try {
-          const event: RunEvent = JSON.parse(msg.data);
-          if (event.event_type === "stream_end") {
-            evtSource.close();
-            evtSourceRef.current = null;
-            setConnected(false);
-            // If a swap was still pending when the stream ended early
-            // (e.g. a tiny run), commit whatever we buffered rather
-            // than losing it on the next loop.
-            if (swapPending && swapBuf.length > 0) {
-              setEvents(swapBuf);
-              swapBuf = [];
-              swapPending = false;
-            }
-            // Demo loop: kick off the next round with
-            // swapOnFirstEvent so the page never shows an empty
-            // transition frame. Skip if the user paused — the run has
-            // ended while paused, and we respect that until they hit play.
-            if (m === "replay" && !pausedRef.current) {
-              setTimeout(
-                () =>
-                  openStream("replay", run, speed, { swapOnFirstEvent: true }),
-                800,
-              );
-            }
-            return;
+      if (m === "live") {
+        // Live mode still uses SSE — it's an honest tail of a growing
+        // file, not a pre-recorded replay, so local timing doesn't apply.
+        replayRef.current = null;
+        const url = `${getLiveStreamOrigin()}/api/live-stream?poll_interval=1`;
+        const evtSource = new EventSource(url);
+        evtSourceRef.current = evtSource;
+        evtSource.onopen = () => setConnected(true);
+        evtSource.onmessage = (msg) => {
+          try {
+            const event: RunEvent = JSON.parse(msg.data);
+            eventBufferRef.current.push(event);
+            scheduleFlush();
+          } catch {
+            // Malformed line — ignore.
           }
-          if (swapPending) {
-            swapBuf.push(event);
-            // Swap once we have real substance: either a graph_state
-            // (knows the total rule count) or enough events to have
-            // rebuilt the skill manifest + initial counts.
-            const hasGraphState = event.event_type === "graph_state";
-            if (hasGraphState || swapBuf.length >= SWAP_THRESHOLD_EVENTS) {
-              const frozen = swapBuf;
-              swapBuf = [];
-              swapPending = false;
-              setEvents(frozen);
-            }
-            return;
-          }
-          eventBufferRef.current.push(event);
-          scheduleFlush();
-        } catch {
-          // Malformed line — ignore.
-        }
-      };
-      evtSource.onerror = () => {
-        evtSource.close();
-        evtSourceRef.current = null;
+        };
+        evtSource.onerror = () => {
+          evtSource.close();
+          evtSourceRef.current = null;
+          setConnected(false);
+        };
+        return;
+      }
+
+      // Replay mode: fetch the full event list once, then pace it
+      // locally. This decouples visual pacing from network delivery —
+      // the key fix for bursty SSE over high-latency links.
+      if (!run) return;
+
+      // Fast path: resuming or seek-on-speed-change against the same
+      // run that's already loaded. Skip the re-fetch.
+      const cached = replayRef.current;
+      const canReuse = preserve && cached && cached.run === run;
+      let eventsAll: RunEvent[];
+      if (canReuse) {
+        eventsAll = cached!.events;
+      } else {
+        setLoading(true);
         setConnected(false);
+        const ctrl = new AbortController();
+        fetchAbortRef.current = ctrl;
+        try {
+          const res = await fetch(`/api/runs/${run}/events`, {
+            signal: ctrl.signal,
+          });
+          if (!res.ok) {
+            setLoading(false);
+            return;
+          }
+          eventsAll = (await res.json()) as RunEvent[];
+        } catch (err) {
+          // Aborted or network error — either way we're done.
+          if ((err as Error)?.name !== "AbortError") {
+            setLoading(false);
+            setConnected(false);
+          }
+          return;
+        } finally {
+          if (fetchAbortRef.current === ctrl) fetchAbortRef.current = null;
+        }
+        setLoading(false);
+      }
+
+      // Seek to the requested elapsed offset.
+      let nextIdx = 0;
+      while (
+        nextIdx < eventsAll.length &&
+        eventsAll[nextIdx].elapsed_s < seek
+      ) {
+        nextIdx++;
+      }
+
+      replayRef.current = {
+        run,
+        events: eventsAll,
+        nextIdx,
+        baseElapsed: seek,
+        startWallMs: Date.now(),
+        speed,
+        rafId: null,
+        swapPending: swap,
+        swapBuf: [],
       };
+      setConnected(true);
+      replayRef.current.rafId = requestAnimationFrame(tickReplay);
     },
-    [],
+    [scheduleFlush, tickReplay],
   );
 
   // ----- Auto-connect: open a fresh stream whenever mode or run changes.
@@ -492,42 +613,48 @@ export default function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, activeRun, openStream, disconnect]);
 
-  // Speed change during a replay: reconnect at the current elapsed_s
-  // so the event stream resumes at the new speed from exactly where
-  // we are on screen. No visual reset, no event loss. If paused,
-  // just store the new speed — the next play will use it.
-  const setReplaySpeedPreserving = useCallback(
-    (s: ReplaySpeed) => {
-      setReplaySpeed(s);
-      if (mode === "replay" && activeRun && !paused) {
-        const seek = Math.max(0, currentElapsedRef.current - 0.5);
-        openStream("replay", activeRun, s, {
-          seekSeconds: seek,
-          preserveEvents: true,
-        });
-      }
-    },
-    [mode, activeRun, openStream, paused],
-  );
+  // Speed change during a replay: rebase the local clock so the run
+  // keeps its position but paces at the new speed. Zero-cost — no
+  // fetch, no re-render; the tick loop picks up the new `speed` field
+  // on its next frame. If paused, just record the new speed for when
+  // the user resumes.
+  const setReplaySpeedPreserving = useCallback((s: ReplaySpeed) => {
+    setReplaySpeed(s);
+    const p = replayRef.current;
+    if (!p) return;
+    if (!paused) {
+      const wallSec = (Date.now() - p.startWallMs) / 1000;
+      p.baseElapsed = p.baseElapsed + wallSec * p.speed;
+      p.startWallMs = Date.now();
+    }
+    p.speed = s;
+  }, [paused]);
 
-  // Pause / resume replay playback. Pause closes the EventSource so
-  // the server stops pacing events; resume reopens at the current
-  // elapsed_s with the current speed, reusing the same seek path as
-  // a speed change so no visual reset is needed.
+  // Pause / resume replay playback. Pause captures the current
+  // elapsed_s into baseElapsed and cancels the RAF. Resume rebases
+  // startWallMs to now, which makes target = baseElapsed at the
+  // first tick — no position jump.
   const togglePause = useCallback(() => {
     if (mode !== "replay" || !activeRun) return;
+    const p = replayRef.current;
     if (paused) {
       setPaused(false);
-      const seek = Math.max(0, currentElapsedRef.current - 0.5);
-      openStream("replay", activeRun, replaySpeed, {
-        seekSeconds: seek,
-        preserveEvents: true,
-      });
+      if (p) {
+        p.startWallMs = Date.now();
+        if (p.rafId === null) {
+          p.rafId = requestAnimationFrame(tickReplay);
+        }
+      }
     } else {
-      disconnect();
+      if (p) {
+        if (p.rafId !== null) cancelAnimationFrame(p.rafId);
+        p.rafId = null;
+        const wallSec = (Date.now() - p.startWallMs) / 1000;
+        p.baseElapsed = p.baseElapsed + wallSec * p.speed;
+      }
       setPaused(true);
     }
-  }, [mode, activeRun, paused, replaySpeed, openStream, disconnect]);
+  }, [mode, activeRun, paused, tickReplay]);
 
   // ----- Cross-run hydration data passed into TaskMap ------------------
   const crossRunData: CrossRunData | null = useMemo(() => {

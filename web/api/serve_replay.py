@@ -16,9 +16,15 @@ from pathlib import Path
 import yaml
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import StreamingResponse
 
 app = FastAPI(title="GemmaForge API")
+
+# Gzip first so CORS headers ride outside the compressed body.
+# JSONL-derived responses compress ~8x; 30 MB → ~4 MB on the wire,
+# which is what makes client-side replay viable over hotel wifi.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 app.add_middleware(
     CORSMiddleware,

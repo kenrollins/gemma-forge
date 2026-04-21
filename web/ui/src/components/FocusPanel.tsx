@@ -551,12 +551,17 @@ function AgentInsight({
             const reasoning = reasoningMatch ? reasoningMatch[1].trim() : "";
             const plan = planMatch ? planMatch[1].trim() : "";
             const vColor = verdict === "ESCALATE" ? "#EF4444" : verdict === "PIVOT" ? "#F59E0B" : "#22C55E";
+            // Border + background follow the AGENT (architect blue) so
+            // the entry visually sorts with other architect entries.
+            // The verdict color is carried by the PIVOT/ESCALATE badge
+            // in the header, which is a clearer signal than a mystery
+            // yellow stripe next to an architect entry.
 
             return (
               <div
                 key={i}
                 className="rounded px-3 py-2.5 mt-1"
-                style={{ borderLeft: `3px solid ${vColor}`, background: `${vColor}08` }}
+                style={{ borderLeft: "3px solid #3B82F6", background: "#3B82F610" }}
               >
                 <div className="flex items-center gap-2 mb-2">
                   <div className="w-2 h-2 rounded-full" style={{ background: "#3B82F6" }} />

@@ -12,7 +12,7 @@ one_line: "Proposal for architect re-engagement: after N failed attempts or plat
 
 # Improvement Idea: Architect Re-engagement After N Failures
 
-**Status:** Proposed, not implemented
+**Status:** Implemented in v3 (2026-04-13). See [journey/17 — The v3 Fix Pass](../journey/17-v3-fix-pass.md) for the implementation narrative. Still load-bearing in the current harness; entry 34 shows the re-engagement mechanism firing routinely in Run 6.
 **Surfaced:** 2026-04-11, during overnight instrumentation work
 **Priority:** High — likely the next structural improvement to the Ralph loop
 

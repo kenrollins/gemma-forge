@@ -11,12 +11,12 @@ related:
   - improvements/02-worker-single-action-enforcement
   - improvements/03-context-budget-assembly
   - improvements/04-snapshot-based-revert
-one_line: "A project-agnostic taxonomy of six failure modes in reflexive agent harnesses, with prescribed harness mechanisms for each. Discovered empirically from a 10-hour adversarial run."
+one_line: "A project-agnostic taxonomy of seven failure modes in reflexive agent harnesses, with prescribed harness mechanisms for each. Discovered empirically across STIG and CVE workloads."
 ---
 
 # Failure Modes in Reflexive Agent Harnesses
 
-**Status:** Six failure modes demonstrated empirically across multiple overnight runs. Two additional suspected modes identified — one now confirmed (memory tier collapse), one mitigated by design (inter-agent context drift).
+**Status:** Seven failure modes demonstrated empirically across multiple overnight runs and the CVE skill's first full run. Two additional suspected modes identified — one now confirmed (memory tier collapse), one mitigated by design (inter-agent context drift).
 **Audience:** People building agentic systems with a reflection / retry loop
 **Note:** This document is intentionally project-agnostic. It emerged from
 empirical work on a specific system (a STIG remediation harness on edge
@@ -379,6 +379,77 @@ what your loop should count.
 
 ---
 
+## Failure Mode 7: Deferred-verification silence
+
+### The abstract failure
+Some work items cannot be verified immediately after the executor
+applies the change. A package upgrade may need a reboot before the
+new code is actually running. A certificate rotation may need DNS
+propagation. A service restart may need a warm-up window. The
+harness correctly defers the verdict — the item is neither remediated
+nor escalated, it is *pending* — but during the pending phase the
+harness emits no events. The event log jumps from "deferred" to
+"verdict" with a multi-minute silent gap in the middle. From the
+operator's perspective, the most architecturally interesting phase
+of the run is invisible.
+
+### The witness
+gemma-forge's CVE skill batches reboot-required advisories into
+per-package-family dnf transactions. The family batch phase
+(`SkillRuntime.resolve_deferred`) ran for **190 seconds** across
+two families in the first full CVE run. Two events were emitted:
+`deferred_resolve_start` at the top, `deferred_resolve_complete` at
+the bottom. The 15 per-item verification events all landed with
+identical timestamps at the end. Watching the live dashboard, the
+focus square froze on the last deferred rule for three minutes, then
+every verification flashed through in a single frame. The batch
+worked correctly; the narrative was gone.
+
+### Root cause
+Deferred-verification is a correctness mechanism that isn't
+usually thought of as an observability mechanism. A skill's
+resolution logic lives in its own method outside the harness's main
+loop, and the harness's default event emission is tied to the main
+loop. If the skill does 180 seconds of work in a single function
+call, the run log sees 180 seconds of nothing. The reflexion loop's
+own event stream stops being able to explain what is happening on
+the target.
+
+### Harness mechanism: emit-callback into long-running skill phases
+The harness hands the skill's `resolve_deferred` an optional
+`EmitEvent` callback that wraps the run log's structured event
+emission. The skill calls it at every phase boundary — start,
+apply complete, reboot issued, wait ticks, healthcheck, per-item
+verify — and the events land in the run log as first-class records.
+The 180-second silence becomes a steady heartbeat of roughly 10-20
+events per family, and per-item verification animates in sequence
+instead of batching into a single frame.
+
+Event shapes are skill-chosen but vocabulary-stable across runs so
+the replay UI can key off them. CVE emits `family_batch_start`,
+`family_apply_start`/`complete`, `family_reboot_issued`,
+`family_ssh_wait_tick`, `family_ssh_up`, `family_healthcheck_ok`,
+`family_item_verified`, `family_verify_complete`, and
+`family_batch_complete`. A future crypto-rotation skill would pick
+its own vocabulary around propagation waits.
+
+### Generalization
+The deeper principle: **observability is a property of the
+harness's contract with the skill, not a property of the main
+loop.** Any phase the harness delegates to a skill — deferred
+resolution, post-run consolidation, inter-run memory dreaming,
+whatever comes next — needs an explicit emission channel back into
+the run log. Otherwise the correctness-level contract (skill
+returns a verdict) succeeds while the understandability contract
+(operator can follow what happened) silently fails.
+
+This is the mode we discovered most recently, and it is likely not
+the last one in this category. Every new extension point we add to
+the harness quietly inherits the same risk: if the skill takes a
+long time to do something, the run log had better hear about it.
+
+---
+
 ## What this list is and isn't
 
 **It is**: a starter taxonomy of failure modes that any team building a
@@ -470,10 +541,11 @@ If you want the empirical evidence backing each failure mode:
 
 ## Versioning note
 
-This is v0.1 of the failure-modes document. It will be revised as the
-test suite produces evidence and as the harness refactor (lifting
-STIG-specific concerns out of the harness core) proceeds. The version
-that ships with the gemma-forge whitepaper will likely add: a seventh
-failure mode (TBD), a comparison table of "what most reflexion
-implementations get wrong" vs the prescribed mechanisms, and a worked
-example of porting the harness to a non-STIG skill.
+This is v0.2 of the failure-modes document. v0.1 shipped with six
+modes drawn from the STIG workload; v0.2 adds Failure Mode 7
+(deferred-verification silence), discovered during the CVE skill's
+first full run — the first time we ran a second workload through
+the same harness. The version that ships with the gemma-forge
+whitepaper will likely add: a comparison table of "what most
+reflexion implementations get wrong" vs. the prescribed mechanisms,
+and worked examples of porting the harness to additional skills.

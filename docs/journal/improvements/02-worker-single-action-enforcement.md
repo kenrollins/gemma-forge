@@ -13,7 +13,7 @@ one_line: "Per-turn action budget capping tool calls to one per turn, preventing
 
 # Improvement: Enforce One Action Per Agent Turn
 
-**Status:** Proposed, not implemented
+**Status:** Implemented in v3 (2026-04-13). See [journey/17 — The v3 Fix Pass](../journey/17-v3-fix-pass.md). The per-turn action budget lives in the Ralph loop and defaults to 1 tool call per Worker turn.
 **Surfaced:** 2026-04-11, analyzing overnight run findings
 **Priority:** CRITICAL — must fix before next run
 **Related:** `journey/14-overnight-run-findings.md` Finding 4

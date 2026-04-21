@@ -220,11 +220,13 @@ and the Reflective graph:
 Two reasons. First, the database decision re-opens
 [Journey 22](22-context-graphs-and-the-memory-question.md), which
 landed on SQLite specifically because of the adaptive concurrency
-clutch — a clutch that is *still* not wired in, three days later.
-Entry 22 was right for its time, and it is important to record why
-the decision is being replaced now. Scale and shape changed: three
-runs of real data, two named failure modes, two skills coming, a
-Run Analyst chat interface pending. The constraints are different.
+clutch — a clutch whose wiring kept getting deferred in favor of
+other work (and would continue to, eventually becoming DEF-01 in
+entry 32). Entry 22 was right for its time, and it is important to
+record why the decision is being replaced now. Scale and shape
+changed: three runs of real data, two named failure modes, two
+skills coming, a Run Analyst chat interface pending. The constraints
+are different.
 
 Second, the honest-charting-new-ground moment belongs in the journey,
 not the ADR. ADRs record decisions. Journey entries record how the

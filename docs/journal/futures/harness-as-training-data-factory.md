@@ -152,15 +152,19 @@ classified or air-gapped data, this is the actual differentiator.
 Because nobody has done it yet. Specifically:
 
 1. **The data isn't quite ready yet.** V2's `tip_retrievals` table
-   and structured Reflector output are required to make the dataset
-   export trivial. Pre-V2 export requires more cleanup work because
-   the data is partially in JSONL events and partially in SQLite
-   (now Postgres) tables with inconsistent schemas.
-2. **The corpus is too small for Target B today.** With one skill
-   (STIG) at four runs, we have enough for Target A but not enough
-   for Target B to show meaningful cross-skill generalization. Two
-   or three more skills, ~5 runs each, gets us into the 50,000-example
-   range where SFT becomes effective.
+   and structured Reflector output shipped in entry 30 — dataset
+   export against that shape is now mostly a SQL-and-join exercise,
+   but no one has written the exporter or curated the filtering
+   heuristics that turn raw events into SFT-grade examples. The
+   pre-V2 data (STIG Runs 1-5) sits in Postgres after the migration
+   but has to be handled with care since schemas drifted during the
+   V1→V2 transition.
+2. **The corpus is close to Target A, still too small for Target B.**
+   Two skills now ship (STIG at 7 runs, CVE at 2 runs). That's
+   enough for Target A on STIG and probably enough for a first
+   Target A on CVE. Cross-skill generalization (Target B) still
+   wants ~5 more skills' worth of runs. A third skill would push
+   hardest on the question.
 3. **It is not on the critical path** for the project's stated thesis
    (harness architecture for agentic infrastructure operations).
    It is a downstream affordance, not a core capability.

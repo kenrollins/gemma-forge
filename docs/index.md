@@ -56,17 +56,21 @@ them myself, not by inheriting them from a framework.
 
 Lastly, I designed the harness as an **extensible skill system** —
 a skill-agnostic core with abstract interfaces that any use case can
-implement. To stress-test what the architecture could handle, I
-needed a use case that would push every part of it: persistence
-across many retries, real side effects on a live system, a
-deterministic evaluator with no ambiguity, and the need for safe
-revert when things go wrong. **DISA STIG remediation** on Rocky
-Linux 9 turned out to be a perfect fit — hardening a live VM against
-270 security rules, where any individual fix can break SSH, sudo, or
-the mission application, exercises the harness in ways that a
-text-generation task never would. But the harness itself doesn't know
-it's doing STIG. It processes work items through interfaces, and
-adding a new skill is a folder and five small Python classes.
+implement. **DISA STIG remediation** on Rocky Linux 9 is the anchor
+use case because it pushes every part of the architecture —
+persistence across many retries, real side effects on a live system,
+a deterministic evaluator with no ambiguity, and the need for safe
+revert when things go wrong. Any individual fix across its 270 rules
+can break SSH, sudo, or the mission application.
+
+To validate the skill-agnostic thesis, I added **CVE Response** as a
+second skill — autonomous advisory remediation driven by Vuls
+(scan) and `dnf advisory` (apply), with per-package-family reboot
+batching and snapshot rollback per family. The two skills run on the
+same harness, the same Gemma 4 deployment, and the same four-agent
+reflexion loop. The harness itself doesn't know which workflow it's
+doing: it processes work items through interfaces, and adding a new
+skill is a folder and five small Python classes.
 
 ## Why all this documentation?
 
@@ -127,9 +131,12 @@ hardware.
 
     Chronological field notes of how this was built. Honest,
     specific, and written as I went — failures included. Start at
-    [the origin](journal/journey/00-origin.md) or jump to the
+    [the origin](journal/journey/00-origin.md), jump to the
     [overnight run](journal/journey/14-overnight-run-findings.md)
-    that changed everything.
+    that changed everything, or skip to
+    [the CVE pivot](journal/journey/33-second-skill-cve-pivot.md) and
+    [per-family reboot batching](journal/journey/37-per-family-reboot-batching-landed.md)
+    for the latest work.
 
     [:octicons-arrow-right-24: Read the journey](journal/journey/index.md)
 
@@ -172,13 +179,13 @@ hardware.
 
 <div style="background: linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(239, 68, 68, 0.05)); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px 8px 0 0; padding: 1.2rem 1.5rem;">
 <h3 style="color: #EF4444;">&#9316; Layer 5 — Application</h3>
-<p style="margin: 0.3rem 0;"><strong>STIG Remediation Skill</strong> · <strong>gemma-forge Dashboard</strong> · <strong>This Documentation Site</strong></p>
-<p style="margin: 0.3rem 0; opacity: 0.7; font-style: italic; font-size: 0.85rem;">Where the user sees results. Skills are pluggable — STIG is the first, not the only.</p>
+<p style="margin: 0.3rem 0;"><strong>STIG Remediation Skill</strong> · <strong>CVE Response Skill</strong> · <strong>gemma-forge Dashboard</strong> · <strong>This Documentation Site</strong></p>
+<p style="margin: 0.3rem 0; opacity: 0.7; font-style: italic; font-size: 0.85rem;">Where the user sees results. Two skills ship today — STIG hardening and CVE remediation — running on the same harness. Adding a third is a folder and five Python classes.</p>
 </div>
 
 <div style="background: linear-gradient(135deg, rgba(168, 85, 247, 0.15), rgba(168, 85, 247, 0.05)); border: 1px solid rgba(168, 85, 247, 0.3); border-top: none; padding: 1.2rem 1.5rem;">
 <h3 style="color: #A855F7;">&#9315; Layer 4 — Orchestration</h3>
-<p style="margin: 0.3rem 0;"><strong>Ralph Loop Harness</strong> · <strong>Google ADK</strong> · <strong>Skills System</strong> · <strong>Cross-run SQLite Memory</strong> · <strong>Adaptive Concurrency Clutch</strong></p>
+<p style="margin: 0.3rem 0;"><strong>Ralph Loop Harness</strong> · <strong>Google ADK</strong> · <strong>Skills System</strong> · <strong>Cross-run Memory (Postgres + Neo4j/Graphiti)</strong> · <strong>V2 Structured Tips</strong></p>
 <p style="margin: 0.3rem 0; opacity: 0.7; font-style: italic; font-size: 0.85rem;">Where agents reason, reflect, and persist. The harness makes structural decisions; the model makes reasoning decisions.</p>
 </div>
 

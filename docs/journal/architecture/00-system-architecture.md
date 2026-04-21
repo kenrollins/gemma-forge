@@ -60,10 +60,17 @@ ideas travel, even when the tool choices don't.
 - **Open WebUI** — self-hosted chat-style application (open source)
 
 **gemma-forge components**
-- **STIG Remediation Skill** — declarative skill manifest plus per-role
-  prompts that instruct the harness how to approach DISA STIG compliance
-  on a Rocky Linux 9 target. This is the end-user mission the project
-  solves for.
+- **STIG Remediation Skill** (`skills/stig-rhel9/`) — the anchor
+  skill. DISA STIG compliance on a Rocky Linux 9 target via OpenSCAP
+  scan + bash fix scripts. The hard case: 270 rules with complex
+  inter-rule dependencies, multi-attempt fixes, and real target-
+  breaking risk.
+- **CVE Response Skill** (`skills/cve-response/`) — the second
+  skill. Autonomous advisory remediation via Vuls + `dnf advisory`,
+  with per-package-family reboot batching. The easy case: 44
+  advisories remediated in 35 min, every one first-try. Shipped in
+  [journey/35](../journey/35-building-cve-in-a-day.md) and hardened
+  in [journey/37](../journey/37-per-family-reboot-batching-landed.md).
 - **gemma-forge Dashboard** — Next.js live and replay UI that renders the
   Ralph loop event stream in real time, with a pipeline view, a current-
   step panel, and a scrollable event log.
@@ -71,10 +78,20 @@ ideas travel, even when the tool choices don't.
   built from the project's engineering notes.
 
 **Patterns at this layer**
-- *(None declared yet.)* L5 content in gemma-forge is primarily
-  implementation, not architectural patterns. When a second skill is
-  added in the future and a "skill-authoring pattern" emerges, it will
-  live here.
+- **skill-authoring** — the pattern that emerged once two skills
+  shipped. A skill is a folder with a manifest, prompts, and a
+  `runtime.py` that implements five Protocol interfaces
+  (`WorkQueue`, `Executor`, `Evaluator`, `Checkpoint`,
+  `SkillRuntime`). Plus optional extension points:
+  `deferrable_failure_modes` on `EvaluatorMetadata`,
+  `SkillRuntime.resolve_deferred` for long-running post-loop phases,
+  and an `EmitEvent` progress callback. CVE added
+  `FailureMode.NEEDS_REBOOT`, `DeferredItemOutcome`, and the
+  `EmitEvent` callback to the harness without any changes to the
+  Ralph loop itself. STIG never touches any of that code; it stays
+  inert for skills that don't need it. See
+  [adding-a-skill](../../adding-a-skill.md) for the current authoring
+  guide.
 
 ---
 
@@ -114,9 +131,10 @@ all live at this layer.
 - **Four agent roles** — Architect (plans), Worker (executes), Reflector
   (analyzes failures), and Eval (deterministic, non-LLM verdicts). All
   three LLM roles currently run on Gemma 4 31B bf16.
-- **Skills system** — `skills/*/skill.yaml` plus prompts; the harness
-  loads and runs any skill that provides the expected role prompts and
-  tool manifest. STIG remediation is the first; others are scaffolded.
+- **Skills system** — `skills/*/skill.yaml` + prompts + `runtime.py`
+  implementing the five Protocol interfaces. STIG (`skills/stig-rhel9/`)
+  and CVE (`skills/cve-response/`) both ship today; the harness
+  loads whichever is named on the command line.
 - **Episodic + semantic memory** — per-rule distilled lessons plus
   cross-rule banned patterns and strategic lessons, all token-budgeted
   and assembled by an explicit prompt assembler.

@@ -34,15 +34,28 @@ The architecture combines two patterns:
   solved or the time budget expires.
 - **Reflexion-style self-improvement** — each failure produces a
   distilled lesson that prevents the same mistake on the next attempt.
-  Lessons persist across runs via a SQLite memory store, so the system
-  gets smarter over time without any code changes.
+  Lessons persist across runs via a structured-tip memory store
+  backed by Postgres and Neo4j (Graphiti), so the system gets smarter
+  over time without any code changes.
 
-DISA STIG remediation on Rocky Linux 9 is the anchor use case because
-it exercises every interesting property of the architecture —
-persistence, revert-on-failure, verifiable outcomes, and real
-target-system side effects. But STIG is the witness, not the point.
-The harness is skill-agnostic: adding a new use case is a
-folder-per-skill exercise with no harness modifications.
+**Two skills ship today** on the same harness:
+
+- **DISA STIG remediation** on Rocky Linux 9 — the anchor use case.
+  Exercises every interesting property of the architecture:
+  persistence across many retries, revert-on-failure, verifiable
+  outcomes, and real target-system side effects. 270 rules, 7 runs
+  including a 19-hour overnight completion.
+- **CVE Response** on Rocky Linux 9 — the second-skill validation.
+  Autonomous advisory remediation via Vuls (scan) and `dnf advisory`
+  (apply), with per-package-family reboot batching and snapshot
+  rollback per family. Two complete runs (baseline + STIG-hardened
+  starting state), 44/44 advisories remediated in 35 minutes,
+  every one first-try.
+
+STIG is the hard case. CVE is the easy case. Both run on the same
+harness without modification. The harness is skill-agnostic: adding
+a new use case is a folder-per-skill exercise with no harness
+modifications.
 
 ---
 
@@ -164,14 +177,21 @@ INNER (time-budgeted per item):
   (not raw text) keep the context compact.
 - **Semantic memory** — cross-item banned patterns, preferred
   approaches, and strategic lessons. Persists for the entire run.
-- **Persistent memory** — cross-run knowledge stored in SQLite.
-  Lessons accumulate with learned weights. The harness starts
-  smarter on Run 2+ with no code changes.
+- **Persistent memory (V2)** — cross-run structured tips stored in
+  Postgres with a Graphiti-on-Neo4j knowledge graph for causal
+  relationships. Tips carry explicit mechanism fields (*why*
+  something works, not just that it did), per-(tip, rule) utility
+  tracking, and automatic eviction of low-utility tips. The harness
+  starts smarter on Run 2+ with no code changes. See
+  [ADR-0016](adr/0016-graphiti-neo4j-postgres-memory-stack.md) for
+  why SQLite (V1) was retired and what replaced it.
 
 ### Evaluation triage
 
-The evaluator classifies every failure into one of four modes, and
-the harness responds differently to each:
+The evaluator classifies every failure into a structured mode, and
+the harness responds differently to each. The first four are
+harness-core modes; the last three were added by the CVE skill and
+are extension points available to any skill:
 
 | Mode | Meaning | Response |
 |------|---------|----------|
@@ -179,19 +199,41 @@ the harness responds differently to each:
 | **Evaluator gap** | Target healthy but evaluator says fail | Count toward scanner-gap early escalation |
 | **False negative** | Evaluator passed but noise triggered revert | Accept the fix (don't revert good work) |
 | **Clean failure** | Normal failure | Revert + reflect + retry |
+| **Needs reboot** *(CVE)* | Package upgraded, live verification pending reboot | Defer to post-loop per-family batch |
+| **RPM conflict** *(CVE)* | dnf dependency conflict | Clean failure with diagnostic hint |
+| **Policy violation** *(CVE)* | Ban-worthy approach (e.g., `dnf remove` as a "fix") | Immediate revert + ban the approach |
 
-### Adaptive concurrency (the clutch)
+The last three were contributed by the CVE skill via the harness's
+`FailureMode` extension point — the harness itself stays
+skill-agnostic; skills declare the modes their evaluator can return.
 
-The harness learns per-category difficulty from prior runs and sets
-worker concurrency accordingly:
+### Deferred-verification architecture
 
-- Categories with >90% historical success → up to 3 parallel workers
-- Categories with 50-90% → 2 workers
-- Categories with <50% → serial (avoid wasting GPU on doomed items)
-- First run (no data) → serial by default
+Not every skill can evaluate immediately after an apply. CVE's
+kernel and glibc advisories need a reboot before verification is
+meaningful. The harness supports this via three skill-provided
+extension points:
 
-The "clutch" metaphor: transfer power from the engine (GPU) to the
-wheels (workers) based on road conditions (learned difficulty).
+- **`deferrable_failure_modes`** on `EvaluatorMetadata` — tells the
+  harness which failure modes should be deferred rather than
+  escalated ("the fix was applied, but I can't verify it yet").
+- **`SkillRuntime.resolve_deferred(reason, items, emit)`** — a
+  post-loop phase the harness invokes after the main queue drains.
+  The skill owns the resolution mechanics (reboot, snapshot revert,
+  healthcheck) and returns one `DeferredItemOutcome` per item with
+  a skill-chosen `reason` string (`family_verified`,
+  `family_reboot_failed`, etc.) that becomes the authoritative
+  verdict — no re-evaluation.
+- **`EmitEvent` callback** — lets the skill stream structured
+  progress events during long-running resolution phases so the UI
+  has a narrative to paint instead of silence.
+
+CVE uses all three for per-package-family reboot batching. STIG
+declares no deferrable modes and doesn't touch any of this code.
+See [entry 37](journal/journey/37-per-family-reboot-batching-landed.md)
+for the architectural landing and
+[ADR on deferred verification](journal/journey/36-per-family-reboot-batching.md)
+for the design rationale.
 
 ---
 
@@ -200,27 +242,33 @@ wheels (workers) based on road conditions (learned difficulty).
 The harness operates on five abstract interfaces. Skills implement
 them for their domain:
 
-| Interface | Purpose | STIG implementation |
-|-----------|---------|---------------------|
-| **WorkQueue** | Produce work items | OpenSCAP scan |
-| **Executor** | Apply changes | SSH to VM |
-| **Evaluator** | Check results | OpenSCAP + health checks |
-| **Checkpoint** | Save/restore state | libvirt VM snapshots |
-| **SkillRuntime** | Bundle the above | STIG-specific wiring |
+| Interface | Purpose | STIG implementation | CVE implementation |
+|-----------|---------|---------------------|--------------------|
+| **WorkQueue** | Produce work items | OpenSCAP scan | Vuls scan |
+| **Executor** | Apply changes | SSH + bash fix | SSH + `dnf upgrade --advisory=<ID>` |
+| **Evaluator** | Check results | OpenSCAP + health checks | `dnf updateinfo` + mission health |
+| **Checkpoint** | Save/restore state | libvirt VM snapshots | libvirt VM snapshots (including per-family) |
+| **SkillRuntime** | Bundle the above | STIG-specific wiring | CVE-specific wiring + `resolve_deferred` for reboot batches |
 
 Adding a new skill: create a `skills/<name>/` folder with a manifest,
-prompts, and a `runtime.py` implementing the five interfaces. No
-harness code changes. The same task graph, parallelism, evaluation
-triage, and cross-run memory work for any skill.
+prompts, and a `runtime.py` implementing the five interfaces. The
+same task graph, evaluation triage, cross-run memory, and
+deferred-verification machinery work for any skill. CVE added three
+new harness extension points (`FailureMode` additions,
+`deferrable_failure_modes`, `DeferredItemOutcome`) without any
+changes to the harness loop itself — STIG never touches them and
+they stay inert for skills that don't need them.
 
-**Example future skills:**
+**Candidate future skills:**
 
-- **Whitepaper generation** — work items are sections; evaluator
-  checks formatting + coherence; checkpoint is git commits
-- **Code refactoring** — work items are modules; evaluator runs
-  tests; checkpoint is git branches
+- **Red-team/nuclei active verification** — work items are nuclei
+  findings; evaluator is the absence of the finding on re-probe;
+  checkpoint is a VM snapshot. Pairs with CVE as a closed-loop
+  verify-after-patch pipeline.
 - **Certificate rotation** — work items are certs; evaluator checks
-  TLS handshake; checkpoint is cert store backup
+  TLS handshake; deferred-verification for propagation waits.
+- **Windows STIG** — same shape as Rocky STIG but against a
+  Windows Server target. Different scanner, same harness.
 
 ---
 
@@ -243,29 +291,62 @@ exploration.
 
 ---
 
-## Results (v5, first complete run in progress)
+## Results
 
-| Metric | Value |
+### STIG — the hard case
+
+Seven complete runs of the 270-rule DISA STIG profile. Each run
+builds on the previous via cross-run memory. Numbers below are from
+**Run 6**, which landed the ordering constraint (auto-dependency
+respect on immutable cascades) and retired 356 low-utility tips via
+auto-consolidation:
+
+| Metric | Run 6 |
 |--------|-------|
-| Rules scanned | 270 |
-| Remediated | 80+ (run in progress) |
-| Escalated | 38 |
-| Throughput | 21.1 rules/hour |
-| First-try success rate | ~79% |
-| Context overflow errors | 1 (down from 8 in v3) |
-| Scanner-gap early escalations | 105 (new in v4/v5) |
-| Total completion tokens | 230K+ |
-| Cross-run lessons persisted | 180 |
+| Rules attempted | 270 |
+| Fix rate | **61.9%** (+5.6pp vs Run 5) |
+| Wall time | 19.1 hours |
+| `audit_rules_immutable` cascade | Position **84/84** (fully absorbed; was 11/83 in Run 5) |
+| Mechanism field compliance on tips | 100% (781 tips) |
+| Low-utility tips retired at run-end | 356 (auto-consolidation) |
+
+STIG is where the reflexion loop earns its keep — multi-attempt
+fixes, Architect re-engagements, Reflector plateaus, and genuine
+strategy pivots are routine.
+
+### CVE — the easy case
+
+Two complete runs (stock Rocky 9 baseline + STIG-hardened starting
+state). Same harness, same loop, same Gemma 4 deployment:
+
+| Metric | CVE Run |
+|--------|---------|
+| Advisories attempted | 44 |
+| Remediated | **44/44 (100%)** |
+| Wall time | 35 minutes |
+| Remediated on attempt 1 | **29/29** (every single one) |
+| Architect re-engagements | 0 |
+| Reflector plateaus | 0 |
+| Reboot-required advisories | 15, batched into 2 families (1 glibc + 14 kernels) |
+| Reboots issued | 2 (one per family) |
+
+CVE is the opposite shape: dnf is deterministic, Vuls is
+deterministic, the reflexion machinery stayed quiet because no rule
+needed it. Same code path, load-adaptive. That the harness handles
+both without modification is the whole point.
 
 ### Architecture evolution
 
-| Version | Capability | Throughput |
-|---------|-----------|------------|
-| v1 | Basic retry loop | — |
-| v2 | Reflexion (reflect on failure) | 2.8/hr |
-| v3 | Episodic memory + architect re-engagement | 12.5/hr |
-| v4 | Skill-agnostic interfaces + task graph + evaluation triage | 22.4/hr |
-| v5 | Cross-run memory (SQLite) + adaptive concurrency clutch | 21.1/hr (first run, serial) |
+| Version | Capability |
+|---------|-----------|
+| v1 | Basic retry loop |
+| v2 | Reflexion (reflect on failure) |
+| v3 | Episodic memory + architect re-engagement + per-turn action budget |
+| v4 | Skill-agnostic interfaces + task graph + evaluation triage |
+| v5 | Cross-run memory (V1: SQLite dream pass), adaptive concurrency clutch (built, deferred behind UI work) |
+| v5+V2 memory | Structured tips, rule-prefix similarity, per-(tip, rule) utility tracking, history-based eviction; SQLite retired for Postgres + Neo4j (Graphiti) |
+| v5+ordering | Dependency-aware ordering constraint (entry 34); closed the STIG immutable cascade |
+| v5+CVE | Second skill + per-family reboot batching + `DeferredItemOutcome` contract + `EmitEvent` observability (entries 33-37) |
 
 Each version is documented in the [developer journal](https://kenrollins.github.io/gemma-forge/journal/journey/)
 with honest failures, pivots, and discoveries.
@@ -298,7 +379,7 @@ architecture works.
 | **Model** | Gemma 4 31B Dense bf16 | Open weights, native tool calling, Day-0 vLLM support |
 | **Inference** | vLLM 0.19.0, TP=4 | Direct OpenAI-compatible REST, continuous batching |
 | **Harness** | Python + Google ADK | Ralph loop + reflexion, skill-agnostic interfaces |
-| **Memory** | SQLite (stdlib) | Zero-dependency cross-run persistence, WAL for concurrency |
+| **Memory** | Postgres + Neo4j (Graphiti) | Structured-tip utility tracking, causal-graph relationships, history-based eviction |
 | **Target** | libvirt VM + virsh snapshots | Two-tier revert safety (script + full-state snapshot) |
 | **Observability** | OTel + Jaeger + Prometheus + Grafana | Federal-credible, no vendor lock-in |
 | **Frontend** | Next.js + React Flow | Live heatmap + interactive DAG + activity ticker |
@@ -317,17 +398,23 @@ architecture works.
 
 **If you have 15 minutes:**
 
-- [**The Overnight Run**](https://kenrollins.github.io/gemma-forge/journal/journey/14-overnight-run-findings/) —
-  10 hours, 2 rules remediated, four architectural flaws discovered
-- [**The Second Overnight Run**](https://kenrollins.github.io/gemma-forge/journal/journey/18-second-overnight-run/) —
-  93 rules remediated after the fixes. The architecture improving itself.
+- [**The Second Skill: CVE Response**](https://kenrollins.github.io/gemma-forge/journal/journey/33-second-skill-cve-pivot/) —
+  the pivot that tested the skill-agnostic thesis.
+- [**Run 6 — Ordering Works, Runtime Doesn't**](https://kenrollins.github.io/gemma-forge/journal/journey/34-run-6-ordering-works-runtime-doesnt/) —
+  the STIG run that closed the immutable cascade.
+- [**Per-Family Reboot Batching Lands**](https://kenrollins.github.io/gemma-forge/journal/journey/37-per-family-reboot-batching-landed/) —
+  44/44 CVE remediations, two families batched, zero retries.
 
 **If you want the full story:**
 
 - [**Developer Journal**](https://kenrollins.github.io/gemma-forge/journal/journey/) —
-  22 chronological field notes. Start at
-  [Entry 00: Origin](https://kenrollins.github.io/gemma-forge/journal/journey/00-origin/)
-  or jump to whatever catches your eye.
+  37 chronological field notes from origin through the CVE skill.
+  Start at [Entry 00: Origin](https://kenrollins.github.io/gemma-forge/journal/journey/00-origin/)
+  or jump to whatever catches your eye. Two favorites for early
+  readers: [the 10-hour overnight run](https://kenrollins.github.io/gemma-forge/journal/journey/14-overnight-run-findings/)
+  that found four architectural flaws, and
+  [the second overnight run](https://kenrollins.github.io/gemma-forge/journal/journey/18-second-overnight-run/)
+  that validated the fixes.
 
 **If you're building something similar:**
 

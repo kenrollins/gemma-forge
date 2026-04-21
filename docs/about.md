@@ -19,8 +19,11 @@ Technology Strategist in Dell Federal, into two things in combination:
 DISA STIG remediation was chosen as the anchor use case because it
 exercises the interesting parts of the architecture — persistence,
 revert-on-failure, verifiable outcomes, and real target-system side
-effects. But the patterns documented throughout this project apply to
-a wide range of problem spaces. STIG is the witness, not the point.
+effects. A second skill, CVE Response, was added later to validate
+the skill-agnostic thesis: the harness drives both workloads on the
+same Gemma 4 deployment, without modification between them. The
+patterns documented throughout this project apply to a wide range
+of problem spaces. The skills are the witnesses, not the point.
 
 ## What this project is not
 
@@ -49,9 +52,9 @@ gemma-forge is the opposite. The code is open. Every failure mode is
 documented. Every architectural decision has a journal entry
 explaining what was tried, what failed, and what we landed on
 instead. Every known limitation is called out honestly rather than
-hidden. The exploration is the product; the STIG remediation is the
-witness; the goal is to enable other engineers to build similar
-systems faster and with less surprise.
+hidden. The exploration is the product; the skills (STIG and CVE)
+are the witnesses; the goal is to enable other engineers to build
+similar systems faster and with less surprise.
 
 ## How the hardware fits in
 

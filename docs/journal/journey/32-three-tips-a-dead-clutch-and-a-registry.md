@@ -68,9 +68,11 @@ Tip quality is not correlated with `tip_type`. All fifteen tips across the three
 
 That maps to a concrete Run-6 change: the Reflector's prompt now requires a `mechanism` line on every tip — "explain the causal why, not just the outcome." For strategy tips, mechanism is *why-effective*. For warning and recovery tips, it's *why-it-fails*. Tips without a mechanism become filterable noise.
 
-## The scan that found the clutch
+## The clutch, deferred again
 
-Writing up the three traces, a question landed: *what else in the codebase has this same shape — built, claimed, not actually doing what we think it's doing?* Three minutes of grep against the harness found it.
+The clutch was never a surprise. We built it in V5 with a plan to wire it into the outer loop once cross-run memory had enough data for it to reason about (Run 3+). Then Run 3 shipped with the clutch still initialized-but-not-called, and so did Run 4, and Run 5. Every run since V5 has been fully serial, despite a working adaptive-concurrency controller sitting right there and every JSONL carrying a `clutch_initialized` event that claims otherwise.
+
+Each time the question of "should we wire it this run?" came up, the answer was the same: not yet. The concurrency work itself is non-trivial — you need real async task dispatch against a single VM, collision detection on overlapping file resources, and a dashboard that can show multiple rules being processed in parallel without the "watch the edge AI work" demo narrative collapsing into noise. Stopping momentum on memory architecture, or ordering constraints, or the second skill to focus a weekend on concurrency wiring + UI overhaul never felt like the right trade. So we built everything *around* serial execution, knowing the clutch would stay dormant a while longer.
 
 [`gemma_forge/harness/clutch.py`](https://github.com/kenrollins/gemma-forge/blob/main/gemma_forge/harness/clutch.py) implements adaptive concurrency. `Clutch.recommend_workers()` computes how many parallel workers to spawn per category based on prior-run success rate. `Clutch.select_batch()` pulls runnable items from a task graph respecting the recommendation. Both methods are covered in `tests/test_memory_and_clutch.py`. Both are exercised in `tools/smoke_memory_e2e.py`. Both are imported in `ralph.py`. The import path in the harness loop:
 
@@ -81,11 +83,9 @@ logger.info("Clutch: %s", clutch.state.reason)
 run_log.log("clutch_initialized", "system", clutch.snapshot())
 ```
 
-And that's it. `recommend_workers()` is never called. `select_batch()` is never called. Every run since V5 shipped has been fully serial, despite a working adaptive-concurrency controller sitting right there and every JSONL carrying a `clutch_initialized` event that claims otherwise.
+And that's it. `recommend_workers()` is never called. `select_batch()` is never called.
 
-The honest read: the clutch works. The UI doesn't. There's no way today to show an operator three concurrent rules being processed in parallel — the dashboard assumes one linear narrative. Wiring the clutch into the loop without upgrading the UI first would deliver throughput silently and destroy the "watch the edge AI work" demo that's core to what this project is.
-
-So the clutch doesn't get wired for Run 6. It gets a proper entry in [`deferred.md`](../../deferred.md) as DEF-01, with the UI gate captured: an **active-queue band** — a single "now processing" region that expands from 1 card into N cards as clutch recommendations change, with a clutch meter above the band. The UI narrows and widens as difficulty changes. Adaptive concurrency becomes the visible subject rather than a hidden optimization. That design waits for its own weekend.
+This entry is where that deferral finally gets promoted from "we'll get to it next run" to a real registry entry. [`deferred.md`](../../deferred.md) captures it as DEF-01, with the UI gate recorded alongside the wiring work: an **active-queue band** — a single "now processing" region that expands from 1 card into N cards as clutch recommendations change, with a clutch meter above the band. The UI narrows and widens as difficulty changes. Adaptive concurrency becomes the visible subject rather than a hidden optimization. That bundle — concurrency + UI overhaul — waits for a weekend that isn't this one either.
 
 ## Eviction has never run
 
@@ -100,7 +100,7 @@ Both problems close together. Run 6 ships three changes:
 
 ## The registry
 
-Three distinct problems surfaced from this post-mortem — tip quality, clutch wiring, consolidation scheduling — and a fourth from entry 31 (prompt-level ordering guidance). None of them would have been caught by a better JSONL query. They're architectural drift, and architectural drift doesn't show up in data, it shows up when someone asks "what else is like this?" and has the time to look.
+Three distinct problems surfaced from this post-mortem — tip quality, clutch wiring, consolidation scheduling — and a fourth from entry 31 (prompt-level ordering guidance). Tip quality and consolidation scheduling were architectural drift: real regressions that wouldn't show up in a JSONL query and only surface when someone steps back and asks "what else has this same shape?" The clutch isn't drift — it's a deliberate deferral we kept renewing without writing down the terms. Either way, the failure mode is the same: things get mentioned in passing, nobody writes them down, three weeks later one of them shows up as a symptom and an hour gets spent rediscovering or relitigating it.
 
 The registry fixes the social problem that enables the drift: things get mentioned in passing, nobody writes them down, three weeks later one of them shows up as a symptom and an hour gets spent rediscovering it. [`docs/deferred.md`](../../deferred.md) now tracks seven architectural items — three debt, four opportunity — each with a *pain signal*: the specific symptom that tells us "this one is ready to be promoted out of this file." The pain signal is the thing that stops this from being a graveyard.
 

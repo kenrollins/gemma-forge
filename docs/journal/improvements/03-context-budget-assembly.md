@@ -13,7 +13,7 @@ one_line: "Deterministic token-budget-aware prompt assembly with priority-ordere
 
 # Improvement: Deterministic Context Budget per Prompt
 
-**Status:** Proposed, not implemented
+**Status:** Implemented in v3 (2026-04-13). See [journey/17 — The v3 Fix Pass](../journey/17-v3-fix-pass.md). The deterministic prompt-budget assembler ships in `gemma_forge/harness/prompts.py` and is exercised on every agent turn.
 **Surfaced:** 2026-04-11, analyzing overnight run findings
 **Priority:** HIGH — deploy with the Worker single-action fix
 **Related:** `journey/14-overnight-run-findings.md` Finding 4

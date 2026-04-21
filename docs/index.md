@@ -76,8 +76,6 @@ skill is a folder and five small Python classes.
 
 ## See it run
 
-![gemma-forge dashboard during a STIG remediation run — rule heatmap, live agent pipeline, event stream, and the reflexion loop visible in a single view](assets/media/gemma-forge-screenshot.png){ .hero-screenshot }
-
 **The harness live, during a STIG remediation run** — Architect picks a rule, Worker applies the fix, Evaluator scans, Reflector distills a lesson on failure, repeat:
 
 <video controls autoplay loop muted playsinline width="100%" poster="assets/media/gemma-forge-screenshot.png" style="border-radius: 8px; margin: 1rem 0;">

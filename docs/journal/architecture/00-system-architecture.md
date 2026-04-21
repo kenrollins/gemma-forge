@@ -53,8 +53,8 @@ flowchart LR
     Eval -->|health failure| Revert[Revert snapshot]
     Eval -->|deferrable<br/>e.g. needs_reboot| Defer[Post-loop:<br/>resolve_deferred]
     Revert --> Refl
-    Refl -->|lesson → memory<br/>re-engage same item| Arch
-    Done -.->|next item<br/>Ralph persists until queue empty<br/>or wall budget exhausted| Arch
+    Refl -->|distilled lesson<br/>Architect re-plans| Arch
+    Done -.->|next item| Arch
 
     classDef scan fill:#0f172a,stroke:#9CA3AF,color:#E5E7EB
     classDef architect fill:#0b2942,stroke:#3B82F6,color:#DBEAFE
@@ -75,22 +75,33 @@ flowchart LR
     class Defer defer
 ```
 
-Two feedback loops are overlaid here. The **solid arrow** from
-Reflector back to Architect is *reflexion*: within a single work
-item, every failure produces a distilled lesson, the Architect
-re-engages with the full failure history, and the Worker tries
-again with a refined plan. The **dashed arrow** from Remediated
-back to Architect is *Ralph persistence*: when an item finishes
-(pass or escalate), the harness picks the next item from the
-queue and grinds on. The outer loop stops only when the queue is
-empty or the wall-clock budget is exhausted.
+Two feedback loops are overlaid here.
+
+- **Solid arrow** (Reflector → Architect) — *reflexion within a
+  single item.* When an attempt fails, the Reflector distills a
+  lesson, and the Architect re-plans for the next attempt on the
+  same item with that lesson in context. The lesson lives in
+  *episodic* memory (per-item, ephemeral).
+- **Dashed arrow** (Remediated → Architect) — *Ralph persistence
+  across items.* When an item finishes (pass or escalate), the
+  harness picks the next item from the queue and grinds on. The
+  outer loop stops only when the queue is empty or the wall-clock
+  budget is exhausted.
+
+Neither arrow is where *cross-run memory* gets written. That
+happens at item completion (promoting distilled lessons into
+semantic memory for this run) and at end-of-run (promoting the
+run's best signal — both successful approaches and failed-attempt
+lessons — into persistent memory via the dream pass). That full
+lifecycle is the next diagram.
 
 Colors match the live dashboard's agent pipeline: Architect blue,
 Worker amber, Reflector purple. All three are LLM roles running
 on the same Gemma 4 deployment through fresh ADK sessions per
-turn. The Evaluator is the one deterministic step — whatever
-skill-provided code decides whether the target is now in the
-desired state (OpenSCAP for STIG, `dnf updateinfo` for CVE, etc.).
+turn. The Evaluator is gray because it's not an LLM — it's
+whatever skill-provided code decides whether the target is now in
+the desired state (OpenSCAP for STIG, `dnf updateinfo` for CVE,
+etc.).
 
 ### The skill boundary
 

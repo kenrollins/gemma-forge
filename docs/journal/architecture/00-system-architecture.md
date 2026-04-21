@@ -41,10 +41,11 @@ Two views of the same system:
    versus what a skill provides through five Protocol methods.
    This is the thesis: the core doesn't change, the skills plug in.
 
-### The reflexion loop
+### The reflexion + Ralph loop
 
 ```mermaid
 flowchart LR
+    Scan([WorkQueue.scan<br/>produces item queue]) --> Arch
     Arch[Architect<br/><i>picks item + plans</i>] --> Work[Worker<br/><i>applies fix</i>]
     Work --> Eval{Evaluator<br/><i>deterministic</i>}
     Eval -->|pass| Done[Remediated<br/>+ checkpoint saved]
@@ -52,29 +53,44 @@ flowchart LR
     Eval -->|health failure| Revert[Revert snapshot]
     Eval -->|deferrable<br/>e.g. needs_reboot| Defer[Post-loop:<br/>resolve_deferred]
     Revert --> Refl
-    Refl -->|lesson → memory| Arch
+    Refl -->|lesson → memory<br/>re-engage same item| Arch
+    Done -.->|next item<br/>Ralph persists until queue empty<br/>or wall budget exhausted| Arch
 
-    classDef agent fill:#1f1b2e,stroke:#A855F7,color:#E5E7EB
-    classDef deterministic fill:#0b2942,stroke:#60A5FA,color:#E5E7EB
+    classDef scan fill:#0f172a,stroke:#9CA3AF,color:#E5E7EB
+    classDef architect fill:#0b2942,stroke:#3B82F6,color:#DBEAFE
+    classDef worker fill:#422006,stroke:#F59E0B,color:#FDE68A
+    classDef eval fill:#0c2a3d,stroke:#60A5FA,color:#E5E7EB
+    classDef reflector fill:#1f1b2e,stroke:#A855F7,color:#EDE9FE
     classDef done fill:#064e3b,stroke:#10B981,color:#ECFDF5
     classDef fail fill:#7f1d1d,stroke:#EF4444,color:#FEE2E2
     classDef defer fill:#78350f,stroke:#F59E0B,color:#FFFBEB
 
-    class Arch,Work,Refl agent
-    class Eval deterministic
+    class Scan scan
+    class Arch architect
+    class Work worker
+    class Eval eval
+    class Refl reflector
     class Done done
     class Revert fail
     class Defer defer
 ```
 
-The Architect, Worker, and Reflector are LLM roles — three distinct
-personas running on the same Gemma 4 deployment through fresh ADK
-sessions per turn. The Evaluator is the one deterministic step:
-it's whatever skill-provided code decides whether the target is now
-in the desired state (OpenSCAP for STIG, `dnf updateinfo` for CVE,
-etc.). Every loop cycle that doesn't pass produces a distilled
-lesson that persists into cross-run memory, which the Architect
-reads on re-engagement.
+Two feedback loops are overlaid here. The **solid arrow** from
+Reflector back to Architect is *reflexion*: within a single work
+item, every failure produces a distilled lesson, the Architect
+re-engages with the full failure history, and the Worker tries
+again with a refined plan. The **dashed arrow** from Remediated
+back to Architect is *Ralph persistence*: when an item finishes
+(pass or escalate), the harness picks the next item from the
+queue and grinds on. The outer loop stops only when the queue is
+empty or the wall-clock budget is exhausted.
+
+Colors match the live dashboard's agent pipeline: Architect blue,
+Worker amber, Reflector purple. All three are LLM roles running
+on the same Gemma 4 deployment through fresh ADK sessions per
+turn. The Evaluator is the one deterministic step — whatever
+skill-provided code decides whether the target is now in the
+desired state (OpenSCAP for STIG, `dnf updateinfo` for CVE, etc.).
 
 ### The skill boundary
 
@@ -112,6 +128,79 @@ extension points — `FailureMode.NEEDS_REBOOT`,
 `DeferredItemOutcome`, and the `EmitEvent` callback — without any
 changes to the Ralph loop itself. STIG never touches them and they
 stay inert for any skill that doesn't need them.
+
+### The four memory tiers
+
+Memory flows outward from each agent turn into progressively
+longer-lived stores. Each tier is scoped to a specific lifespan
+and has a distinct retrieval discipline.
+
+```mermaid
+flowchart TD
+    W["<b>Working</b> — per-attempt<br/>Raw agent messages, tool call results.<br/>Cleared each turn via fresh ADK session."]
+    E["<b>Episodic</b> — per-item<br/>Attempt history + distilled lessons.<br/>Retrieved into prompts on subsequent attempts."]
+    S["<b>Semantic</b> — per-run<br/>Cross-item banned patterns + strategic lessons.<br/>Token-budgeted into every prompt this run."]
+    P["<b>Persistent (V2)</b> — cross-run<br/>Structured tips with causal mechanism.<br/>Postgres + Neo4j / Graphiti. Per-(tip, rule) utility tracking."]
+
+    W -->|Reflector distills lesson| E
+    E -->|on item success<br/>promote strategic lessons| S
+    S -->|end-of-run consolidation<br/>+ dream pass| P
+    P -.->|rule-prefix retrieval<br/>at new item / new run| E
+
+    classDef mem fill:#1f1b2e,stroke:#A855F7,color:#EDE9FE
+    classDef persist fill:#0b2942,stroke:#3B82F6,color:#DBEAFE
+    class W,E,S mem
+    class P persist
+```
+
+The **dashed arrow** from Persistent back to Episodic is the whole
+point of the V2 memory rewrite: tips from prior runs get pulled
+into the current item's context via rule-prefix similarity, so a
+fresh run on Day 2 starts smarter than a fresh run on Day 1 without
+any code changes. The dream pass promotes raw lessons into
+structured tips with causal mechanism fields at run-end; the Phase
+H eviction policy retires low-utility tips with enough evidence.
+See [ADR-0016](../../adr/0016-graphiti-neo4j-postgres-memory-stack.md)
+for why SQLite (V1) was retired, and [journey/30](../journey/30-building-v2.md)
+for the V2 rewrite details.
+
+## The event substrate: structured JSONL run logger
+
+Every event the harness emits — agent turns, evaluator verdicts,
+memory retrievals, checkpoint operations, tool calls, deferred-
+verification progress, GPU snapshots — lands as a single JSON line
+in `runs/run-<timestamp>.jsonl`. That file is not a debug log. It
+is **the substrate**.
+
+!!! info "Why this decision mattered"
+    The structured run logger was built early (see
+    [journey/12.5](../journey/12.5-structured-run-logger.md)) and
+    became load-bearing for almost everything that came after:
+
+    - **Live dashboard** — the `/api/live-stream` SSE endpoint tails
+      the active JSONL and ships events to the UI.
+    - **Replay UI** — client-paced replay streams the same JSONL
+      through a RAF loop, so historical runs render with the same
+      fidelity as live ones.
+    - **Cross-run memory mining** — the V2 dream pass and
+      consolidation phase read past JSONLs to distill structured
+      tips. No JSONL, no cross-run learning.
+    - **NIST-grade decision provenance** — the JSONL is the audit
+      trail: every autonomous action, why it was taken, what the
+      evaluator found, and what lesson was stored. Compliance is
+      not a bolt-on; it's how the architecture works. See the
+      alignment with the [NIST AI Agent Standards Initiative](https://www.nist.gov/caisi/ai-agent-standards-initiative).
+    - **Post-mortems** — journey entries from Run 6 onward cite
+      specific elapsed_s offsets in JSONL files. The narrative
+      record and the execution record are the same record.
+
+    The rule that keeps the substrate useful: **no event is
+    observable that isn't JSONL-captured.** When we added
+    family-level progress events to `resolve_deferred`
+    ([entry 37](../journey/37-per-family-reboot-batching-landed.md)),
+    they were JSONL-first; the UI rendering came after. OTel
+    adds distributed tracing on top for SRE-style performance
+    debugging, but JSONL is the authoritative record.
 
 ## The 5-Layer Stack with Components
 

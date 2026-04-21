@@ -46,8 +46,8 @@ solution, or an honest explanation of why the problem can't be solved
 yet. Each run leaves the forge smarter than the last.
 
 **Why build my own harness?** The agentic era is still in early
-innings. New agent orchestration architectures are shipping almost
-daily, and it's not yet clear which of them will hold up. There
+innings. New agent orchestration architectures are being discussed
+almost daily, and it's not yet clear which of them will hold up. There
 isn't going to be one right answer or one size that fits all.
 Different problem shapes will need different harnesses. So my
 premise was: go deep on an interesting architecture and build it

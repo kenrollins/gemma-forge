@@ -16,85 +16,102 @@ one_line: "gemma-forge mapped onto the 5-Layer Enterprise AI Partner Map, with c
 
 # System Architecture
 
-This architecture was not designed top-down. It emerged from building
-the system, running it, watching it fail, and fixing what broke. The
-layer map below reflects where we ended up after 23 journal entries
-of iteration — not where we planned to be on day one. Every component
-choice has a story behind it, and most of those stories involve
-trying something else first.
+This architecture wasn't designed top-down. It emerged from building
+the system, running it, watching it fail, and fixing what broke.
+Thirty-seven journal entries of iteration — plus two shipping
+skills (STIG and CVE Response) — is where we ended up, not where we
+planned to be on day one. Every component choice has a story behind
+it, and most of those stories involve trying something else first.
 
-An overview of gemma-forge as a system, mapped onto the 5-Layer Enterprise AI
-Partner Map. Each layer block shows (1) industry examples — both
-open-source and enterprise-grade — so readers can see what alternatives
-exist at each layer, (2) the components gemma-forge uses at that layer, and
-(3) the architectural patterns that live primarily at that layer with links
-to their deep treatments.
-
-The patterns below apply **regardless of which vendor or open-source
-alternative you choose** — they are properties of the layer, not of any
-specific implementation. That is the transfer value of this project: the
-ideas travel, even when the tool choices don't.
+The rest of this page is the map. Two diagrams give the mental
+model: a flow view of the reflexion loop and a responsibility view
+of the harness/skill boundary. A colored 5-layer stack below shows
+what gemma-forge runs at each layer. Two tables at the bottom
+consolidate industry alternatives and the architectural patterns
+that are the actual transfer value — the ideas travel even when the
+tool choices don't.
 
 ## The architecture at a glance
 
-The gemma-forge harness is a reflexion loop around four agent roles
-plus a deterministic evaluator. Skills plug in through five Protocol
-interfaces without touching the loop itself. The diagram below shows
-how a single work item moves through the system:
+Two views of the same system:
+
+1. **The reflexion loop** — how one work item moves through the
+   four agent roles. This is the flow the live dashboard renders.
+2. **The skill boundary** — what lives in the fixed harness
+   versus what a skill provides through five Protocol methods.
+   This is the thesis: the core doesn't change, the skills plug in.
+
+### The reflexion loop
 
 ```mermaid
 flowchart LR
-    subgraph Skill["<b>Skill</b> (STIG, CVE, ...)"]
-        direction TB
-        WQ[WorkQueue.scan]
-        EX[Executor.apply]
-        EV[Evaluator.evaluate]
-        CP[Checkpoint.save/restore]
-    end
-
-    subgraph Harness["<b>Ralph Loop Harness</b> (skill-agnostic core)"]
-        direction LR
-        Arch[Architect<br/><i>picks item</i>]
-        Work[Worker<br/><i>applies fix</i>]
-        Eval{Evaluator<br/><i>triage</i>}
-        Refl[Reflector<br/><i>distills lesson</i>]
-    end
-
-    WQ --> Arch
-    Arch --> Work
-    Work -->|tool: Executor.apply| EX
-    EX --> Eval
-    Eval -->|Evaluator.evaluate| EV
-    EV --> Verdict{Outcome}
-    Verdict -->|pass| Done[Remediated<br/>Checkpoint.save]
-    Verdict -->|health failure| Revert[Revert via<br/>Checkpoint.restore]
-    Verdict -->|clean failure| Refl
-    Verdict -->|deferrable<br/>e.g. needs_reboot| Defer[Post-loop:<br/>SkillRuntime.resolve_deferred]
+    Arch[Architect<br/><i>picks item + plans</i>] --> Work[Worker<br/><i>applies fix</i>]
+    Work --> Eval{Evaluator<br/><i>deterministic</i>}
+    Eval -->|pass| Done[Remediated<br/>+ checkpoint saved]
+    Eval -->|clean failure| Refl[Reflector<br/><i>distills lesson</i>]
+    Eval -->|health failure| Revert[Revert snapshot]
+    Eval -->|deferrable<br/>e.g. needs_reboot| Defer[Post-loop:<br/>resolve_deferred]
     Revert --> Refl
     Refl -->|lesson → memory| Arch
-    Defer -.-> Done
-    Done --> CP
 
-    classDef skill fill:#1f2937,stroke:#0076CE,color:#E5E7EB
-    classDef harness fill:#111827,stroke:#A855F7,color:#E5E7EB
-    classDef done fill:#065f46,stroke:#10B981,color:#ECFDF5
+    classDef agent fill:#1f1b2e,stroke:#A855F7,color:#E5E7EB
+    classDef deterministic fill:#0b2942,stroke:#60A5FA,color:#E5E7EB
+    classDef done fill:#064e3b,stroke:#10B981,color:#ECFDF5
     classDef fail fill:#7f1d1d,stroke:#EF4444,color:#FEE2E2
     classDef defer fill:#78350f,stroke:#F59E0B,color:#FFFBEB
-    class WQ,EX,EV,CP skill
-    class Arch,Work,Refl,Eval harness
+
+    class Arch,Work,Refl agent
+    class Eval deterministic
     class Done done
     class Revert fail
     class Defer defer
 ```
 
-The **black box** is the harness — the Ralph loop, agent role
-machinery, memory tiers, and task graph. It doesn't know what
-domain it's working on. The **gray box** is a skill — STIG,
-CVE Response, or anything you write next. It provides the five
-Protocol methods the harness calls. Cross-run memory, evaluation
-triage, ordering constraints, and the deferred-verification
-post-loop phase all live in the harness and work for any skill
-that implements the interfaces correctly.
+The Architect, Worker, and Reflector are LLM roles — three distinct
+personas running on the same Gemma 4 deployment through fresh ADK
+sessions per turn. The Evaluator is the one deterministic step:
+it's whatever skill-provided code decides whether the target is now
+in the desired state (OpenSCAP for STIG, `dnf updateinfo` for CVE,
+etc.). Every loop cycle that doesn't pass produces a distilled
+lesson that persists into cross-run memory, which the Architect
+reads on re-engagement.
+
+### The skill boundary
+
+```mermaid
+flowchart LR
+    subgraph Harness["<b>Ralph Loop Harness</b><br/><i>skill-agnostic core</i>"]
+        direction TB
+        H1["Outer reflexion loop"]
+        H2["Architect / Worker / Reflector<br/>(all run on Gemma 4)"]
+        H3["Evaluation triage<br/>(FailureMode routing)"]
+        H4["Cross-run memory (V2)<br/>Postgres + Neo4j / Graphiti"]
+        H5["Task graph + ordering<br/>+ deferred-verification phase"]
+    end
+
+    subgraph Skill["<b>Skill</b><br/><i>STIG, CVE, ...</i>"]
+        direction TB
+        S1["WorkQueue.scan()"]
+        S2["Executor.apply() + get_agent_tools()"]
+        S3["Evaluator.evaluate() + metadata"]
+        S4["Checkpoint.save() / restore()"]
+        S5["SkillRuntime bundles the above<br/>+ optional resolve_deferred()"]
+    end
+
+    Harness -->|Protocol calls| Skill
+
+    classDef harness fill:#1f1b2e,stroke:#A855F7,color:#E5E7EB
+    classDef skill fill:#0b2942,stroke:#0076CE,color:#E5E7EB
+    class H1,H2,H3,H4,H5 harness
+    class S1,S2,S3,S4,S5 skill
+```
+
+The harness has no STIG-specific or CVE-specific code. It operates
+on abstract interfaces; skills implement them. CVE added three new
+extension points — `FailureMode.NEEDS_REBOOT`,
+`DeferredItemOutcome`, and the `EmitEvent` callback — without any
+changes to the Ralph loop itself. STIG never touches them and they
+stay inert for any skill that doesn't need them.
 
 ## The 5-Layer Stack with Components
 
@@ -241,292 +258,71 @@ consistent.
 
 </div>
 
-Below: each layer's full breakdown — industry alternatives
-(open-source and enterprise) and the architectural patterns that
-live primarily at that layer with links to their deep treatments.
+## Industry Alternatives
 
-## How to read this page
+How each layer maps to the broader ecosystem. If you can't use what
+gemma-forge uses, these are the entries you'd look at instead. The
+architectural patterns further down apply regardless of which
+vendor or open-source alternative you pick — they are properties of
+the layer, not of any specific implementation. That is the transfer
+value of this project: the ideas travel, even when the tool choices
+don't.
 
-- **Layer** tells you *where in the stack* a thing sits. It answers
-  "what kind of component is this?"
-- **Pattern** tells you *what reusable design idea* the layer
-  demonstrates. Patterns are the "click-down" concepts within each layer
-  and each one has its own dedicated page under `architecture/`.
-- **Industry** lists common alternatives so a reader can map the
-  implementation back to their own environment. If you can't use what we
-  used, the entries here are where you'd look instead.
-- **Components** lists what gemma-forge actually runs at that layer.
-
----
-
-## 5 — Application
-
-*Vertical SaaS AI, end-user applications, domain-specific solutions.*
-
-**Industry examples**
-- **Harvey** — legal research and drafting (enterprise)
-- **Veeva AI** — pharmaceutical and life sciences (enterprise)
-- **Glean** — enterprise search and knowledge assistants (enterprise)
-- **Open WebUI** — self-hosted chat-style application (open source)
-
-**gemma-forge components**
-- **STIG Remediation Skill** (`skills/stig-rhel9/`) — the anchor
-  skill. DISA STIG compliance on a Rocky Linux 9 target via OpenSCAP
-  scan + bash fix scripts. The hard case: 270 rules with complex
-  inter-rule dependencies, multi-attempt fixes, and real target-
-  breaking risk.
-- **CVE Response Skill** (`skills/cve-response/`) — the second
-  skill. Autonomous advisory remediation via Vuls + `dnf advisory`,
-  with per-package-family reboot batching. The easy case: 44
-  advisories remediated in 35 min, every one first-try. Shipped in
-  [journey/35](../journey/35-building-cve-in-a-day.md) and hardened
-  in [journey/37](../journey/37-per-family-reboot-batching-landed.md).
-- **gemma-forge Dashboard** — Next.js live and replay UI that renders the
-  Ralph loop event stream in real time, with a pipeline view, a current-
-  step panel, and a scrollable event log.
-- **gemma-forge Journal Site** — this static site, served by GitHub Pages,
-  built from the project's engineering notes.
-
-**Patterns at this layer**
-- **skill-authoring** — the pattern that emerged once two skills
-  shipped. A skill is a folder with a manifest, prompts, and a
-  `runtime.py` that implements five Protocol interfaces
-  (`WorkQueue`, `Executor`, `Evaluator`, `Checkpoint`,
-  `SkillRuntime`). Plus optional extension points:
-  `deferrable_failure_modes` on `EvaluatorMetadata`,
-  `SkillRuntime.resolve_deferred` for long-running post-loop phases,
-  and an `EmitEvent` progress callback. CVE added
-  `FailureMode.NEEDS_REBOOT`, `DeferredItemOutcome`, and the
-  `EmitEvent` callback to the harness without any changes to the
-  Ralph loop itself. STIG never touches any of that code; it stays
-  inert for skills that don't need it. See
-  [adding-a-skill](../../adding-a-skill.md) for the current authoring
-  guide.
-
----
-
-## 4 — Orchestration
-
-*RAG pipelines, agents, vector databases, LLM frameworks.*
-
-This is where the Ralph loop itself lives, and where most of gemma-forge's
-interesting architecture is concentrated. The four key patterns below
-all live at this layer.
-
-**Industry examples**
-- **LangChain / LangGraph** — the most comprehensive OSS ecosystem with
-  a strong commercial tier; LangGraph is the recommended agent surface
-  for any workflow that needs loops, conditionals, or state persistence
-  (open source + commercial)
-- **Microsoft Agent Framework** — the merged successor to AutoGen and
-  Semantic Kernel, GA targeted for early 2026 (open source core,
-  enterprise support)
-- **LlamaIndex** — data-centric retrieval and indexing, strong for
-  RAG-heavy workloads (open source + commercial)
-- **CrewAI** — role-based multi-agent collaboration, good for team-
-  oriented workflows (open source + commercial)
-- **Google ADK** — the agent development kit used in this project (open
-  source, Apache 2.0)
-- **Vector stores** — Pinecone, Qdrant, Weaviate, Milvus (mixed OSS and
-  enterprise; gemma-forge does not currently use a vector store)
-
-**gemma-forge components**
-- **Google ADK (Agent Development Kit)** — pre-1.0 but stable enough for
-  `LoopAgent` and `FunctionTool` use. Provides the agent turn abstraction
-  and the tool-calling machinery.
-- **Ralph Loop Harness** — the project's own implementation in
-  `gemma_forge/harness/ralph.py`. Wraps ADK with an outer reflexion loop,
-  per-rule retry logic, wall-clock time budgeting, architect re-engagement,
-  and integrated diagnostics.
-- **Four agent roles** — Architect (plans), Worker (executes), Reflector
-  (analyzes failures), and Eval (deterministic, non-LLM verdicts). All
-  three LLM roles currently run on Gemma 4 31B bf16.
-- **Skills system** — `skills/*/skill.yaml` + prompts + `runtime.py`
-  implementing the five Protocol interfaces. STIG (`skills/stig-rhel9/`)
-  and CVE (`skills/cve-response/`) both ship today; the harness
-  loads whichever is named on the command line.
-- **Episodic + semantic memory** — per-rule distilled lessons plus
-  cross-rule banned patterns and strategic lessons, all token-budgeted
-  and assembled by an explicit prompt assembler.
-- **Run logger** — structured JSONL event stream, one record per event,
-  suitable for replay and post-run analysis.
-
-**Patterns at this layer**
-- **reflexion-loop** — persistence, retry-with-learning, plateau
-  detection, architect re-engagement. See
-  [`01-reflexive-agent-harness-failure-modes`](01-reflexive-agent-harness-failure-modes.md).
-- **tool-calling** — agent action budgets, agent-turn discipline, the
-  model↔tool contract. Worker caps at one tool call per turn by default.
-- **context-management** — deterministic token-budget-aware prompt
-  assembly, distilled episodic memory, capped semantic memory.
-- **snapshot-revert** — the decision layer for target recovery. Diagnoses
-  first, then restores a libvirt snapshot. The *mechanism* lives in L1;
-  the *policy* lives here.
-
----
-
-## 3 — Model
-
-*Foundation models, LLMs, specialized AI models, and the inference
-engines that run them.*
-
-**Industry examples**
-- **Gemma 4 family** — Google's open-weights line, used in this project
-  (open source, Apache 2.0)
-- **Llama 3.x** — Meta's open-weights flagship, dominant in enterprise
-  open-source deployments (open source, Llama license)
-- **Mistral / Mixtral** — European open-weights with strong
-  cost/performance, including a commercial tier (open source +
-  commercial)
-- **GPT-5, Claude, Gemini API** — frontier proprietary models from
-  OpenAI, Anthropic, and Google (enterprise, proprietary)
-- **Phi-3, Qwen, DeepSeek** — leading small-language-models suited for
-  edge deployment (open source)
-
-**Inference engines**
-- **vLLM** — the high-throughput OSS inference engine used in this
-  project (open source, Apache 2.0)
-- **NVIDIA Triton Inference Server** — NVIDIA's production serving
-  framework, currently awaiting a vLLM-backend version gap before it
-  can run Gemma 4 (open source, NVIDIA-supported)
-- **TensorRT-LLM** — NVIDIA's lowest-latency runtime for Blackwell and
-  Ada-class GPUs (open source + NVIDIA-enterprise)
-- **NVIDIA NIM** — NVIDIA's microservices packaging of the above,
-  license-gated (enterprise)
-
-**gemma-forge components**
-- **Gemma 4 31B bf16** — the sole LLM used for Architect, Worker, and
-  Reflector roles. Full precision, no quantization.
-- **vLLM 0.19.0** — OpenAI-compatible REST API, direct calls (no proxy,
-  no LiteLLM per the supply-chain decision in
-  [`journey/03-observability`](../journey/03-observability.md)).
-- **`gemma-forge/vllm:latest`** — a small custom image derived from
-  `vllm/vllm-openai` with `transformers>=4.58` baked in to recognize the
-  `gemma4` model type.
-- **Tensor-parallel 4-way** — the 31B model split across all 4 NVIDIA
-  L4 GPUs with `--tensor-parallel-size 4 --dtype bfloat16 --enforce-eager`.
-
-**Patterns at this layer**
-- **parallelism** — TP/PP choice, NVLink vs PCIe, multi-GPU bandwidth.
-  See [`journey/10-the-parallelism-maze`](../journey/10-the-parallelism-maze.md).
-- **quantization** — NVFP4 vs bf16 tradeoffs, the VRAM math, when
-  quantization helps versus hurts throughput. See
-  [`journey/02-model-strategy`](../journey/02-model-strategy.md) and
-  [`gotchas/nvfp4-vram-math`](../gotchas/nvfp4-vram-math.md).
-
----
-
-## 2 — Platform / MLOps
-
-*Training pipelines, experiment tracking, model monitoring, feature
-stores, and LLM observability.*
-
-**Industry examples**
-- **Langfuse** — self-hosted LLM observability, prompt management, and
-  evaluations; 21k+ GitHub stars, MIT license (open source + commercial
-  cloud)
-- **Arize AI** — enterprise ML and LLM observability; used at production
-  scale by Uber, PepsiCo, Tripadvisor (enterprise)
-- **Datadog LLM Observability** — extends an existing Datadog footprint
-  with LLM-specific tracing (enterprise)
-- **OpenTelemetry + Jaeger + Prometheus + Grafana** — standards-based
-  observability, used in this project (open source, CNCF)
-- **MLflow / Weights & Biases** — experiment tracking and model registry
-  (open source / enterprise tiers)
-
-**gemma-forge components**
-- **OpenTelemetry collector** — ingests spans, metrics, and logs from the
-  harness and the vLLM services
-- **Jaeger** — distributed tracing backend; the run-by-run trace view
-- **Prometheus** — metrics TSDB; GPU telemetry, run rates, token counts
-- **Grafana** — dashboards and alerts over the above
-- **Structured run logger** — JSONL event stream in `runs/run-*.jsonl`;
-  the authoritative per-event record, independent of the OTel stack
-- **`bin/forge`** — lifecycle management script for vLLM, FastAPI, and
-  the Ralph loop process; single-command up/down/status
-
-**Patterns at this layer**
-- *(None declared yet.)* Observability at this layer is mostly
-  infrastructure and tool selection rather than reusable design
-  patterns. When a future pattern — e.g., "how to instrument a
-  reflexive agent harness for post-hoc replay" — crystallizes, it
-  lives here.
-
----
-
-## 1 — Data / Infrastructure
-
-*Storage, data lakes, compute infrastructure, hypervisors, and the
-hardware that underlies everything above.*
-
-**Industry examples**
-- **Snowflake** — cloud data warehouse (enterprise)
-- **Databricks** — unified data and AI platform (enterprise)
-- **Weka** — high-performance AI storage fabric (enterprise)
-- **MinIO / Ceph** — S3-compatible object storage (open source)
-- **PostgreSQL + pgvector** — relational DB with vector extension (open
-  source)
-- **Proxmox VE / libvirt + KVM** — open-source virtualization (open
-  source)
-- **VMware vSphere** — enterprise virtualization (enterprise)
-
-**gemma-forge components**
-- **Dell PowerEdge XR7620** — the reference host. 2× Intel Xeon Gold
-  6442Y (96 threads), 256 GB RAM, 4× NVIDIA L4 (24 GB each), no NVLink.
-  The XR7620 is the lab environment; the techniques apply to any
-  comparable platform.
-- **Ubuntu 24.04** — the host OS
-- **Docker** — used for the vLLM container serving, alongside existing
-  production Docker workloads on the same box
-- **libvirt + KVM** — the target VM virtualization layer
-- **Rocky Linux 9** — the target VM, a binary-compatible RHEL 9
-  stand-in for development. The same playbook drops into a real RHEL 9
-  fleet.
-- **OpenTofu + `dmacvicar/libvirt`** — target VM infrastructure as code,
-  Linux Foundation governance, Apache 2.0
-- **libvirt internal snapshots** — the authoritative recovery mechanism
-  (`baseline` and rolling `progress`), the mechanism half of the
-  `snapshot-revert` pattern declared at L4
-- **`/data/gemma-forge/`** — host storage layout for VM state, weights,
-  and logs, isolated from other workloads on the same box
-
-**Patterns at this layer**
-- *(None declared yet.)* Infrastructure in this project is
-  deliberately unexciting — the target VM is Rocky 9, the hypervisor
-  is libvirt, the IaC is OpenTofu. No new patterns discovered here
-  because the goal was to use boring, well-understood components so
-  the interesting work could happen at L3 and L4.
-
----
-
-## Cross-layer patterns
-
-Some patterns legitimately span multiple layers. The table below maps
-each pattern to its *primary* layer (where most of its logic lives) and
-any *secondary* layers it touches.
-
-| Pattern | Primary | Secondary | Notes |
+| Layer | Open source | Enterprise | gemma-forge |
 |---|---|---|---|
-| `reflexion-loop` | L4-orchestration | — | The outer retry loop, architect re-engagement, plateau detection. |
-| `tool-calling` | L4-orchestration | L3-model | The harness defines the contract, but the model's native tool-call support determines what's possible. |
-| `context-management` | L4-orchestration | L3-model | The harness assembles and budgets the prompt; the inference engine enforces the window. |
-| `snapshot-revert` | L4-orchestration | L1-data-infrastructure | Decision policy at L4, mechanism at L1. |
-| `parallelism` | L3-model | — | TP/PP, multi-GPU, bandwidth. Choice is driven by model architecture. |
-| `quantization` | L3-model | — | Precision vs memory tradeoffs, VRAM math, throughput impact. |
+| **5 — Application** | Open WebUI | Harvey, Veeva AI, Glean | STIG + CVE Response skills, Dashboard, this Journal |
+| **4 — Orchestration** | LangChain / LangGraph, LlamaIndex, CrewAI, Google ADK | Microsoft Agent Framework | Ralph Loop + ADK + five Protocol interfaces + V2 memory (Postgres + Neo4j / Graphiti) |
+| **3 — Model** | Llama 3.x, Mistral / Mixtral, Phi-3, Qwen, DeepSeek, Gemma 4 | GPT-5, Claude, Gemini API | Gemma 4 31B Dense bf16 |
+| **3 — Model (inference engine)** | vLLM, NVIDIA Triton | TensorRT-LLM, NVIDIA NIM | vLLM 0.19.0, TP=4 across 4× L4 |
+| **2 — Platform / MLOps** | OTel + Jaeger + Prometheus + Grafana, Langfuse, MLflow, W&B | Arize AI, Datadog LLM | OTel + Jaeger + Prometheus + Grafana |
+| **1 — Infrastructure** | MinIO, Ceph, Postgres + pgvector, Proxmox VE, libvirt + KVM | Snowflake, Databricks, Weka, VMware vSphere | Dell PowerEdge XR7620 + 4× NVIDIA L4 + libvirt + Rocky 9 + OpenTofu |
 
----
+A few notes on the choices that aren't obvious from the table:
+
+- **L3 model serving without a proxy.** gemma-forge calls vLLM's
+  `/v1/chat/completions` directly, no LiteLLM or commercial
+  gateway — a direct consequence of the March 2026 supply-chain
+  incident documented in
+  [journey/03.5](../journey/03.5-litellm-observability-decision.md).
+- **L1 infrastructure is deliberately unexciting.** Rocky 9 +
+  libvirt + OpenTofu are well-understood, boring components. The
+  interesting work lives at L3 and L4; L1 stays out of the way.
+- **No vector store.** The V2 memory system uses rule-prefix
+  similarity and Graphiti knowledge-graph queries rather than
+  embedding search. See
+  [ADR-0016](../../adr/0016-graphiti-neo4j-postgres-memory-stack.md)
+  for the rationale.
+
+## Architectural Patterns
+
+Patterns are reusable design ideas that travel independent of which
+vendor or open-source alternative you pick. The table maps each one
+to the layer where most of its logic lives, any secondary layer it
+touches, and the treatment that goes into the mechanism.
+
+| Pattern | Primary | Secondary | Where it lives |
+|---|---|---|---|
+| **skill-authoring** | L5 | L4 | Five Protocol interfaces (`WorkQueue`, `Executor`, `Evaluator`, `Checkpoint`, `SkillRuntime`) plus optional `EvaluatorMetadata`, `DeferredItemOutcome`, and `EmitEvent`. See [adding-a-skill](../../adding-a-skill.md). |
+| **reflexion-loop** | L4 | — | Outer retry loop, architect re-engagement, content-set plateau detection. See [Failure Modes §5](01-reflexive-agent-harness-failure-modes.md). |
+| **tool-calling** | L4 | L3 | Per-turn action budget defaulting to 1. The harness defines the contract; the model's native tool-call support determines what's possible. See [Failure Modes §1](01-reflexive-agent-harness-failure-modes.md). |
+| **context-management** | L4 | L3 | Deterministic prompt-budget assembly with distilled episodic memory. The harness assembles the prompt; the inference engine enforces the window. See [Failure Modes §6](01-reflexive-agent-harness-failure-modes.md). |
+| **snapshot-revert** | L4 | L1 | Decision policy at L4, mechanism at L1. Hypervisor-level snapshots defeat anything the executor can break. See [Failure Modes §2](01-reflexive-agent-harness-failure-modes.md). |
+| **deferred-verification** | L4 | — | `deferrable_failure_modes` + `resolve_deferred` + `DeferredItemOutcome` + `EmitEvent`. Items that can't be verified in the moment (reboots, propagation waits) batch to a post-loop phase. See [Failure Modes §7](01-reflexive-agent-harness-failure-modes.md) and [journey/37](../journey/37-per-family-reboot-batching-landed.md). |
+| **parallelism** | L3 | — | TP/PP choice, NVLink vs PCIe, multi-GPU bandwidth. Gemma 4 31B Dense at TP=4 on L4s without NVLink. See [journey/10](../journey/10-the-parallelism-maze.md). |
+| **quantization** | L3 | — | NVFP4 vs bf16 tradeoffs, the VRAM math, when quantization helps vs hurts throughput. See [journey/02](../journey/02-model-strategy.md) and [gotchas/nvfp4-vram-math](../gotchas/nvfp4-vram-math.md). |
 
 ## Further reading
 
-For the architectural contribution that came out of this project — a
-taxonomy of six failure modes in reflexive agent harnesses with
-prescribed harness mechanisms for each — see
-[`01-reflexive-agent-harness-failure-modes`](01-reflexive-agent-harness-failure-modes.md).
-
-For the narrative of how each layer was built, pick a layer from above
-and follow the journey entries it links to. The journey entries are
-first-person field notes with enough detail to reproduce the decisions.
-
-For the gotchas — the small, atomic "X breaks Y because Z" lessons that
-cost hours to discover — see the `gotchas/` directory. Each one is
-scoped to a single layer and tagged accordingly.
+- [**Failure Modes in Reflexive Agent Harnesses**](01-reflexive-agent-harness-failure-modes.md) —
+  the project-agnostic taxonomy of seven failure modes with
+  prescribed harness mechanisms for each.
+- [**Adding a Skill**](../../adding-a-skill.md) — how to implement
+  the five Protocol interfaces and wire into the harness's
+  optional extension points.
+- [**Developer Journal**](../journey/index.md) — 37 chronological
+  field notes on how this was built. For the current state of the
+  architecture: [journey/33 — The Second Skill](../journey/33-second-skill-cve-pivot.md),
+  [journey/34 — Run 6](../journey/34-run-6-ordering-works-runtime-doesnt.md),
+  and [journey/37 — Per-Family Reboot Batching Lands](../journey/37-per-family-reboot-batching-landed.md).
+- [**Gotchas**](../gotchas/index.md) — atomic "X breaks Y because
+  Z" lessons, each tagged to a specific layer.

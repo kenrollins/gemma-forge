@@ -92,5 +92,5 @@ The honest framing for this entry: we're about to build a meaningfully harder ar
   claim defensible beyond the happy path.
 - [`deferred.md`](../../deferred.md) — DEF-21 (bisection within a failed family)
   captured as future work.
-- [`skills/cve-response/DESIGN.md`](../../../skills/cve-response/DESIGN.md) —
+- [`skills/cve-response/DESIGN.md`](https://github.com/kenrollins/gemma-forge/blob/main/skills/cve-response/DESIGN.md) —
   the skill's own design notes updated with the batching section.

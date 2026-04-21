@@ -35,6 +35,216 @@ alternative you choose** — they are properties of the layer, not of any
 specific implementation. That is the transfer value of this project: the
 ideas travel, even when the tool choices don't.
 
+## The architecture at a glance
+
+The gemma-forge harness is a reflexion loop around four agent roles
+plus a deterministic evaluator. Skills plug in through five Protocol
+interfaces without touching the loop itself. The diagram below shows
+how a single work item moves through the system:
+
+```mermaid
+flowchart LR
+    subgraph Skill["<b>Skill</b> (STIG, CVE, ...)"]
+        direction TB
+        WQ[WorkQueue.scan]
+        EX[Executor.apply]
+        EV[Evaluator.evaluate]
+        CP[Checkpoint.save/restore]
+    end
+
+    subgraph Harness["<b>Ralph Loop Harness</b> (skill-agnostic core)"]
+        direction LR
+        Arch[Architect<br/><i>picks item</i>]
+        Work[Worker<br/><i>applies fix</i>]
+        Eval{Evaluator<br/><i>triage</i>}
+        Refl[Reflector<br/><i>distills lesson</i>]
+    end
+
+    WQ --> Arch
+    Arch --> Work
+    Work -->|tool: Executor.apply| EX
+    EX --> Eval
+    Eval -->|Evaluator.evaluate| EV
+    EV --> Verdict{Outcome}
+    Verdict -->|pass| Done[Remediated<br/>Checkpoint.save]
+    Verdict -->|health failure| Revert[Revert via<br/>Checkpoint.restore]
+    Verdict -->|clean failure| Refl
+    Verdict -->|deferrable<br/>e.g. needs_reboot| Defer[Post-loop:<br/>SkillRuntime.resolve_deferred]
+    Revert --> Refl
+    Refl -->|lesson → memory| Arch
+    Defer -.-> Done
+    Done --> CP
+
+    classDef skill fill:#1f2937,stroke:#0076CE,color:#E5E7EB
+    classDef harness fill:#111827,stroke:#A855F7,color:#E5E7EB
+    classDef done fill:#065f46,stroke:#10B981,color:#ECFDF5
+    classDef fail fill:#7f1d1d,stroke:#EF4444,color:#FEE2E2
+    classDef defer fill:#78350f,stroke:#F59E0B,color:#FFFBEB
+    class WQ,EX,EV,CP skill
+    class Arch,Work,Refl,Eval harness
+    class Done done
+    class Revert fail
+    class Defer defer
+```
+
+The **black box** is the harness — the Ralph loop, agent role
+machinery, memory tiers, and task graph. It doesn't know what
+domain it's working on. The **gray box** is a skill — STIG,
+CVE Response, or anything you write next. It provides the five
+Protocol methods the harness calls. Cross-run memory, evaluation
+triage, ordering constraints, and the deferred-verification
+post-loop phase all live in the harness and work for any skill
+that implements the interfaces correctly.
+
+## The 5-Layer Stack with Components
+
+Component-by-component view of where each piece of gemma-forge lives.
+Layer bands match the [5-Layer Enterprise AI Partner Map](../../index.md)
+colors used elsewhere on the site so the visual language is
+consistent.
+
+<div class="layer-arch-grid" markdown="0">
+
+<div class="layer-band" style="background: linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(239, 68, 68, 0.05)); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px 8px 0 0; padding: 1rem 1.25rem;">
+  <div style="display:flex; align-items:baseline; gap:0.75rem; margin-bottom:0.75rem;">
+    <span style="display:inline-flex; align-items:center; justify-content:center; width:1.9rem; height:1.9rem; border-radius:999px; background:rgba(239,68,68,0.2); color:#EF4444; font-weight:700; border:1px solid rgba(239,68,68,0.5);">5</span>
+    <span style="font-size:1.1rem; font-weight:600; color:#EF4444;">Application</span>
+    <span style="color:#9CA3AF; font-size:0.85rem;">— where the user sees results</span>
+  </div>
+  <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:0.6rem;">
+    <div style="background:rgba(0,0,0,0.25); border:1px solid rgba(239,68,68,0.35); border-radius:6px; padding:0.6rem 0.75rem;">
+      <div style="font-weight:600; font-size:0.9rem;">STIG Remediation Skill</div>
+      <div style="color:#9CA3AF; font-size:0.8rem; margin-top:0.2rem;">DISA STIG on Rocky 9 via OpenSCAP + bash. 270 rules, the hard case.</div>
+    </div>
+    <div style="background:rgba(0,0,0,0.25); border:1px solid rgba(239,68,68,0.35); border-radius:6px; padding:0.6rem 0.75rem;">
+      <div style="font-weight:600; font-size:0.9rem;">CVE Response Skill</div>
+      <div style="color:#9CA3AF; font-size:0.8rem; margin-top:0.2rem;">Vuls + <code>dnf advisory</code>, per-family reboot batching.</div>
+    </div>
+    <div style="background:rgba(0,0,0,0.25); border:1px solid rgba(239,68,68,0.35); border-radius:6px; padding:0.6rem 0.75rem;">
+      <div style="font-weight:600; font-size:0.9rem;">Dashboard</div>
+      <div style="color:#9CA3AF; font-size:0.8rem; margin-top:0.2rem;">Next.js live + replay UI with rule heatmap and agent pipeline.</div>
+    </div>
+    <div style="background:rgba(0,0,0,0.25); border:1px solid rgba(239,68,68,0.35); border-radius:6px; padding:0.6rem 0.75rem;">
+      <div style="font-weight:600; font-size:0.9rem;">Journal Site</div>
+      <div style="color:#9CA3AF; font-size:0.8rem; margin-top:0.2rem;">This static site — MkDocs Material on GitHub Pages.</div>
+    </div>
+  </div>
+</div>
+
+<div class="layer-band" style="background: linear-gradient(135deg, rgba(168, 85, 247, 0.15), rgba(168, 85, 247, 0.05)); border: 1px solid rgba(168, 85, 247, 0.3); border-top: none; padding: 1rem 1.25rem;">
+  <div style="display:flex; align-items:baseline; gap:0.75rem; margin-bottom:0.75rem;">
+    <span style="display:inline-flex; align-items:center; justify-content:center; width:1.9rem; height:1.9rem; border-radius:999px; background:rgba(168,85,247,0.2); color:#A855F7; font-weight:700; border:1px solid rgba(168,85,247,0.5);">4</span>
+    <span style="font-size:1.1rem; font-weight:600; color:#A855F7;">Orchestration</span>
+    <span style="color:#9CA3AF; font-size:0.85rem;">— where agents reason, reflect, and persist</span>
+  </div>
+  <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:0.6rem;">
+    <div style="background:rgba(0,0,0,0.25); border:1px solid rgba(168,85,247,0.35); border-radius:6px; padding:0.6rem 0.75rem;">
+      <div style="font-weight:600; font-size:0.9rem;">Ralph Loop Harness</div>
+      <div style="color:#9CA3AF; font-size:0.8rem; margin-top:0.2rem;"><code>gemma_forge/harness/ralph.py</code> — the outer reflexion loop, skill-agnostic.</div>
+    </div>
+    <div style="background:rgba(0,0,0,0.25); border:1px solid rgba(168,85,247,0.35); border-radius:6px; padding:0.6rem 0.75rem;">
+      <div style="font-weight:600; font-size:0.9rem;">Google ADK</div>
+      <div style="color:#9CA3AF; font-size:0.8rem; margin-top:0.2rem;">Per-agent-turn machinery, <code>FunctionTool</code> for tool calls.</div>
+    </div>
+    <div style="background:rgba(0,0,0,0.25); border:1px solid rgba(168,85,247,0.35); border-radius:6px; padding:0.6rem 0.75rem;">
+      <div style="font-weight:600; font-size:0.9rem;">Skills System</div>
+      <div style="color:#9CA3AF; font-size:0.8rem; margin-top:0.2rem;">Five Protocol interfaces + optional <code>resolve_deferred</code>/<code>EmitEvent</code>.</div>
+    </div>
+    <div style="background:rgba(0,0,0,0.25); border:1px solid rgba(168,85,247,0.35); border-radius:6px; padding:0.6rem 0.75rem;">
+      <div style="font-weight:600; font-size:0.9rem;">V2 Memory Store</div>
+      <div style="color:#9CA3AF; font-size:0.8rem; margin-top:0.2rem;">Postgres (episodic, structured tips) + Neo4j/Graphiti (reflective graph).</div>
+    </div>
+    <div style="background:rgba(0,0,0,0.25); border:1px solid rgba(168,85,247,0.35); border-radius:6px; padding:0.6rem 0.75rem;">
+      <div style="font-weight:600; font-size:0.9rem;">Structured Run Logger</div>
+      <div style="color:#9CA3AF; font-size:0.8rem; margin-top:0.2rem;">JSONL event stream per run, replay-grade provenance.</div>
+    </div>
+  </div>
+</div>
+
+<div class="layer-band" style="background: linear-gradient(135deg, rgba(0, 118, 206, 0.15), rgba(0, 118, 206, 0.05)); border: 1px solid rgba(0, 118, 206, 0.3); border-top: none; padding: 1rem 1.25rem;">
+  <div style="display:flex; align-items:baseline; gap:0.75rem; margin-bottom:0.75rem;">
+    <span style="display:inline-flex; align-items:center; justify-content:center; width:1.9rem; height:1.9rem; border-radius:999px; background:rgba(0,118,206,0.2); color:#0076CE; font-weight:700; border:1px solid rgba(0,118,206,0.5);">3</span>
+    <span style="font-size:1.1rem; font-weight:600; color:#0076CE;">Model</span>
+    <span style="color:#9CA3AF; font-size:0.85rem;">— where inference happens</span>
+  </div>
+  <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:0.6rem;">
+    <div style="background:rgba(0,0,0,0.25); border:1px solid rgba(0,118,206,0.35); border-radius:6px; padding:0.6rem 0.75rem;">
+      <div style="font-weight:600; font-size:0.9rem;">Gemma 4 31B Dense</div>
+      <div style="color:#9CA3AF; font-size:0.8rem; margin-top:0.2rem;">bf16 full precision, native tool calling, 128K context.</div>
+    </div>
+    <div style="background:rgba(0,0,0,0.25); border:1px solid rgba(0,118,206,0.35); border-radius:6px; padding:0.6rem 0.75rem;">
+      <div style="font-weight:600; font-size:0.9rem;">vLLM 0.19.0</div>
+      <div style="color:#9CA3AF; font-size:0.8rem; margin-top:0.2rem;">OpenAI-compatible REST, continuous batching, direct calls.</div>
+    </div>
+    <div style="background:rgba(0,0,0,0.25); border:1px solid rgba(0,118,206,0.35); border-radius:6px; padding:0.6rem 0.75rem;">
+      <div style="font-weight:600; font-size:0.9rem;">Tensor Parallel = 4</div>
+      <div style="color:#9CA3AF; font-size:0.8rem; margin-top:0.2rem;">Model sharded across all four L4 GPUs, ~14 tok/s sustained.</div>
+    </div>
+  </div>
+</div>
+
+<div class="layer-band" style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(16, 185, 129, 0.05)); border: 1px solid rgba(16, 185, 129, 0.3); border-top: none; padding: 1rem 1.25rem;">
+  <div style="display:flex; align-items:baseline; gap:0.75rem; margin-bottom:0.75rem;">
+    <span style="display:inline-flex; align-items:center; justify-content:center; width:1.9rem; height:1.9rem; border-radius:999px; background:rgba(16,185,129,0.2); color:#10B981; font-weight:700; border:1px solid rgba(16,185,129,0.5);">2</span>
+    <span style="font-size:1.1rem; font-weight:600; color:#10B981;">Platform / MLOps</span>
+    <span style="color:#9CA3AF; font-size:0.85rem;">— where you observe and measure</span>
+  </div>
+  <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:0.6rem;">
+    <div style="background:rgba(0,0,0,0.25); border:1px solid rgba(16,185,129,0.35); border-radius:6px; padding:0.6rem 0.75rem;">
+      <div style="font-weight:600; font-size:0.9rem;">OpenTelemetry Collector</div>
+      <div style="color:#9CA3AF; font-size:0.8rem; margin-top:0.2rem;">Ingests spans, metrics, logs from harness + vLLM.</div>
+    </div>
+    <div style="background:rgba(0,0,0,0.25); border:1px solid rgba(16,185,129,0.35); border-radius:6px; padding:0.6rem 0.75rem;">
+      <div style="font-weight:600; font-size:0.9rem;">Jaeger</div>
+      <div style="color:#9CA3AF; font-size:0.8rem; margin-top:0.2rem;">Distributed tracing — per-request trace visualization.</div>
+    </div>
+    <div style="background:rgba(0,0,0,0.25); border:1px solid rgba(16,185,129,0.35); border-radius:6px; padding:0.6rem 0.75rem;">
+      <div style="font-weight:600; font-size:0.9rem;">Prometheus</div>
+      <div style="color:#9CA3AF; font-size:0.8rem; margin-top:0.2rem;">Metrics TSDB — GPU telemetry, throughput, token counts.</div>
+    </div>
+    <div style="background:rgba(0,0,0,0.25); border:1px solid rgba(16,185,129,0.35); border-radius:6px; padding:0.6rem 0.75rem;">
+      <div style="font-weight:600; font-size:0.9rem;">Grafana</div>
+      <div style="color:#9CA3AF; font-size:0.8rem; margin-top:0.2rem;">Dashboards and alerts over the above.</div>
+    </div>
+  </div>
+</div>
+
+<div class="layer-band" style="background: linear-gradient(135deg, rgba(245, 158, 11, 0.15), rgba(245, 158, 11, 0.05)); border: 1px solid rgba(245, 158, 11, 0.3); border-top: none; border-radius: 0 0 8px 8px; padding: 1rem 1.25rem;">
+  <div style="display:flex; align-items:baseline; gap:0.75rem; margin-bottom:0.75rem;">
+    <span style="display:inline-flex; align-items:center; justify-content:center; width:1.9rem; height:1.9rem; border-radius:999px; background:rgba(245,158,11,0.2); color:#F59E0B; font-weight:700; border:1px solid rgba(245,158,11,0.5);">1</span>
+    <span style="font-size:1.1rem; font-weight:600; color:#F59E0B;">Infrastructure</span>
+    <span style="color:#9CA3AF; font-size:0.85rem;">— the foundation</span>
+  </div>
+  <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:0.6rem;">
+    <div style="background:rgba(0,0,0,0.25); border:1px solid rgba(245,158,11,0.35); border-radius:6px; padding:0.6rem 0.75rem;">
+      <div style="font-weight:600; font-size:0.9rem;">Dell PowerEdge XR7620</div>
+      <div style="color:#9CA3AF; font-size:0.8rem; margin-top:0.2rem;">2U short-depth rugged edge server, 96 cores, 256 GB DDR5.</div>
+    </div>
+    <div style="background:rgba(0,0,0,0.25); border:1px solid rgba(245,158,11,0.35); border-radius:6px; padding:0.6rem 0.75rem;">
+      <div style="font-weight:600; font-size:0.9rem;">4× NVIDIA L4 (24 GB)</div>
+      <div style="color:#9CA3AF; font-size:0.8rem; margin-top:0.2rem;">Single-slot inference GPUs, no NVLink, PCIe Gen4 ×16.</div>
+    </div>
+    <div style="background:rgba(0,0,0,0.25); border:1px solid rgba(245,158,11,0.35); border-radius:6px; padding:0.6rem 0.75rem;">
+      <div style="font-weight:600; font-size:0.9rem;">libvirt + KVM</div>
+      <div style="color:#9CA3AF; font-size:0.8rem; margin-top:0.2rem;">Target VM virtualization; authoritative snapshot recovery.</div>
+    </div>
+    <div style="background:rgba(0,0,0,0.25); border:1px solid rgba(245,158,11,0.35); border-radius:6px; padding:0.6rem 0.75rem;">
+      <div style="font-weight:600; font-size:0.9rem;">Rocky Linux 9</div>
+      <div style="color:#9CA3AF; font-size:0.8rem; margin-top:0.2rem;">The target VM — a RHEL 9 stand-in, same playbook applies.</div>
+    </div>
+    <div style="background:rgba(0,0,0,0.25); border:1px solid rgba(245,158,11,0.35); border-radius:6px; padding:0.6rem 0.75rem;">
+      <div style="font-weight:600; font-size:0.9rem;">OpenTofu + libvirt provider</div>
+      <div style="color:#9CA3AF; font-size:0.8rem; margin-top:0.2rem;">Target VM infrastructure-as-code, Apache 2.0.</div>
+    </div>
+  </div>
+</div>
+
+</div>
+
+Below: each layer's full breakdown — industry alternatives
+(open-source and enterprise) and the architectural patterns that
+live primarily at that layer with links to their deep treatments.
+
 ## How to read this page
 
 - **Layer** tells you *where in the stack* a thing sits. It answers

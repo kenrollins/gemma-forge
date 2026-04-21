@@ -45,14 +45,19 @@ get reflected on and fed back; and what comes out is a refined
 solution, or an honest explanation of why the problem can't be solved
 yet. Each run leaves the forge smarter than the last.
 
-**Why build my own harness?** Agent harnesses have become a central
-topic in AI architecture recently — there's a growing recognition
-that the orchestration layer around a model matters as much as the
-model itself. How the harness manages memory, handles failures,
-controls tool use, decides when to persist versus when to escalate:
-these are the engineering decisions that separate a demo from a
-deployable system. I wanted to understand those decisions by making
-them myself, not by inheriting them from a framework.
+**Why build my own harness?** The agentic era is still in early
+innings. New agent orchestration architectures are shipping almost
+daily, and it's not yet clear which of them will hold up. There
+isn't going to be one right answer or one size that fits all.
+Different problem shapes will need different harnesses. So my
+premise was: go deep on an interesting architecture and build it
+from the ground up. Look at how the harness manages memory,
+handles failures, controls tool use, decides when to persist
+versus when to escalate. I wanted to use the learnings to better
+understand the nature of the problems the field is actually
+grappling with. The point isn't really the gemma-forge project
+itself; it's that building an agentic harness end-to-end is how
+you develop the frame to evaluate the next one that lands.
 
 Lastly, I designed the harness as an **extensible skill system** —
 a skill-agnostic core with abstract interfaces that any use case can

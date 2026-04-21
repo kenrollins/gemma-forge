@@ -47,7 +47,7 @@ Two views of the same system:
 flowchart LR
     Scan([WorkQueue.scan<br/>produces item queue]) --> Arch
     Arch[Architect<br/><i>picks item + plans</i>] --> Work[Worker<br/><i>applies fix</i>]
-    Work --> Eval{Evaluator<br/><i>deterministic</i>}
+    Work --> Eval{Evaluator<br/><i>deterministic</i><br/><i>(not LLM)</i>}
     Eval -->|pass| Done[Remediated<br/>+ checkpoint saved]
     Eval -->|clean failure| Refl[Reflector<br/><i>distills lesson</i>]
     Eval -->|health failure| Revert[Revert snapshot]
@@ -59,7 +59,7 @@ flowchart LR
     classDef scan fill:#0f172a,stroke:#9CA3AF,color:#E5E7EB
     classDef architect fill:#0b2942,stroke:#3B82F6,color:#DBEAFE
     classDef worker fill:#422006,stroke:#F59E0B,color:#FDE68A
-    classDef eval fill:#0c2a3d,stroke:#60A5FA,color:#E5E7EB
+    classDef eval fill:#1f2937,stroke:#6B7280,color:#E5E7EB
     classDef reflector fill:#1f1b2e,stroke:#A855F7,color:#EDE9FE
     classDef done fill:#064e3b,stroke:#10B981,color:#ECFDF5
     classDef fail fill:#7f1d1d,stroke:#EF4444,color:#FEE2E2

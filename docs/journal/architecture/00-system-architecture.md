@@ -201,10 +201,14 @@ flowchart TD
     S -->|end-of-run consolidation<br/>+ dream pass| P
     P -.->|rule-prefix retrieval<br/>at new item / new run| E
 
-    classDef mem fill:#1f1b2e,stroke:#A855F7,color:#EDE9FE
-    classDef persist fill:#0b2942,stroke:#3B82F6,color:#DBEAFE
-    class W,E,S mem
-    class P persist
+    classDef working   fill:#1e3a5f,stroke:#93C5FD,color:#EFF6FF
+    classDef episodic  fill:#15305c,stroke:#60A5FA,color:#DBEAFE
+    classDef semantic  fill:#0d2650,stroke:#3B82F6,color:#DBEAFE
+    classDef persistent fill:#061838,stroke:#1E40AF,color:#DBEAFE
+    class W working
+    class E episodic
+    class S semantic
+    class P persistent
 ```
 
 The **dashed arrow** from Persistent back to Episodic is the whole

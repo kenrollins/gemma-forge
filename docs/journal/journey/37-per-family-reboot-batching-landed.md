@@ -93,4 +93,66 @@ Two architectural claims that entry 33 and entry 35 asserted but couldn't prove 
 | Ghost escalations | 0 (was 1 in pre-fix smoke) |
 | Architect SKIPs on reboot items | 0 (was 8 of 9 in pre-fix smoke) |
 
-This is what a working architecture looks like from the outside. Entry 36 argued for the shape before it existed; this entry is just the evidence.
+## The chained demo
+
+The smoke ran against `pre-cve-run-1` — a stock Rocky 9 mission-app VM. That's a meaningful validation but it isn't the whitepaper story. The whitepaper story is **skill composition**: the harness drives STIG hardening end-to-end, then the same harness drives CVE remediation from the hardened state. One Gemma 4 deployment, two security workflows, zero glue code changes between them.
+
+So I reran the same reboot-smoke config against `stig-run6-final` — the VM snapshot from Run 6 of the STIG skill, where 62% of a 270-rule DISA STIG profile had already been applied. Same skill (`cve-response`), same config (`harness-smoke-reboot.yaml`), different starting state.
+
+| Metric | Smoke (Rocky 9 baseline) | Chained (STIG-hardened) |
+|---|---|---|
+| Total advisories | 44 | 44 |
+| Remediated | 44 | 44 |
+| Escalated | 0 | 0 |
+| Wall time | 35.5 min | 35.1 min |
+| Families batched | 2 (core-userland, kernel) | 2 (core-userland, kernel) |
+| Remediated on attempt 1 | 29/29 | 29/29 |
+| Architect re-engagements | 0 | 0 |
+| Reflector plateaus | 0 | 0 |
+
+The STIG-hardened starting state changed nothing about the CVE run. Same advisory set (STIG hardens config; it doesn't upgrade packages). Same family composition. Same per-rule wall time. Same zero reflection cycles.
+
+What this tells us is different from what entry 36 was trying to prove. Entry 36 was about the reboot-batching architecture. The chained demo was about skill composition, and what it exposed is that **CVE is almost deterministic work**:
+
+- 29 of 29 remediated rules passed on **attempt 1**. Not one required a second attempt.
+- Zero Architect re-engagements across the full 44-rule run.
+- Zero Reflector plateaus.
+- Average remediated-rule wall time: 41 seconds — basically `Vuls scan` + `dnf upgrade --advisory=<ID>` + `Vuls re-scan`.
+
+Compare to STIG Run 6: 61.9% fix rate in 19.1 hours, multi-attempt fixes on many rules, routine Architect re-engagement, Reflector plateaus as a real signal. Same harness, same Gemma 4, same four-agent reflexion pattern. The CVE task is just structurally easier: dnf is deterministic, Vuls is deterministic, there's no ambiguity about what a fix looks like.
+
+The interesting read here is that **the harness's reflection machinery was unused in the CVE run and that's the right outcome**. The loop is there for the hard cases; it stays quiet when the task is straightforward. A harness that forced reflection on every rule would add cost for no benefit on workloads like CVE. A harness that couldn't reflect would collapse on workloads like STIG. The abstraction has the right shape — same code path, different load based on difficulty.
+
+The whitepaper story gets sharper: "STIG took 19 hours of reflection cycles to fix 62% of a 270-rule policy. CVE took 35 minutes to fix 100% of 44 advisories with zero retries. Both ran on the same Gemma 4 harness."
+
+## What the chained demo exposed about observability
+
+Entry 36 predicted the functional bugs (ghost escalation, Architect SKIP). The chained demo exposed a third issue entry 36 didn't see coming because the dashboard wasn't involved: the **resolve_deferred phase emits almost nothing while it runs**. The event log jumps from `deferred_resolve_start` straight to `deferred_resolve_complete` ~190 seconds later, and all 15 `post_deferred_evaluation` events land with identical timestamps. Watching the live dashboard, the focus square froze on the last deferred rule for three minutes, then every verification flashed through in a single frame.
+
+For correctness this is fine — the outcomes are right. For the demo video and for humans watching the run, three minutes of silence is three minutes of nothing. The reboot-verify phase is the architectural showcase of this entry; it deserves a narrative, not a void.
+
+The fix landed alongside this entry: `SkillRuntime.resolve_deferred` gained an optional `emit` callback, the harness wires it to `run_log.log(...)`, and the CVE skill now emits roughly a dozen event types across each family batch:
+
+```
+family_batch_start         → position, total_families, item_ids
+family_apply_start/complete → dnf transaction bracket
+family_reboot_issued
+family_ssh_wait_tick        → every 5 s during the ~60 s wait
+family_ssh_up               → wait_s
+family_healthcheck_start/ok
+family_verify_start
+family_item_verified        → per item, in sequence (not batched)
+family_verify_complete
+family_batch_complete
+family_exception            → on any raised failure
+```
+
+Every `logger.info()` in the old code that marked a phase boundary now has a corresponding structured event. The 190-second silence becomes a steady heartbeat of ~20 events across two families. Per-item verification flips animate in sequence instead of a single batched frame. The replay UI has something to paint.
+
+This is the kind of issue that only surfaces once you watch the run. I didn't anticipate it in entry 36's design because entry 36 was thinking about correctness and blast radius. The dashboard was the teacher: the architecture was right, the event log was too coarse to show it.
+
+The `emit` callback is the fourth harness extension point CVE has added alongside `FailureMode`, the ordering predicate, and `DeferredItemOutcome`. Like the others, it's mechanism-free: the harness doesn't know what CVE's events mean, only that it should forward them to the run log. A future skill's `resolve_deferred` picks its own vocabulary. The harness stays skill-agnostic.
+
+---
+
+This is what a working architecture looks like from the outside. Entry 36 argued for the shape before it existed; this entry is the evidence — plus a third thing neither of us predicted: the difficulty gradient between STIG and CVE. The same loop ran both workloads without modification and the harder one surfaced the reflection loop exactly where it was supposed to.

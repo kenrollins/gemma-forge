@@ -20,7 +20,7 @@ hide:
 
 **The harness live, during a STIG remediation run** — Architect picks a rule, Worker applies the fix, Evaluator scans, Reflector distills a lesson on failure, repeat:
 
-<video controls muted playsinline width="100%" poster="assets/media/gemma-forge-screenshot.png" style="border-radius: 8px; margin: 1rem 0;">
+<video controls autoplay loop muted playsinline width="100%" poster="assets/media/gemma-forge-screenshot.png" style="border-radius: 8px; margin: 1rem 0;">
   <source src="assets/media/gemma-forge-stig-main.mp4" type="video/mp4">
   Your browser does not support embedded video —
   <a href="assets/media/gemma-forge-stig-main.mp4">download the STIG run recording</a>.
@@ -28,7 +28,7 @@ hide:
 
 **Cross-run memory working in the background** — V2 tip retrieval, rule-prefix similarity firing, per-(tip, rule) utility updating as evaluations land:
 
-<video controls muted playsinline width="100%" style="border-radius: 8px; margin: 1rem 0;">
+<video controls autoplay loop muted playsinline width="100%" style="border-radius: 8px; margin: 1rem 0;">
   <source src="assets/media/gemma-forge-stig-memory.mp4" type="video/mp4">
   Your browser does not support embedded video —
   <a href="assets/media/gemma-forge-stig-memory.mp4">download the memory recording</a>.

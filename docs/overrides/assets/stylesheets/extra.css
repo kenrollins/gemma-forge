@@ -160,6 +160,28 @@
   letter-spacing: 0.02em;
 }
 
+/* -- Header title: make the clickable "go home" affordance obvious -- */
+
+.md-header__topic > .md-ellipsis {
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.md-header__title:hover .md-ellipsis {
+  opacity: 0.75;
+  text-decoration: underline;
+  text-decoration-color: rgba(255, 255, 255, 0.4);
+  text-underline-offset: 3px;
+}
+
+/* -- Hero videos: round corners, subtle border, consistent spacing -- */
+
+.md-typeset video {
+  max-width: 100%;
+  border-radius: 8px;
+  border: 1px solid var(--md-default-fg-color--lightest);
+}
+
 /* -- Footer: subtle -- */
 
 .md-footer {

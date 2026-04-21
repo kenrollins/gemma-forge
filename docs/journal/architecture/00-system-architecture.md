@@ -105,40 +105,83 @@ etc.).
 
 ### The skill boundary
 
-```mermaid
-flowchart LR
-    subgraph Harness["<b>Ralph Loop Harness</b><br/><i>skill-agnostic core</i>"]
-        direction TB
-        H1["Outer reflexion loop"]
-        H2["Architect / Worker / Reflector<br/>(all run on Gemma 4)"]
-        H3["Evaluation triage<br/>(FailureMode routing)"]
-        H4["Cross-run memory (V2)<br/>Postgres + Neo4j / Graphiti"]
-        H5["Task graph + ordering<br/>+ deferred-verification phase"]
-    end
+The harness is fixed. Skills plug in through five Protocol methods.
+The table below shows the same contract implemented two ways — once
+for STIG, once for CVE. The Protocol column is the constant; the
+right two columns change completely between skills. None of the
+differences between STIG and CVE reach the Ralph loop; both skills
+boot from the same `./bin/forge run <skill>` entry point.
 
-    subgraph Skill["<b>Skill</b><br/><i>STIG, CVE, ...</i>"]
-        direction TB
-        S1["WorkQueue.scan()"]
-        S2["Executor.apply() + get_agent_tools()"]
-        S3["Evaluator.evaluate() + metadata"]
-        S4["Checkpoint.save() / restore()"]
-        S5["SkillRuntime bundles the above<br/>+ optional resolve_deferred()"]
-    end
+<div style="margin: 1.5rem 0; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; overflow: hidden;">
+  <div style="display:grid; grid-template-columns: 1.4fr 1.2fr 1.2fr; background: rgba(0,118,206,0.08); padding: 0.75rem 1rem; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; border-bottom: 1px solid rgba(255,255,255,0.08);">
+    <div style="color:#9CA3AF;">Protocol method<br/><span style="color:#6B7280; font-weight:400; text-transform:none; letter-spacing:normal; font-size:0.9em;">(when the harness calls it)</span></div>
+    <div style="color:#EF4444;">STIG<br/><span style="color:#9CA3AF; font-weight:400; text-transform:none; letter-spacing:normal; font-size:0.9em;">the hard case — 270 rules</span></div>
+    <div style="color:#F59E0B;">CVE Response<br/><span style="color:#9CA3AF; font-weight:400; text-transform:none; letter-spacing:normal; font-size:0.9em;">the easy case — 44 advisories</span></div>
+  </div>
 
-    Harness -->|Protocol calls| Skill
+  <div style="display:grid; grid-template-columns: 1.4fr 1.2fr 1.2fr; padding: 0.75rem 1rem; border-bottom: 1px solid rgba(255,255,255,0.05); align-items: start;">
+    <div>
+      <code>WorkQueue.scan()</code>
+      <div style="color:#9CA3AF; font-size:0.82em; margin-top:0.15rem;">once at run start — what items are we processing?</div>
+    </div>
+    <div style="color:#E5E7EB; font-size:0.9em;">OpenSCAP scan against the DISA RHEL 9 STIG datastream; each failing rule becomes a <code>WorkItem</code>.</div>
+    <div style="color:#E5E7EB; font-size:0.9em;">Vuls scan of installed packages against NVD + RHSA/RLSA feeds; each pending advisory becomes a <code>WorkItem</code>.</div>
+  </div>
 
-    classDef harness fill:#1f1b2e,stroke:#A855F7,color:#E5E7EB
-    classDef skill fill:#0b2942,stroke:#0076CE,color:#E5E7EB
-    class H1,H2,H3,H4,H5 harness
-    class S1,S2,S3,S4,S5 skill
-```
+  <div style="display:grid; grid-template-columns: 1.4fr 1.2fr 1.2fr; padding: 0.75rem 1rem; border-bottom: 1px solid rgba(255,255,255,0.05); align-items: start;">
+    <div>
+      <code>Executor.apply(item, ...)</code>
+      <div style="color:#9CA3AF; font-size:0.82em; margin-top:0.15rem;">each Worker turn — take the action the Worker chose.</div>
+    </div>
+    <div style="color:#E5E7EB; font-size:0.9em;">SSH in, run a bash fix script, capture stdout/stderr + exit code.</div>
+    <div style="color:#E5E7EB; font-size:0.9em;">SSH in, run <code>dnf upgrade --advisory=&lt;ID&gt; -y</code>, capture results.</div>
+  </div>
 
-The harness has no STIG-specific or CVE-specific code. It operates
-on abstract interfaces; skills implement them. CVE added three new
-extension points — `FailureMode.NEEDS_REBOOT`,
-`DeferredItemOutcome`, and the `EmitEvent` callback — without any
-changes to the Ralph loop itself. STIG never touches them and they
-stay inert for any skill that doesn't need them.
+  <div style="display:grid; grid-template-columns: 1.4fr 1.2fr 1.2fr; padding: 0.75rem 1rem; border-bottom: 1px solid rgba(255,255,255,0.05); align-items: start;">
+    <div>
+      <code>Evaluator.evaluate(item)</code>
+      <div style="color:#9CA3AF; font-size:0.82em; margin-top:0.15rem;">after each apply — did the target reach the desired state?</div>
+    </div>
+    <div style="color:#E5E7EB; font-size:0.9em;">Re-scan via OpenSCAP on a single rule + mission-app healthcheck. Returns <code>EvalResult(passed, failure_mode, summary)</code>.</div>
+    <div style="color:#E5E7EB; font-size:0.9em;"><code>dnf updateinfo</code> for the advisory + mission-app healthcheck. Returns <code>EvalResult(...)</code>, possibly with <code>NEEDS_REBOOT</code> to trigger the deferred path.</div>
+  </div>
+
+  <div style="display:grid; grid-template-columns: 1.4fr 1.2fr 1.2fr; padding: 0.75rem 1rem; border-bottom: 1px solid rgba(255,255,255,0.05); align-items: start;">
+    <div>
+      <code>Checkpoint.save() / .restore()</code>
+      <div style="color:#9CA3AF; font-size:0.82em; margin-top:0.15rem;">on state transitions — protect forward progress, revert on failure.</div>
+    </div>
+    <div style="color:#E5E7EB; font-size:0.9em;">libvirt atomic VM snapshots (<code>baseline</code> + rolling <code>progress</code>).</div>
+    <div style="color:#E5E7EB; font-size:0.9em;">libvirt atomic VM snapshots + per-family snapshots (<code>pre-family-kernel</code>, etc.) for reboot-batch rollback.</div>
+  </div>
+
+  <div style="display:grid; grid-template-columns: 1.4fr 1.2fr 1.2fr; padding: 0.75rem 1rem; border-bottom: 1px solid rgba(255,255,255,0.05); align-items: start;">
+    <div>
+      <code>SkillRuntime</code>
+      <div style="color:#9CA3AF; font-size:0.82em; margin-top:0.15rem;">bundles the four above into the object the harness loads.</div>
+    </div>
+    <div style="color:#E5E7EB; font-size:0.9em;"><code>StigSkillRuntime</code> — wires OpenSCAP tool paths, profile, datastream.</div>
+    <div style="color:#E5E7EB; font-size:0.9em;"><code>CveSkillRuntime</code> — wires Vuls config, severity filter, SSH creds.</div>
+  </div>
+
+  <div style="display:grid; grid-template-columns: 1.4fr 1.2fr 1.2fr; padding: 0.75rem 1rem; align-items: start; background: rgba(245,158,11,0.05);">
+    <div>
+      <code>resolve_deferred(reason, items, emit)</code>
+      <span style="color:#F59E0B; font-size:0.75em; margin-left:0.25rem;">(optional extension)</span>
+      <div style="color:#9CA3AF; font-size:0.82em; margin-top:0.15rem;">post-loop — resolve items that couldn't be verified in the moment.</div>
+    </div>
+    <div style="color:#6B7280; font-size:0.9em; font-style:italic;">not implemented — STIG declares <code>deferrable_failure_modes=[]</code>, so the harness never calls this for STIG.</div>
+    <div style="color:#E5E7EB; font-size:0.9em;">Per-package-family batched apply + reboot + verify + family-scoped rollback. Emits <code>family_*</code> progress events for the UI.</div>
+  </div>
+</div>
+
+The amber-tinted bottom row is the extension point CVE added. It
+took one new dataclass (`DeferredItemOutcome`), one new callback
+type (`EmitEvent`), and three new `FailureMode` enum values —
+landing in a single commit to the harness. STIG never touches any
+of it. Adding a third skill follows the same recipe: implement the
+five interfaces, declare whether you need `resolve_deferred`, and
+`./bin/forge run <your-skill>` boots the exact same Ralph loop.
 
 ### The four memory tiers
 

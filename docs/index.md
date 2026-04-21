@@ -45,16 +45,19 @@ get reflected on and fed back; and what comes out is a refined
 solution, or an honest explanation of why the problem can't be solved
 yet. Each run leaves the forge smarter than the last.
 
-**Why build my own harness?** The agentic era is young, and
-innovation is coming from both directions at once: foundational AI
-companies shipping agent platforms from the top, individuals from
-the bottom. Geoffrey Huntley's [Ralph loop](https://ghuntley.com/ralph/),
-Peter Steinberger's OpenClaw, and others are proposing
-architectures that are materially reshaping the space. No single
-pattern will fit every problem shape. So my premise was simple: go
-deep on one architecture, end-to-end. Build the depth to
-understand the problems the field is actually grappling with, and
-the frame to evaluate the next architecture when it lands.
+**Why build my own harness?** We are just at the start of the
+agentic era. There are a lot of interesting ideas being proposed
+in the agentic orchestration space, and ultimately there isn't
+going to be a single one that we land on. What I wanted to do was
+go deep on an interesting architecture and build the harness from
+the ground up. Learn how the harness
+manages memory, deals with failures, leverages tool use, decides
+when to persist versus when to escalate. The end goal not being
+just about the creation of a fully functional harness, but really
+more about the journey. Taking the time, using the tools that
+are available to individuals and just building something that
+works end to end is a great way to learn new concepts and
+understand the landscape as a whole.
 
 Lastly, I designed the harness as an **extensible skill system** —
 a skill-agnostic core with abstract interfaces that any use case can

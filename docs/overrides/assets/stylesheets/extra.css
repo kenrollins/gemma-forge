@@ -182,6 +182,19 @@
   border: 1px solid var(--md-default-fg-color--lightest);
 }
 
+/* -- Mermaid: respect classDef text color against Material's dark-mode
+      default-text overrides. Without these rules, Material's slate palette
+      recolors mermaid text to light-gray even when we set color:#000 on a
+      light-fill node. currentColor picks up the classDef-set inline color. */
+
+.md-typeset .mermaid .node .nodeLabel,
+.md-typeset .mermaid .node .nodeLabel *,
+.md-typeset .mermaid .node foreignObject div,
+.md-typeset .mermaid .node foreignObject span,
+.md-typeset .mermaid .node text {
+  fill: currentColor !important;
+}
+
 /* -- Footer: subtle -- */
 
 .md-footer {

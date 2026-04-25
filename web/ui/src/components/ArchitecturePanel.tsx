@@ -69,7 +69,7 @@ export default function ArchitecturePanel({ gpus, vllm, events, connected }: Arc
     const vramTotal = gpus.reduce((s, g) => s + (g.memory_total_mib || 0), 0);
     const powerW = gpus.reduce((s, g) => s + (g.power_w || 0), 0);
     const avgTemp = gpus.reduce((s, g) => s + (g.temperature_c || 0), 0) / n;
-    const hasTelemetry = gpus.some((g) => g.memory_used_mib > 0 || g.power_w > 0);
+    const hasTelemetry = gpus.some((g) => (g.memory_used_mib || 0) > 0 || (g.power_w || 0) > 0);
     return {
       vramUsedGb: vramUsed / 1024,
       vramTotalGb: vramTotal / 1024,

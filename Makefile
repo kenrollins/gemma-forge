@@ -6,7 +6,8 @@
 .PHONY: help install lint format test compose-config clean \
        vllm-build vllm-install demo-up demo-down demo-status demo-logs demo-test \
        vm-up vm-down vm-reset vm-ssh vm-health \
-       obs-up obs-down obs-status
+       obs-up obs-down obs-status \
+       app-build app-up app-down app-status app-logs dev
 
 help:  ## Show this help
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z_-]+:.*## / {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -138,3 +139,42 @@ vm-ssh:  ## SSH into the mission-app VM as adm-forge
 vm-health:  ## Run the mission-app healthcheck over SSH
 	@IP=$$(cd infra/vm/tofu && tofu output -state=/data/vm/gemma-forge/state/terraform.tfstate -raw mission_app_ip 2>/dev/null) && \
 	ssh -i /data/vm/gemma-forge/keys/adm-forge -o StrictHostKeyChecking=no "adm-forge@$$IP" /usr/local/bin/mission-healthcheck.sh
+
+# ---------------------------------------------------------------------------
+# Application plane — dashboard UI + replay API (docker compose `app` profile)
+# See docs/adr/0017-web-tier-compose-not-systemd.md.
+# ---------------------------------------------------------------------------
+
+app-build:  ## Build the forge-api + forge-ui images
+	docker compose --profile app build
+
+app-up:  ## Start the dashboard (API on :8080, UI on :3333)
+	docker compose --profile app up -d
+	@echo ""
+	@echo "Dashboard running:"
+	@echo "  UI:  http://localhost:3333"
+	@echo "  API: http://localhost:8080/api/runs"
+
+app-down:  ## Stop the dashboard
+	docker compose --profile app down
+
+app-status:  ## Show dashboard service status + endpoint health
+	@docker compose --profile app ps
+	@echo ""
+	@echo "=== Endpoints ==="
+	@printf "  UI  (http://localhost:3333):       "; curl -s -o /dev/null -w "[%{http_code}]\n" --max-time 3 http://localhost:3333/ 2>/dev/null || echo "not responding"
+	@printf "  API (http://localhost:8080/api/runs): "; curl -s -o /dev/null -w "[%{http_code}]\n" --max-time 3 http://localhost:8080/api/runs 2>/dev/null || echo "not responding"
+
+app-logs:  ## Tail dashboard logs
+	docker compose --profile app logs -f --tail=100
+
+dev:  ## Run UI + API locally for editing (hot-reload; Ctrl+C to stop both)
+	@echo "Starting replay API (uvicorn --reload) and UI (next dev)..."
+	@echo "UI:  http://localhost:3333"
+	@echo "API: http://localhost:8080"
+	@echo ""
+	@trap 'kill 0' INT TERM; \
+	( cd $(CURDIR) && FORGE_RUNS_DIR=$(CURDIR)/runs FORGE_DASHBOARD_CONFIG=$(CURDIR)/config/dashboard.yaml \
+	    python -m uvicorn web.api.serve_replay:app --host 0.0.0.0 --port 8080 --reload ) & \
+	( cd $(CURDIR)/web/ui && npm run dev ) & \
+	wait

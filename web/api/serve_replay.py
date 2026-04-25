@@ -33,8 +33,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-RUNS_DIR = Path("/data/code/gemma-forge/runs")
-DASHBOARD_CONFIG = Path("/data/code/gemma-forge/config/dashboard.yaml")
+RUNS_DIR = Path(os.environ.get("FORGE_RUNS_DIR", "/data/code/gemma-forge/runs"))
+DASHBOARD_CONFIG = Path(
+    os.environ.get("FORGE_DASHBOARD_CONFIG", "/data/code/gemma-forge/config/dashboard.yaml")
+)
 
 
 def _load_dashboard_config() -> dict:

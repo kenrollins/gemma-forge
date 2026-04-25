@@ -1,0 +1,14 @@
+node_modules
+.next
+.next/cache
+npm-debug.log
+yarn-error.log
+.env.local
+.env*.local
+.git
+.gitignore
+README.md
+CLAUDE.md
+AGENTS.md
+Dockerfile
+.dockerignore

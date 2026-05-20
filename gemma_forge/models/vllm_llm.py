@@ -29,6 +29,8 @@ import logging
 from collections.abc import AsyncGenerator
 from typing import Any
 
+import httpx
+
 
 @contextlib.contextmanager
 def _nullcontext():
@@ -42,6 +44,78 @@ from google.genai import types
 from openai import AsyncOpenAI
 
 logger = logging.getLogger(__name__)
+
+
+# vLLM MTP per-call instrumentation. The metrics endpoint exposes cumulative
+# spec_decode_* counters across the whole server; subtracting a before/after
+# snapshot around a single chat.completions.create() yields per-call drafts,
+# drafted, and accepted token counts. Caveat: if another client is hitting
+# the same vLLM endpoint concurrently, the delta lumps their work in too —
+# for Ralph (effectively single-stream against a dedicated endpoint) this
+# approximation is tight. Returns None on any failure so observability
+# never crashes the harness.
+_MTP_COUNTERS = {
+    "vllm:spec_decode_num_drafts_total": "drafts",
+    "vllm:spec_decode_num_draft_tokens_total": "drafted",
+    "vllm:spec_decode_num_accepted_tokens_total": "accepted",
+}
+
+
+async def _snapshot_mtp_counters(metrics_url: str) -> dict[str, float] | None:
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            resp = await client.get(metrics_url)
+        if resp.status_code != 200:
+            return None
+        out: dict[str, float] = {}
+        for line in resp.text.splitlines():
+            if not line or line.startswith("#"):
+                continue
+            # Each metric has a "_total" series and a "_created" gauge; we
+            # only want the "_total" series.
+            if "_created" in line:
+                continue
+            for prefix, key in _MTP_COUNTERS.items():
+                if line.startswith(prefix):
+                    parts = line.rsplit(maxsplit=1)
+                    if len(parts) == 2:
+                        try:
+                            out[key] = float(parts[1])
+                        except ValueError:
+                            pass
+                    break
+        if set(_MTP_COUNTERS.values()) <= out.keys():
+            return out
+        return None
+    except Exception:
+        return None
+
+
+def _mtp_delta(
+    before: dict[str, float] | None,
+    after: dict[str, float] | None,
+) -> dict[str, Any] | None:
+    if not before or not after:
+        return None
+    drafts = max(0.0, after["drafts"] - before["drafts"])
+    drafted = max(0.0, after["drafted"] - before["drafted"])
+    accepted = max(0.0, after["accepted"] - before["accepted"])
+    if drafts == 0 and drafted == 0 and accepted == 0:
+        # No speculation ran this call (e.g. tool-only short response).
+        return {
+            "drafts": 0,
+            "drafted": 0,
+            "accepted": 0,
+            "acceptance": None,
+            "tokens_per_step": None,
+        }
+    return {
+        "drafts": int(drafts),
+        "drafted": int(drafted),
+        "accepted": int(accepted),
+        "acceptance": (accepted / drafted) if drafted > 0 else None,
+        "tokens_per_step": (1.0 + accepted / drafts) if drafts > 0 else None,
+    }
 
 
 class VllmLlm(BaseLlm):
@@ -291,13 +365,22 @@ class VllmLlm(BaseLlm):
             else _nullcontext()
         )
 
+        metrics_url = self.base_url.rstrip("/")
+        if metrics_url.endswith("/v1"):
+            metrics_url = metrics_url[: -len("/v1")]
+        metrics_url = metrics_url + "/metrics"
+
         with span_ctx as span:
             try:
+                mtp_before = await _snapshot_mtp_counters(metrics_url)
                 # Non-streaming: response.usage is populated unconditionally.
                 # If this is ever flipped to streaming, also set
                 # stream_options={"include_usage": True} or token counters
                 # silently zero out under MTP. See docs/journal/gotchas/mtp-streaming-usage.md.
                 response = await client.chat.completions.create(**kwargs)
+                mtp_after = await _snapshot_mtp_counters(metrics_url)
+                mtp = _mtp_delta(mtp_before, mtp_after)
+
                 choice = response.choices[0]
                 content = self._response_to_content(choice)
 
@@ -309,6 +392,14 @@ class VllmLlm(BaseLlm):
                     span.set_attribute("gen_ai.response.finish_reasons", [choice.finish_reason or ""])
                     if choice.message.tool_calls:
                         span.set_attribute("gen_ai.response.tool_calls", len(choice.message.tool_calls))
+                    if mtp:
+                        span.set_attribute("gen_ai.vllm.mtp.drafts", mtp["drafts"])
+                        span.set_attribute("gen_ai.vllm.mtp.drafted", mtp["drafted"])
+                        span.set_attribute("gen_ai.vllm.mtp.accepted", mtp["accepted"])
+                        if mtp["acceptance"] is not None:
+                            span.set_attribute("gen_ai.vllm.mtp.acceptance", mtp["acceptance"])
+                        if mtp["tokens_per_step"] is not None:
+                            span.set_attribute("gen_ai.vllm.mtp.tokens_per_step", mtp["tokens_per_step"])
 
                 yield LlmResponse(
                     content=content,
@@ -319,6 +410,7 @@ class VllmLlm(BaseLlm):
                             "completion_tokens": completion_tokens,
                         },
                         "finish_reason": choice.finish_reason,
+                        "mtp": mtp,
                     },
                 )
             except Exception as e:

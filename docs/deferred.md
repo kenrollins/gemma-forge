@@ -518,6 +518,39 @@ promoted out of this file into active work.
   rollback, bisection is a retry loop with halved batches on top
   of the existing snapshot/apply/reboot/verify primitives.
 
+### DEF-22 — Two harness entry points with diverging observability
+
+- **What**: `gemma_forge/harness/ralph.py` is the active entry point
+  (`forge run` invokes it; routes every LLM call through
+  `models/vllm_llm.py:VllmLlm.generate_content_async`). A second runnable
+  entry, `gemma_forge/harness/loop.py`, still exists with its own
+  `_chat` helper that calls `openai.AsyncOpenAI.chat.completions.create`
+  directly. Nothing imports `loop.py` and no tests touch it, but
+  `python -m gemma_forge.harness.loop` is documented in its module
+  docstring as a runnable harness. After the 2026-05-20 MTP
+  instrumentation, the two paths now have meaningfully different
+  observability: ralph.py captures per-call `mtp.acceptance` /
+  `mtp.tokens_per_step` on each span and in the run JSONL, loop.py does
+  not.
+- **Why deferred**: Picking between "consolidate to one harness path"
+  and "keep both as documented siblings" is an ADR-level architectural
+  call, not a 15-minute decision while kicking off a run. Adding MTP
+  capture to `loop.py:_chat` would mask the divergence without
+  resolving it. Documentation of the gap is the right action today.
+- **Revisit when**: Anyone tries to reproduce a ralph.py run using
+  `python -m gemma_forge.harness.loop` and is confused by the missing
+  MTP fields in the run JSONL. Or: a refactor touches harness logic in
+  one place and the other silently drifts.
+- **Pain signal**: A bug report or analysis that conflates the two
+  paths ("the run JSONL doesn't have MTP data" turns out to be "you ran
+  loop.py, not ralph.py"). Two paths still answering the question
+  "which one is the harness?" with "both" is the signal that an ADR
+  needs to pick.
+- **Context**: Discovered 2026-05-20 while wiring per-call MTP
+  instrumentation into `vllm_llm.py` for the post-MTP STIG run. Comment
+  at both LLM call sites already points at
+  [`gotchas/mtp-streaming-usage.md`](journal/gotchas/mtp-streaming-usage.md).
+
 ### DEF-14 — Harness as training-data factory (fine-tuning pipeline)
 
 - **What**: Every run produces structured (context, action, outcome)

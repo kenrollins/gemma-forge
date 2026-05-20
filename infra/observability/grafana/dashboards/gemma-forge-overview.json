@@ -1,5 +1,7 @@
 {
-  "annotations": { "list": [] },
+  "annotations": {
+    "list": []
+  },
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
@@ -9,8 +11,16 @@
     {
       "title": "Token Usage by Role",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
         {
           "expr": "sum by (forge_role) (rate(gemma_forge_duration_milliseconds_count[5m]))",
@@ -27,8 +37,16 @@
     {
       "title": "LLM Call Latency (p95)",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
         {
           "expr": "histogram_quantile(0.95, sum by (le, gen_ai_request_model) (rate(gemma_forge_duration_milliseconds_bucket[5m])))",
@@ -45,8 +63,16 @@
     {
       "title": "Ralph Loop Status",
       "type": "stat",
-      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
         {
           "expr": "sum(gemma_forge_calls_total)",
@@ -58,8 +84,16 @@
     {
       "title": "Recent Traces",
       "type": "table",
-      "gridPos": { "h": 8, "w": 18, "x": 6, "y": 8 },
-      "datasource": { "type": "jaeger", "uid": "jaeger" },
+      "gridPos": {
+        "h": 8,
+        "w": 18,
+        "x": 6,
+        "y": 8
+      },
+      "datasource": {
+        "type": "jaeger",
+        "uid": "jaeger"
+      },
       "targets": [
         {
           "queryType": "search",
@@ -67,12 +101,78 @@
           "refId": "A"
         }
       ]
+    },
+    {
+      "id": 1,
+      "title": "MTP Acceptance Rate (5m)",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "rate(vllm:spec_decode_num_accepted_tokens_total[5m]) / rate(vllm:spec_decode_num_draft_tokens_total[5m])",
+          "legendFormat": "acceptance",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "MTP Effective Tokens per Decode Step",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "1 + rate(vllm:spec_decode_num_accepted_tokens_total[5m]) / rate(vllm:spec_decode_num_drafts_total[5m])",
+          "legendFormat": "tokens/step",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "min": 1,
+          "max": 3.2
+        }
+      }
     }
   ],
   "schemaVersion": 39,
-  "tags": ["gemma-forge", "ralph-loop"],
-  "templating": { "list": [] },
-  "time": { "from": "now-1h", "to": "now" },
+  "tags": [
+    "gemma-forge",
+    "ralph-loop"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
   "title": "GemmaForge Overview",
   "uid": "gemma-forge-overview"
 }

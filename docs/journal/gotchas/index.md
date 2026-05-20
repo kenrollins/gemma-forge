@@ -54,6 +54,10 @@ Inference, model selection, quantization, parallelism.
 - [**Nemotron TP tiling error**](nemotron-tp-tiling-error.md) —
   Nemotron TP=2 fails with Marlin kernel tiling errors; PP=2
   works around it.
+- [**MTP streaming + usage block**](mtp-streaming-usage.md) — with
+  Gemma 4 MTP enabled, one SSE chunk carries multiple tokens.
+  Counting chunks undercounts throughput by the speedup factor;
+  use `stream_options.include_usage` and read `usage.completion_tokens`.
 
 ### L4 — Orchestration
 Agents, harness, Ralph loop, tool calling, memory.

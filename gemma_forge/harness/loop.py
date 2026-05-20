@@ -102,6 +102,9 @@ async def _chat(
     max_tokens: int = 1024,
 ) -> str:
     """Simple chat completion helper."""
+    # Non-streaming: if this is ever flipped to streaming, also pass
+    # stream_options={"include_usage": True} or token counters will silently
+    # zero out under MTP. See docs/journal/gotchas/mtp-streaming-usage.md.
     response = await client.chat.completions.create(
         model=model,
         messages=[

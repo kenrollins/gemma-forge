@@ -293,6 +293,10 @@ class VllmLlm(BaseLlm):
 
         with span_ctx as span:
             try:
+                # Non-streaming: response.usage is populated unconditionally.
+                # If this is ever flipped to streaming, also set
+                # stream_options={"include_usage": True} or token counters
+                # silently zero out under MTP. See docs/journal/gotchas/mtp-streaming-usage.md.
                 response = await client.chat.completions.create(**kwargs)
                 choice = response.choices[0]
                 content = self._response_to_content(choice)

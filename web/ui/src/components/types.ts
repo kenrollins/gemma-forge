@@ -28,6 +28,10 @@ export interface GpuState {
 // vLLM Prometheus metrics snapshot. Optional per-event — runs from
 // before the capture was wired up (Run 1–4) simply don't have it,
 // and the dashboard hides the Model-pressure row when absent.
+//
+// mtp_* fields land in Run 8+ (DEF-25). Pre-MTP runs leave them
+// undefined and the MTP tile hides gracefully — same convention as
+// prefix_hit_rate.
 export interface VllmState {
   running: number;
   waiting: number;
@@ -35,6 +39,10 @@ export interface VllmState {
   prefix_hit_rate?: number; // 0-1, cumulative across vLLM server lifetime
   prefix_queries_total?: number;
   prefix_hits_total?: number;
+  mtp_acceptance?: number; // 0-1, accepted / drafted (cumulative across vLLM lifetime)
+  mtp_tokens_per_step?: number; // 1 + accepted/drafts; ~3.0 is ceiling for num_speculative_tokens=2
+  mtp_drafts_total?: number;
+  mtp_accepted_total?: number;
 }
 
 export interface RunEvent {

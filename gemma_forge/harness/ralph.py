@@ -560,6 +560,7 @@ async def _run_agent_turn(
     response_parts: list = []
     first_token_time = None
     total_tokens = {"prompt": 0, "completion": 0}
+    total_mtp = {"drafts": 0, "drafted": 0, "accepted": 0}
     tool_calls_seen = 0
     capped = False
 
@@ -611,6 +612,14 @@ async def _run_agent_turn(
             usage = event.custom_metadata["usage"]
             total_tokens["prompt"] += usage.get("prompt_tokens", 0)
             total_tokens["completion"] += usage.get("completion_tokens", 0)
+        # DEF-23: per-call MTP delta from vllm_llm.py; accumulate across
+        # events in this turn so the JSONL agent_response carries it.
+        if event.custom_metadata and event.custom_metadata.get("mtp"):
+            _mtp = event.custom_metadata["mtp"]
+            if isinstance(_mtp, dict):
+                total_mtp["drafts"] += int(_mtp.get("drafts") or 0)
+                total_mtp["drafted"] += int(_mtp.get("drafted") or 0)
+                total_mtp["accepted"] += int(_mtp.get("accepted") or 0)
 
         if event.error_message:
             logger.error("[%s] ERROR: %s", event.author, event.error_message)
@@ -631,6 +640,21 @@ async def _run_agent_turn(
     tok_per_sec = (total_tokens["completion"] / turn_elapsed) if turn_elapsed > 0 and total_tokens["completion"] > 0 else 0
 
     if run_log and response_parts:
+        # DEF-23: surface per-call MTP delta in the JSONL alongside tokens
+        # and timing. The data is already computed at the LLM layer
+        # (vllm_llm._snapshot_mtp_counters); ralph.py just needs to project
+        # the accumulated turn-level totals into the agent_response row.
+        mtp_payload: Optional[dict] = None
+        if total_mtp["drafts"] > 0:
+            acc = (total_mtp["accepted"] / total_mtp["drafted"]) if total_mtp["drafted"] > 0 else None
+            tps = (1.0 + total_mtp["accepted"] / total_mtp["drafts"])
+            mtp_payload = {
+                "drafts": total_mtp["drafts"],
+                "drafted": total_mtp["drafted"],
+                "accepted": total_mtp["accepted"],
+                "acceptance": round(acc, 3) if acc is not None else None,
+                "tokens_per_step": round(tps, 3),
+            }
         run_log.log("agent_response", agent.name, {
             "text": "\n".join(response_parts)[:1000],
             "tokens": total_tokens if total_tokens["completion"] > 0 else None,
@@ -642,6 +666,7 @@ async def _run_agent_turn(
             "model": agent.model.served_model_name if hasattr(agent.model, 'served_model_name') else "unknown",
             "tool_calls": tool_calls_seen,
             "capped": capped,
+            "mtp": mtp_payload,
         }, include_gpu=True)
 
     return "\n".join(response_parts).strip()

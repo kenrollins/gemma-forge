@@ -87,6 +87,12 @@ def _find_eviction_candidates(
         # Two subqueries collapsed: the HAVING clause gates on evidence
         # volume; the WHERE on avg_utility triggers retirement. LEFT JOIN
         # on tip_retrievals so tips with zero outcomes drop out naturally.
+        # avg_utility uses the same follow-aware contribution formula
+        # as retrieval._fetch_hit_rates — see DEF-27 / journey/38.6 for
+        # the architectural reasoning. A tip that's been retrieved many
+        # times during successes but whose advice was never followed
+        # earns a low utility here and gets retired, instead of
+        # accumulating credit as a lucky neighbor of unrelated wins.
         cur.execute(
             """
             WITH utility AS (
@@ -95,7 +101,18 @@ def _find_eviction_candidates(
                        t.tip_type,
                        substr(t.text, 1, 120) AS text_preview,
                        COUNT(tr.id) AS n_outcomes,
-                       AVG(tr.outcome_value * tr.outcome_confidence) AS avg_utility
+                       AVG(
+                         tr.outcome_value * tr.outcome_confidence
+                         * CASE
+                             WHEN tr.tip_followed_llm IS TRUE THEN 1.0
+                             WHEN tr.tip_followed_llm IS FALSE THEN 0.0
+                             WHEN tr.tip_followed_emb IS NOT NULL
+                                  AND tr.tip_followed_emb >= 0.6 THEN 1.0
+                             WHEN tr.tip_followed_emb IS NOT NULL
+                                  AND tr.tip_followed_emb <  0.6 THEN 0.0
+                             ELSE 0.5
+                           END
+                       ) AS avg_utility
                 FROM tips t
                 JOIN tip_retrievals tr ON tr.tip_id = t.id
                 WHERE t.retired_at IS NULL

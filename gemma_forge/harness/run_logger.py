@@ -18,10 +18,93 @@ Each line is a JSON object with:
 import json
 import os
 import subprocess
+import threading
 import time
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
+
+
+# DEF-24 — rolling-window peak sampler for vLLM instantaneous gauges.
+#
+# vLLM's `kv_cache_usage_perc` and `num_requests_running` are read at
+# scrape-time. Ralph is effectively single-stream, so when the harness
+# calls _capture_vllm_metrics between LLM calls, the gauges read 0 —
+# the in-flight request has already completed. The dashboard tile
+# therefore renders "KV CACHE 0.0%" indefinitely, even though the KV
+# cache is hot during every generation step.
+#
+# This sampler runs in a daemon thread that polls /metrics at a fast
+# interval and remembers the peak value seen in a short rolling window.
+# _capture_vllm_metrics reads the window peak instead of the instant
+# gauge, so the tile reflects work that happened *recently* rather than
+# work happening *right now between two queries*.
+class _VllmGaugeSampler:
+    def __init__(self, metrics_url: str,
+                 interval_s: float = 1.0,
+                 window_s: float = 5.0,
+                 timeout_s: float = 1.0) -> None:
+        self.metrics_url = metrics_url
+        self.interval_s = interval_s
+        self.window_s = window_s
+        self.timeout_s = timeout_s
+        # Each entry is (timestamp, dict of gauge name -> float).
+        self._samples: list[tuple[float, dict[str, float]]] = []
+        self._lock = threading.Lock()
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._loop, daemon=True, name="vllm-gauge-sampler")
+        self._thread.start()
+
+    def _loop(self) -> None:
+        # Names we care about — instantaneous, the ones that go to 0
+        # between Ralph turns. Cumulative metrics don't need the window.
+        wanted = {"num_requests_running", "num_requests_waiting", "kv_cache_usage_perc"}
+        while not self._stop.is_set():
+            sample: dict[str, float] = {}
+            try:
+                with urllib.request.urlopen(self.metrics_url, timeout=self.timeout_s) as resp:
+                    body = resp.read().decode("utf-8", errors="replace")
+                for line in body.splitlines():
+                    if not line.startswith("vllm:"):
+                        continue
+                    prefixed, _, rest = line.partition("{")
+                    if not rest:
+                        continue
+                    name = prefixed[len("vllm:"):]
+                    if name not in wanted:
+                        continue
+                    _, _, tail = rest.partition("}")
+                    parts = tail.strip().split()
+                    if not parts:
+                        continue
+                    try:
+                        sample[name] = float(parts[0])
+                    except ValueError:
+                        pass
+            except Exception:
+                pass  # network blip, skip this tick
+            now = time.time()
+            with self._lock:
+                self._samples.append((now, sample))
+                # Trim old samples outside the window.
+                cutoff = now - self.window_s
+                while self._samples and self._samples[0][0] < cutoff:
+                    self._samples.pop(0)
+            self._stop.wait(self.interval_s)
+
+    def peak(self) -> dict[str, float]:
+        """Return the maximum value seen for each gauge in the window."""
+        with self._lock:
+            out: dict[str, float] = {}
+            for _, s in self._samples:
+                for k, v in s.items():
+                    if k not in out or v > out[k]:
+                        out[k] = v
+            return out
+
+    def stop(self) -> None:
+        self._stop.set()
 
 
 class RunLogger:
@@ -35,6 +118,15 @@ class RunLogger:
         self.iteration = 0
         self.start_time = time.time()
         self._file = open(self.log_path, "a")
+        # DEF-24 — start the background gauge sampler so kv_cache_pct
+        # and running_requests reflect the in-flight peak from the last
+        # few seconds, not the post-call instantaneous reading that
+        # always shows 0 for single-stream Ralph.
+        self._gauge_sampler: Optional[_VllmGaugeSampler] = None
+        try:
+            self._gauge_sampler = _VllmGaugeSampler(self._VLLM_METRICS_URL)
+        except Exception:
+            self._gauge_sampler = None  # never fatal — fall back to instant gauges
 
         self.log("run_start", "system", {
             "run_id": self.run_id,
@@ -105,6 +197,8 @@ class RunLogger:
 
     def log_summary(self, data: dict) -> None:
         self.log("run_complete", "system", data, include_gpu=True)
+        if self._gauge_sampler is not None:
+            self._gauge_sampler.stop()
         self._file.close()
 
     # vLLM Prometheus endpoint — configurable via env var so a relocated
@@ -122,10 +216,17 @@ class RunLogger:
         "kv_cache_usage_perc": "kv_cache_pct",
     }
 
-    # Prefix-cache hit rate is derived from two cumulative counters.
+    # Prefix-cache hit rate and MTP acceptance are derived from
+    # cumulative counters. spec_decode_* are populated only when MTP
+    # speculative decoding is enabled (vLLM 0.21+ with the gemma4
+    # MTP drafter — see ADR-0018). Pre-MTP runs have these series at
+    # zero; the snap dict omits the mtp_* fields then.
     _VLLM_CUM_NAMES = {
         "prefix_cache_queries_total": "prefix_queries",
         "prefix_cache_hits_total": "prefix_hits",
+        "spec_decode_num_drafts_total": "mtp_drafts",
+        "spec_decode_num_draft_tokens_total": "mtp_drafted",
+        "spec_decode_num_accepted_tokens_total": "mtp_accepted",
     }
 
     def _capture_vllm_metrics(self) -> Optional[dict]:
@@ -136,9 +237,14 @@ class RunLogger:
         as a failed nvidia-smi. Does NOT pull a full Prometheus parse;
         just greps the handful of lines we care about so this stays
         subsecond and adds negligible overhead to each logged event.
+
+        Instantaneous gauges (kv_cache_usage_perc, num_requests_running,
+        num_requests_waiting) come from the background sampler's
+        rolling-window peak (DEF-24) so they reflect recent in-flight
+        work rather than the post-call zero state. Cumulative counters
+        (prefix_*, spec_decode_*) read fine from the instant scrape.
         """
         try:
-            import urllib.request
             with urllib.request.urlopen(self._VLLM_METRICS_URL, timeout=2) as resp:
                 body = resp.read().decode("utf-8", errors="replace")
         except Exception:
@@ -171,13 +277,28 @@ class RunLogger:
         if not gauges and not cumul:
             return None
 
+        # DEF-24 — prefer the rolling-window peak over the instant gauge
+        # for instantaneous metrics. The sampler is running in a daemon
+        # thread; .peak() is O(window samples) and lock-cheap.
+        peak: dict[str, float] = {}
+        if self._gauge_sampler is not None:
+            peak = self._gauge_sampler.peak()
+
+        def _gauge(short_name: str, vllm_name: str, default: float = 0.0) -> float:
+            # Peak from sampler wins if any sample landed; instant gauge
+            # is the fallback for the first few seconds before the
+            # sampler has data.
+            if vllm_name in peak:
+                return peak[vllm_name]
+            return gauges.get(short_name, default)
+
         snap: dict = {
-            "running": int(gauges.get("running", 0)),
-            "waiting": int(gauges.get("waiting", 0)),
+            "running": int(_gauge("running", "num_requests_running")),
+            "waiting": int(_gauge("waiting", "num_requests_waiting")),
             # vLLM reports kv_cache_usage_perc as a FRACTION in [0, 1],
             # not a percent. Convert to % once here so the dashboard
             # doesn't have to guess.
-            "kv_cache_pct": round(gauges.get("kv_cache_pct", 0.0) * 100, 1),
+            "kv_cache_pct": round(_gauge("kv_cache_pct", "kv_cache_usage_perc") * 100, 1),
         }
         q = cumul.get("prefix_queries", 0)
         h = cumul.get("prefix_hits", 0)
@@ -185,6 +306,17 @@ class RunLogger:
             snap["prefix_hit_rate"] = round(h / q, 3)
             snap["prefix_queries_total"] = int(q)
             snap["prefix_hits_total"] = int(h)
+        # DEF-25: MTP cumulative metrics for the dashboard tile.
+        # acceptance and tokens_per_step are derived; raw totals kept
+        # for any downstream analysis that wants per-event deltas.
+        d = cumul.get("mtp_drafts", 0)
+        dt_ = cumul.get("mtp_drafted", 0)
+        a = cumul.get("mtp_accepted", 0)
+        if d > 0:
+            snap["mtp_acceptance"] = round(a / dt_, 3) if dt_ > 0 else None
+            snap["mtp_tokens_per_step"] = round(1.0 + a / d, 3)
+            snap["mtp_drafts_total"] = int(d)
+            snap["mtp_accepted_total"] = int(a)
         return snap
 
     def _capture_gpu_state(self) -> list[dict]:

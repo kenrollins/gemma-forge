@@ -148,6 +148,19 @@ export default function ArchitecturePanel({ gpus, vllm, events, connected }: Arc
               color="#22C55E"
             />
           )}
+          {/* DEF-25 — MTP acceptance + effective tokens-per-step.
+              Cumulative across vLLM server lifetime, same shape as
+              Prefix Hit. Hides on pre-MTP runs. Answers the "Gemma 4
+              is fast because of MTP" question that journey/38 left
+              unsurfaced on the live dashboard. */}
+          {vllm.mtp_acceptance !== undefined && vllm.mtp_tokens_per_step !== undefined && (
+            <HwStat
+              label="MTP"
+              value={`${Math.round(vllm.mtp_acceptance * 100)}% · ${vllm.mtp_tokens_per_step.toFixed(2)}×/step`}
+              pct={vllm.mtp_acceptance * 100}
+              color="#EC4899"
+            />
+          )}
         </div>
       )}
 

@@ -101,14 +101,41 @@ def _fetch_hit_rates(pool: ConnectionPool, rule_id: str,
                      min_retrievals: int = 1) -> dict[int, float]:
     """Return per-tip_id hit rate on ``rule_id``.
 
-    Hit rate = mean(outcome_value × outcome_confidence) across prior
-    ``tip_retrievals`` rows where this (tip, rule) pair was loaded and
-    the outcome landed. Defaults to {} on first-run cold-start.
+    Hit rate is the per-retrieval contribution averaged across prior
+    rows where this (tip, rule) pair was loaded. The contribution
+    incorporates DEF-27's tip_followed signal so misleading tips
+    (outcome positive but advice was ignored — the cryptography case
+    from journey/38.5) don't accumulate utility scores by being lucky
+    neighbors of successful outcomes.
+
+    The follow modifier is derived per row:
+      LLM judge says followed -> 1.0  (credit the tip for the outcome)
+      LLM judge says ignored  -> 0.0  (don't credit a tip whose advice
+                                       wasn't followed even on a win)
+      LLM judge NULL, embedding >= 0.6 -> 1.0 (deterministic fallback)
+      LLM judge NULL, embedding <  0.6 -> 0.0
+      Both NULL (pre-DEF-27 rows)      -> 0.5 (half credit, conservative
+                                              for data that predates the
+                                              attribution column).
     """
+    # The CASE expression below evaluates the follow modifier per row,
+    # then the outer AVG averages outcome×confidence×follow_modifier.
     with pool.connection() as conn, conn.cursor() as cur:
         cur.execute(
             """
-            SELECT tip_id, AVG(outcome_value * outcome_confidence) AS hit_rate
+            SELECT tip_id,
+                   AVG(
+                     outcome_value * outcome_confidence
+                     * CASE
+                         WHEN tip_followed_llm IS TRUE THEN 1.0
+                         WHEN tip_followed_llm IS FALSE THEN 0.0
+                         WHEN tip_followed_emb IS NOT NULL
+                              AND tip_followed_emb >= 0.6 THEN 1.0
+                         WHEN tip_followed_emb IS NOT NULL
+                              AND tip_followed_emb <  0.6 THEN 0.0
+                         ELSE 0.5
+                       END
+                   ) AS hit_rate
             FROM tip_retrievals
             WHERE rule_id = %s
               AND outcome_value IS NOT NULL

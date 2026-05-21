@@ -233,8 +233,15 @@ class Evaluator(Protocol):
         """
         ...
 
-    def signal_for(self, result: EvalResult) -> OutcomeSignal:
-        """Project an EvalResult into the graded OutcomeSignal."""
+    def signal_for(self, result: EvalResult, *, attempt_number: int = 1) -> OutcomeSignal:
+        """Project an EvalResult into the graded OutcomeSignal.
+
+        ``attempt_number`` is the 1-indexed attempt count within the current
+        rule's retry loop. Binary-deterministic skills can ignore it; graded
+        skills use it to differentiate "won on first try" from "won after
+        five attempts" — see DEF-26 / journey/38.6 for the architectural
+        reasoning.
+        """
         ...
 
 

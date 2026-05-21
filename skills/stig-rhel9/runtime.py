@@ -145,9 +145,55 @@ class StigEvaluator:
         self._profile = profile
         self._datastream = datastream
 
-    def signal_for(self, result: EvalResult) -> OutcomeSignal:
-        """Binary signal: pass=1.0/fail=0.0, full confidence (OpenSCAP is deterministic)."""
-        return outcome_signal_from_eval_result(result, confidence=1.0)
+    def signal_for(self, result: EvalResult, *, attempt_number: int = 1) -> OutcomeSignal:
+        """Graded outcome from a binary evaluator, using attempt_number + failure_mode.
+
+        OpenSCAP is binary (PASS/FAIL), but the harness has deterministic
+        side-signals — attempt count, failure-mode classification — that
+        let us project richer outcome quality without an LLM judge. See
+        journey/38.5 for the cryptography case that motivated this and
+        ADR-0019 for the scoring rationale.
+
+        Scoring function (deterministic, tunable):
+          passed AND attempt 1            -> 1.0   (clean first-try win)
+          passed AND attempt 2-3          -> 0.8   (solid win, minor course-correct)
+          passed AND attempt 4+           -> 0.5   (helped slowly, lots of churn)
+          EVALUATOR_GAP (clean fail)      -> 0.0   (tip didn't help, tip didn't break)
+          CLEAN_FAILURE                   -> 0.0   (same shape)
+          HEALTH_FAILURE                  -> -0.2  (tip's advice broke the system)
+
+        Note: per DEF-27, the per-retrieval row also gets a tip_followed
+        signal from the dream pass. The value here is "did this attempt
+        succeed and how cleanly"; whether *this specific tip* deserves
+        credit for that success is the dream pass's job to attribute via
+        tip_followed_llm × outcome_value.
+        """
+        if result.passed:
+            if attempt_number <= 1:
+                value = 1.0
+            elif attempt_number <= 3:
+                value = 0.8
+            else:
+                value = 0.5
+        else:
+            fm = result.failure_mode.value if hasattr(result.failure_mode, "value") else str(result.failure_mode)
+            if fm == "health_failure":
+                value = -0.2
+            else:
+                value = 0.0
+        return OutcomeSignal(
+            value=value,
+            confidence=1.0,
+            metadata={
+                "failure_mode": (
+                    result.failure_mode.value
+                    if hasattr(result.failure_mode, "value")
+                    else str(result.failure_mode)
+                ),
+                "attempt_number": attempt_number,
+                **result.signals,
+            },
+        )
 
     async def evaluate(self, item: WorkItem) -> EvalResult:
         health = await mission_healthcheck(self._ssh)

@@ -322,6 +322,37 @@ def log_retrievals(
     return new_ids
 
 
+def update_retrieval_attempt_ids(
+    retrieval_ids: list[int],
+    attempt_id: int,
+    *,
+    skill: str = "stig",
+    pool: Optional[ConnectionPool] = None,
+) -> int:
+    """Backfill tip_retrievals.attempt_id once the attempts row exists.
+
+    log_retrievals runs at prompt-assembly time (before the attempt
+    runs), so attempt_id is initially NULL. save_attempt runs at
+    rule-completion time, returning the new attempts.id; ralph.py
+    then calls this to wire the FK. Returns rows updated.
+    """
+    if not retrieval_ids:
+        return 0
+    pool = pool or get_pool(f"forge_{skill}")
+    with pool.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE tip_retrievals
+               SET attempt_id = %s
+             WHERE id = ANY(%s)
+            """,
+            (attempt_id, retrieval_ids),
+        )
+        affected = cur.rowcount
+        conn.commit()
+    return affected
+
+
 def update_retrieval_outcomes(
     retrieval_ids: list[int],
     outcome_value: float,

@@ -29,14 +29,17 @@ ground-truth outcomes; it is an inference problem when you don't.
 """
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 import json
 import logging
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+import httpx
 import psycopg
 from neo4j import AsyncGraphDatabase
 
@@ -274,12 +277,392 @@ def write_dream_report(result: DreamResult, repo_root: Path) -> Path:
     return path
 
 
+# ---------------------------------------------------------------------
+# DEF-27 — per-retrieval causal attribution
+#
+# For each tip_retrievals row in the run, compute two complementary
+# "did the Worker follow this tip's advice" signals:
+#
+#   tip_followed_llm:  LLM judge ruling (bool). Reads the tip text and
+#                      the Worker's approach narrative, returns YES/NO
+#                      with brief reasoning. Captures directional
+#                      alignment ("tip said use X, worker used Y").
+#
+#   tip_followed_emb:  Sentence-transformers cosine similarity (float).
+#                      Deterministic, fast, captures topical overlap
+#                      but is known to miss direction — see
+#                      architecture/02 for why both signals exist.
+#
+# Both run in the dream pass at end-of-run (cold path) so the
+# retrieval pipeline stays fast during the run itself. See
+# journey/38.5 for the cryptography case that motivated this.
+# ---------------------------------------------------------------------
+
+
+_VLLM_BASE_URL = os.environ.get("VLLM_BASE_URL", "http://localhost:8050/v1")
+_JUDGE_CONCURRENCY = int(os.environ.get("TIP_FOLLOW_JUDGE_CONCURRENCY", "8"))
+_JUDGE_MAX_TOKENS = 100
+_JUDGE_TEMPERATURE = 0.0
+_EMBED_MODEL_NAME = "all-MiniLM-L6-v2"
+
+
+def _load_judge_prompt(repo_root: Path, skill: str) -> Optional[tuple[str, str]]:
+    """Load (system_prompt, user_template) from skills/<skill>/prompts/tip_follow_judge.md.
+
+    The prompt file has a `## System` section and a `## User template`
+    section in markdown — we extract both. Returns None if the file
+    doesn't exist (then this skill skips LLM judging gracefully).
+    """
+    skill_dir_map = {"stig": "stig-rhel9", "cve": "cve-response"}
+    skill_dir = skill_dir_map.get(skill, skill)
+    path = repo_root / "skills" / skill_dir / "prompts" / "tip_follow_judge.md"
+    if not path.exists():
+        return None
+    text = path.read_text(encoding="utf-8")
+
+    def _section(header: str) -> Optional[str]:
+        # Match `## {header}` and capture until the next `## ` or end of file.
+        m = re.search(rf"^## {re.escape(header)}\s*$\n(.*?)(?=\n## |\Z)", text, re.MULTILINE | re.DOTALL)
+        return m.group(1).strip() if m else None
+
+    system = _section("System")
+    user_template = _section("User template")
+    if not system or not user_template:
+        return None
+    # The "User template" section in the markdown is an explanation of the
+    # format with a code block showing the literal template. Extract the
+    # ```...``` block that contains {tip_text} and {worker_approach}.
+    m = re.search(r"```(?:[^\n]*)\n(.*?\{tip_text\}.*?\{worker_approach\}.*?)\n```", user_template, re.DOTALL)
+    if m:
+        user_template = m.group(1).strip()
+    return system, user_template
+
+
+async def _judge_one(
+    client: httpx.AsyncClient,
+    system_prompt: str,
+    user_template: str,
+    tip_text: str,
+    worker_approach: str,
+    model: str,
+) -> Optional[bool]:
+    """One LLM-judge call. Returns True/False or None on failure."""
+    user = user_template.format(tip_text=tip_text, worker_approach=worker_approach)
+    try:
+        resp = await client.post(
+            f"{_VLLM_BASE_URL}/chat/completions",
+            json={
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user},
+                ],
+                "temperature": _JUDGE_TEMPERATURE,
+                "max_tokens": _JUDGE_MAX_TOKENS,
+            },
+            timeout=60.0,
+        )
+        if resp.status_code != 200:
+            return None
+        content = resp.json()["choices"][0]["message"]["content"]
+    except Exception:
+        return None
+    # Parse the JSON line. The judge prompt instructs single-line JSON;
+    # be tolerant of fenced markdown.
+    m = re.search(r"\{[^{}]*\"followed\"\s*:\s*(true|false)[^{}]*\}", content, re.IGNORECASE)
+    if not m:
+        return None
+    return m.group(1).lower() == "true"
+
+
+def _resolve_jsonl_path(run_id: str, repo_root: Path) -> Optional[Path]:
+    """Locate the JSONL run log for ``run_id``.
+
+    Postgres ``runs`` has the started_at; ``runs/`` on disk holds files
+    named ``run-YYYYMMDD-HHMMSS.jsonl``. We match by timestamp because
+    the on-disk filename uses the harness start time (sub-second), not
+    the run_id (a separate UUID-like).
+    """
+    runs_dir = repo_root / "runs"
+    if not runs_dir.is_dir():
+        return None
+    with psycopg.connect(_pg_conninfo("forge_admin")) as conn:
+        conn.execute("SET search_path TO stig")
+        row = conn.execute(
+            "SELECT started_at FROM runs WHERE id = %s", (run_id,),
+        ).fetchone()
+    if not row or not row[0]:
+        return None
+    started_at: dt.datetime = row[0]
+    # Filename format: run-YYYYMMDD-HHMMSS.jsonl, harness rounds down to whole seconds.
+    candidates = []
+    for p in runs_dir.glob("run-*.jsonl"):
+        try:
+            stem = p.stem  # run-20260520-212629
+            parts = stem.split("-")
+            ts = dt.datetime.strptime(parts[1] + parts[2], "%Y%m%d%H%M%S")
+            ts = ts.replace(tzinfo=dt.timezone.utc)
+        except Exception:
+            continue
+        delta_s = abs((ts - started_at).total_seconds())
+        candidates.append((delta_s, p))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda x: x[0])
+    best_delta, best_path = candidates[0]
+    if best_delta > 60:  # off by more than a minute → not the right file
+        return None
+    return best_path
+
+
+def _parse_run_for_tip_followscoring(jsonl_path: Path) -> dict[tuple[str, int, int], str]:
+    """Read the run's JSONL and build a map from (rule_id, attempt_num, tip_id)
+    to the Worker's fix_script text.
+
+    Each apply_fix prompt_assembled event carries ``v2_tips_loaded`` (a list
+    of dicts with ``tip_id``). The Worker's tool_call event in the same
+    attempt has ``args.fix_script``. We stitch them so each retrieval can
+    be scored against the script that ran in the same attempt.
+    """
+    by_key: dict[tuple[str, int, int], str] = {}
+    current_rule: Optional[str] = None
+    current_attempt: int = 0
+    current_tip_ids: list[int] = []
+    pending_script: Optional[str] = None
+
+    with open(jsonl_path) as f:
+        for line in f:
+            try:
+                obj = json.loads(line)
+            except Exception:
+                continue
+            et = obj.get("event_type", "")
+            d = obj.get("data") or {}
+            if et == "rule_selected":
+                current_rule = d.get("rule_id")
+                current_attempt = 0
+                current_tip_ids = []
+            elif et == "attempt_start":
+                current_attempt = d.get("attempt") or (current_attempt + 1)
+                current_tip_ids = []
+                pending_script = None
+            elif et == "prompt_assembled" and d.get("phase") == "apply_fix":
+                v2 = d.get("v2_tips_loaded") or []
+                if isinstance(v2, list):
+                    current_tip_ids = [t.get("tip_id") for t in v2 if isinstance(t, dict) and t.get("tip_id") is not None]
+            elif et == "tool_call":
+                args = d.get("args") or {}
+                fix = args.get("fix_script")
+                if fix and current_rule and current_attempt:
+                    pending_script = fix
+                    for tid in current_tip_ids:
+                        by_key[(current_rule, current_attempt, tid)] = fix
+    return by_key
+
+
+def _fetch_unscored_retrievals(skill: str, run_id: str) -> list[dict]:
+    """Fetch retrievals from this run that still need tip_followed scoring.
+
+    Returns rows with (id, tip_id, rule_id, tip_text, retrieved_at). The
+    Worker's fix_script comes from JSONL parsing — see
+    ``_parse_run_for_tip_followscoring`` — because attempts.approach is
+    a 500-char-truncated narrative, not the actual script the Worker ran.
+    """
+    with psycopg.connect(_pg_conninfo("forge_admin")) as conn:
+        conn.execute(f"SET search_path TO {skill}")
+        rows = conn.execute(
+            """
+            SELECT tr.id, tr.tip_id, tr.rule_id, t.text, tr.retrieved_at
+            FROM tip_retrievals tr
+            JOIN tips t ON t.id = tr.tip_id
+            WHERE tr.run_id = %s
+              AND tr.tip_followed_computed_at IS NULL
+              AND tr.outcome_value IS NOT NULL
+              AND length(t.text) > 0
+            ORDER BY tr.retrieved_at, tr.rank
+            """,
+            (run_id,),
+        ).fetchall()
+    return [
+        {"id": r[0], "tip_id": r[1], "rule_id": r[2], "tip_text": r[3], "retrieved_at": r[4]}
+        for r in rows
+    ]
+
+
+def _attach_fix_scripts(
+    retrievals: list[dict],
+    script_map: dict[tuple[str, int, int], str],
+) -> list[dict]:
+    """For each retrieval, pick the fix_script for (rule_id, attempt_num, tip_id).
+
+    Without ``tip_retrievals.attempt_id`` (NULL on pre-DEF-27 runs), we
+    use retrieved_at ordering within a rule to infer attempt_num: the
+    first 5 retrievals for a rule belong to attempt 1, the next 5 to
+    attempt 2, etc. New runs (with attempt_id populated) can swap this
+    out for a clean DB lookup — see TODO marker in the code.
+    """
+    # Group retrievals by rule, ordered by retrieved_at. Assume k=5 per
+    # attempt (RetrievedTip.rank goes 1..5 per assemble_tips_for_rule).
+    by_rule: dict[str, list[dict]] = {}
+    for r in retrievals:
+        by_rule.setdefault(r["rule_id"], []).append(r)
+    K = 5  # default top-k retrievals per Worker prompt
+    out: list[dict] = []
+    for rid, rows in by_rule.items():
+        rows.sort(key=lambda x: x["retrieved_at"])
+        for idx, row in enumerate(rows):
+            inferred_attempt = (idx // K) + 1
+            key = (rid, inferred_attempt, row["tip_id"])
+            row["fix_script"] = script_map.get(key)
+            out.append(row)
+    return out
+
+
+def _write_followed_back(
+    skill: str,
+    updates: list[tuple[int, Optional[bool], Optional[float]]],
+) -> int:
+    """Write tip_followed_llm/emb/computed_at back to tip_retrievals.
+
+    Updates is a list of (retrieval_id, followed_llm, followed_emb).
+    Returns number of rows updated.
+    """
+    if not updates:
+        return 0
+    with psycopg.connect(_pg_conninfo("forge_admin")) as conn:
+        conn.execute(f"SET search_path TO {skill}")
+        with conn.cursor() as cur:
+            cur.executemany(
+                """
+                UPDATE tip_retrievals
+                   SET tip_followed_llm = %s,
+                       tip_followed_emb = %s,
+                       tip_followed_computed_at = now()
+                 WHERE id = %s
+                """,
+                [(followed_llm, followed_emb, rid) for rid, followed_llm, followed_emb in updates],
+            )
+            affected = cur.rowcount
+        conn.commit()
+    return affected
+
+
+async def score_tip_follow_for_run(
+    run_id: str,
+    skill: str,
+    repo_root: Path,
+    jsonl_path: Optional[Path] = None,
+    model: Optional[str] = None,
+) -> dict:
+    """Compute tip_followed_llm + tip_followed_emb for every unscored
+    retrieval in this run. Returns summary stats.
+
+    Reads fix_scripts from the run's JSONL (canonical source — the
+    DB's attempts.approach column is a 500-char narrative). Uses
+    sentence-transformers on CPU for the embedding leg (the GPUs are
+    pinned by vLLM) and batched httpx calls to vLLM for the LLM
+    judge. Failure-safe per-row: if either signal can't be computed
+    the column stays NULL and the other signal stands alone.
+    """
+    # Locate JSONL — caller may pass it explicitly (ralph.py knows
+    # its log path), or we resolve via run.started_at.
+    if jsonl_path is None:
+        jsonl_path = _resolve_jsonl_path(run_id, repo_root)
+    if jsonl_path is None or not jsonl_path.exists():
+        logger.warning(
+            "tip-follow scoring: no JSONL found for run_id=%s; skipping (no fix_scripts to compare)",
+            run_id,
+        )
+        return {"rows": 0, "embedded": 0, "judged": 0, "skipped": "no_jsonl"}
+
+    script_map = _parse_run_for_tip_followscoring(jsonl_path)
+    if not script_map:
+        logger.warning("tip-follow scoring: JSONL parsed but no (rule, attempt, tip) -> script entries built")
+        return {"rows": 0, "embedded": 0, "judged": 0, "skipped": "empty_jsonl"}
+
+    raw_rows = _fetch_unscored_retrievals(skill, run_id)
+    if not raw_rows:
+        return {"rows": 0, "embedded": 0, "judged": 0}
+    rows = [r for r in _attach_fix_scripts(raw_rows, script_map) if r.get("fix_script")]
+    logger.info(
+        "tip-follow scoring: %d retrievals total, %d matched to a fix_script (others skip)",
+        len(raw_rows), len(rows),
+    )
+    if not rows:
+        return {"rows": 0, "embedded": 0, "judged": 0, "skipped": "no_matches"}
+
+    # --- Embedding leg (CPU; the GPUs are pinned by vLLM) ---
+    import os as _os
+    _prev_cvd = _os.environ.get("CUDA_VISIBLE_DEVICES")
+    _os.environ["CUDA_VISIBLE_DEVICES"] = ""
+    try:
+        from sentence_transformers import SentenceTransformer  # type: ignore
+        import numpy as np  # type: ignore
+        encoder = SentenceTransformer(_EMBED_MODEL_NAME, device="cpu")
+        tip_embs = encoder.encode([r["tip_text"] for r in rows], show_progress_bar=False)
+        scr_embs = encoder.encode([r["fix_script"] for r in rows], show_progress_bar=False)
+        emb_scores: list[Optional[float]] = []
+        for t, a in zip(tip_embs, scr_embs):
+            denom = float(np.linalg.norm(t)) * float(np.linalg.norm(a))
+            emb_scores.append(float(np.dot(t, a) / denom) if denom > 0 else None)
+        embedded_count = sum(1 for s in emb_scores if s is not None)
+    except Exception as exc:
+        logger.warning("tip-follow scoring: embedding step failed: %s", exc)
+        emb_scores = [None] * len(rows)
+        embedded_count = 0
+    finally:
+        if _prev_cvd is None:
+            _os.environ.pop("CUDA_VISIBLE_DEVICES", None)
+        else:
+            _os.environ["CUDA_VISIBLE_DEVICES"] = _prev_cvd
+
+    # --- LLM judge leg (batched concurrent to vLLM) ---
+    judge = _load_judge_prompt(repo_root, skill)
+    if not judge:
+        logger.info("tip-follow scoring: no judge prompt for skill=%s; skipping LLM leg", skill)
+        llm_scores: list[Optional[bool]] = [None] * len(rows)
+        judged_count = 0
+    else:
+        system_prompt, user_template = judge
+        judge_model = model or os.environ.get("FORGE_MODEL", "/weights/gemma-4-31B-it")
+        sem = asyncio.Semaphore(_JUDGE_CONCURRENCY)
+
+        async def _gated(client: httpx.AsyncClient, row: dict) -> Optional[bool]:
+            async with sem:
+                return await _judge_one(
+                    client, system_prompt, user_template,
+                    row["tip_text"], row["fix_script"], judge_model,
+                )
+
+        async with httpx.AsyncClient(timeout=httpx.Timeout(120.0)) as client:
+            llm_scores = await asyncio.gather(*[_gated(client, r) for r in rows])
+        judged_count = sum(1 for s in llm_scores if s is not None)
+
+    updates = [
+        (row["id"], llm, emb)
+        for row, llm, emb in zip(rows, llm_scores, emb_scores)
+    ]
+    written = _write_followed_back(skill, updates)
+    logger.info(
+        "tip-follow scoring: %d rows scored (%d via embedding, %d via LLM judge), %d updated",
+        len(rows), embedded_count, judged_count, written,
+    )
+    return {
+        "rows": len(rows),
+        "embedded": embedded_count,
+        "judged": judged_count,
+        "written": written,
+        "jsonl_path": str(jsonl_path),
+    }
+
+
 async def run_dream_pass(
     run_id: str,
     repo_root: Optional[Path] = None,
     skill: str = "stig",
     environment_tag: Optional[str] = None,
     force: bool = False,
+    jsonl_path: Optional[Path] = None,
 ) -> Optional[DreamResult]:
     """Execute the dream pass for a completed run.
 
@@ -361,6 +744,20 @@ async def run_dream_pass(
     # Step 3: update Postgres projection
     pg_updated = rebuild_lessons_projection(credits_dict, environment_tag)
     logger.info("dream pass: %d Postgres lessons_current rows updated", pg_updated)
+
+    # Step 3.5 (DEF-27): per-retrieval causal attribution. For each
+    # tip_retrievals row in this run, compute tip_followed_llm and
+    # tip_followed_emb. Failure-safe: never break the dream pass on
+    # a scoring error — the columns just stay NULL and the retrieval
+    # ranker falls back to outcome-only.
+    try:
+        follow_stats = await score_tip_follow_for_run(
+            run_id, skill, repo_root, jsonl_path=jsonl_path,
+        )
+        logger.info("dream pass: tip-follow scoring complete — %s", follow_stats)
+    except Exception as exc:  # noqa: BLE001 — must not break credit assignment
+        logger.warning("dream pass: tip-follow scoring failed: %s", exc)
+        follow_stats = {"rows": 0, "embedded": 0, "judged": 0}
 
     # Step 4: tally
     positive = sum(1 for cc in credits if cc.confidence_signal > 0)

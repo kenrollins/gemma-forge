@@ -69,6 +69,7 @@ from gemma_forge.memory.reflector_parser import (
 from gemma_forge.memory.retrieval import (
     assemble_tips_for_rule,
     log_retrievals,
+    update_retrieval_attempt_ids,
     update_retrieval_outcomes,
 )
 from gemma_forge.memory.tip_writer import Tip, TipWriter
@@ -1226,6 +1227,9 @@ async def run_ralph(
         rule_deferred = False
         escalation_reason: Optional[str] = None
         attempt = 0
+        # Per-attempt retrieval_ids, so we can backfill tip_retrievals.attempt_id
+        # once save_attempt returns the new attempts.id at rule-end. See DEF-27.
+        retrievals_by_attempt: dict[int, list[int]] = {}
         # Track the last attempt at which the architect re-engaged, so we
         # trigger re-engagement every N attempts since the last architect touch.
         last_architect_touch = 0  # attempt #0 = initial rule selection
@@ -1351,6 +1355,11 @@ async def run_ralph(
                         rule_id=selected["rule_id"],
                         skill=skill_schema,
                     )
+                    # Remember which retrievals this attempt used, so we
+                    # can backfill attempt_id after save_attempt runs at
+                    # rule-end. See DEF-27 / update_retrieval_attempt_ids.
+                    if retrieval_ids:
+                        retrievals_by_attempt[attempt] = retrieval_ids
                 except Exception as exc:  # noqa: BLE001 — retrieval telemetry is auxiliary
                     logger.warning("log_retrievals failed: %s", exc)
 
@@ -1429,10 +1438,14 @@ async def run_ralph(
                 "summary": eval_result_obj.summary,
                 **eval_result_obj.signals,
             }
-            # Skill-agnostic graded outcome signal (Phase E of V2 plan).
+            # Skill-agnostic graded outcome signal (Phase E of V2 plan,
+            # extended for DEF-26 to pass attempt_number — see journey/38.5
+            # for the cryptography case that motivated graded scoring).
             # value × confidence is the per-retrieval utility contribution
             # the memory system uses for hit-tracking and eviction.
-            outcome_signal = runtime.evaluator.signal_for(eval_result_obj)
+            outcome_signal = runtime.evaluator.signal_for(
+                eval_result_obj, attempt_number=attempt
+            )
             eval_result["outcome_signal"] = {
                 "value": round(outcome_signal.value, 4),
                 "confidence": round(outcome_signal.confidence, 4),
@@ -1991,8 +2004,9 @@ async def run_ralph(
 
         # Persist attempt traces to cross-run memory (all attempts, success or failure)
         for i, att in enumerate(episodic.attempts):
-            mem_store.save_attempt(
-                mem_run_id, selected["rule_id"], i + 1,
+            attempt_num = i + 1
+            new_attempt_id = mem_store.save_attempt(
+                mem_run_id, selected["rule_id"], attempt_num,
                 att.get("approach", "")[:500],
                 False,  # individual attempts within a rule are always pre-resolution
                 att.get("result", ""),
@@ -2001,6 +2015,19 @@ async def run_ralph(
                 "",  # banned patterns are in semantic memory, not per-attempt
                 0.0,
             )
+            # Backfill tip_retrievals.attempt_id now that the attempts
+            # row exists. log_retrievals runs at prompt-assembly time
+            # (before the row exists); this closes the FK loop so
+            # downstream analytics (and the dream pass's tip-follow
+            # scoring) can join cleanly. See DEF-27.
+            rids = retrievals_by_attempt.get(attempt_num, [])
+            if rids and new_attempt_id is not None:
+                try:
+                    update_retrieval_attempt_ids(
+                        rids, new_attempt_id, skill=skill_schema,
+                    )
+                except Exception as exc:  # noqa: BLE001 — telemetry, never fatal
+                    logger.warning("update_retrieval_attempt_ids failed: %s", exc)
         # Save distilled lessons from failed approaches. Skip for deferred
         # items — their verdict isn't known until the post-loop phase,
         # so storing "lessons" from intermediate attempts is premature.
@@ -2221,6 +2248,7 @@ async def run_ralph(
     await _run_auto_consolidation(
         run_id=mem_run_id, skill_schema=skill_schema,
         run_log=run_log, repo_root=Path.cwd(),
+        jsonl_path=Path(run_log.log_path) if hasattr(run_log, "log_path") else None,
     )
 
     # log_summary closes the run_log file, so every other event emission
@@ -2233,6 +2261,7 @@ async def run_ralph(
 
 async def _run_auto_consolidation(
     run_id: str, skill_schema: str, run_log, repo_root: Path,
+    jsonl_path: Optional[Path] = None,
 ) -> None:
     """Dream pass + eviction sweep at run-end.
 
@@ -2260,6 +2289,7 @@ async def _run_auto_consolidation(
     try:
         result = await run_dream_pass(
             run_id=run_id, repo_root=repo_root, skill=skill_schema,
+            jsonl_path=jsonl_path,
         )
         if result is None:
             stats["dream"] = {"status": "already_dreamed"}

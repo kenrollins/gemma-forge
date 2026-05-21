@@ -114,7 +114,7 @@ class MemoryStoreProtocol(Protocol):
     def save_attempt(self, run_id: str, item_id: str, attempt_num: int,
                      approach: str, eval_passed: bool, failure_mode: str,
                      reflection: str, lesson: str, banned_pattern: str,
-                     wall_time_s: float) -> None: ...
+                     wall_time_s: float) -> Optional[int]: ...
 
     def save_lesson(self, category: str, lesson: str, run_id: str,
                     item_id: str) -> None: ...
@@ -229,10 +229,18 @@ class PostgresMemoryStore:
     def save_attempt(self, run_id: str, item_id: str, attempt_num: int,
                      approach: str, eval_passed: bool, failure_mode: str,
                      reflection: str, lesson: str, banned_pattern: str,
-                     wall_time_s: float) -> None:
+                     wall_time_s: float) -> Optional[int]:
+        """Persist an attempt trace. Returns the new attempts.id, or
+        None for ban-sentinel writes (which go to the bans table instead).
+
+        The returned id is used by ralph.py to backfill
+        tip_retrievals.attempt_id, which was previously hardcoded to
+        NULL — see DEF-27 / journey/38.5 for why per-retrieval ↔ per-attempt
+        linkage matters.
+        """
         if item_id == self._BAN_SENTINEL:
             self._save_ban(run_id, banned_pattern)
-            return
+            return None
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -242,6 +250,7 @@ class PostgresMemoryStore:
                          failure_mode, reflection, lesson, banned_pattern,
                          wall_time_s, created_at)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now())
+                    RETURNING id
                     """,
                     (
                         run_id, item_id, attempt_num, approach[:500],
@@ -250,7 +259,9 @@ class PostgresMemoryStore:
                         wall_time_s,
                     ),
                 )
+                new_id = cur.fetchone()[0]
             conn.commit()
+        return new_id
 
     def _save_ban(self, run_id: str, pattern: str) -> None:
         """Upsert a banned pattern for this run. Empty patterns ignored."""

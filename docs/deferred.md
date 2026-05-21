@@ -518,6 +518,77 @@ promoted out of this file into active work.
   rollback, bisection is a retry loop with halved batches on top
   of the existing snapshot/apply/reboot/verify primitives.
 
+### DEF-23 — Per-call MTP delta dropped before reaching the run JSONL
+
+- **What**: `gemma_forge/models/vllm_llm.py` attaches per-call MTP
+  metrics to `LlmResponse.custom_metadata["mtp"]` (drafts, drafted,
+  accepted, acceptance, tokens_per_step). The OTel span carries it
+  fine — Jaeger spans for every Architect / Worker / Reflector call
+  during the 2026-05-20 STIG run have the `gen_ai.vllm.mtp.*`
+  attributes. But ralph.py's JSONL writer projects only a fixed set
+  of keys from the agent_response payload (`text`, `tokens`,
+  `timing`, `model`, `tool_calls`, `capped`) and silently drops
+  `mtp`. The headline tok/s in `data.timing.tok_per_sec` already
+  reflects MTP's effect, but per-role acceptance / draft / accepted
+  counts aren't recoverable from JSONL alone.
+- **Why deferred**: Discovered mid-run on 2026-05-20 (~3h into the
+  post-MTP STIG run). Restarting again to fix it would have cost
+  another full warmup cycle and disrupted the comparability with
+  Run 6. Jaeger spans still hold the data — analysis is just
+  slightly less convenient.
+- **Revisit when**: Next run start, OR earlier if any post-mortem
+  analysis needs per-role acceptance and Jaeger query is more friction
+  than is worth.
+- **Pain signal**: Writing a JSONL-only analysis script for a run and
+  finding the MTP per-role breakdown requires a Jaeger query
+  alongside.
+- **Fix**: Add `"mtp": (event.custom_metadata or {}).get("mtp")` to
+  the dict built in ralph.py's `_log_agent_response` (or wherever the
+  agent_response `data` payload is assembled — the projection lives
+  next to the `tokens` / `timing` / `model` extraction). One line.
+- **Context**: 2026-05-20 mid-flight MTP instrumentation work; the
+  `mtp` field is being created correctly at the LLM layer
+  ([`vllm_llm.py:336`](https://github.com/kenrollins/gemma-forge/blob/main/gemma_forge/models/vllm_llm.py#L336))
+  but not surfaced in ralph.py's JSONL projection.
+
+### DEF-24 — KV-cache + running-request gauges always sampled at idle
+
+- **What**: `gemma_forge/harness/run_logger.py:_capture_vllm_metrics`
+  reads `vllm:kv_cache_usage_perc` and `vllm:num_requests_running`
+  off the vLLM `/metrics` endpoint and writes them into every JSONL
+  event's `vllm_state` field. Both gauges are **instantaneous** —
+  they reflect what vLLM is doing at scrape time. Ralph is
+  effectively single-stream, so by the time an event is logged
+  (post-LLM-call), the request is already complete and the gauges
+  read 0. Observed empirically over 981 captures in the 2026-05-20
+  run: every single sample reads `kv_cache_pct=0.0` and `running=0`.
+  The UI dashboard's "KV CACHE 0.0%" tile is rendering real
+  telemetry — it just always shows idle, which makes it look like a
+  dead widget.
+- **Why deferred**: Doesn't affect run correctness or post-run
+  analysis (we have peak / max KV from vLLM's own logs at boot;
+  prefix-hit rate at ~52% is the more interesting steady-state
+  signal). The fix is real engineering — either a background sampler
+  thread that snapshots every N seconds independent of harness
+  events, or switching to a rate-based / max-windowed metric vLLM
+  exposes. Worth doing before the next demo, not worth interrupting
+  this run for.
+- **Revisit when**: Before the next live demo, OR when someone asks
+  "what's the KV cache really doing during generation?" and the
+  answer needs to be visible on the dashboard rather than buried in
+  Prometheus.
+- **Pain signal**: A demo audience asks why all four GPUs are loaded
+  but the KV cache tile says 0% — and we have to explain sampling
+  timing instead of pointing at the number.
+- **Fix sketch**: Run a background asyncio task in run_logger that
+  scrapes `/metrics` every 2-5s into a rolling max for the last
+  window. Emit that max as `kv_cache_pct_max_5s` rather than the
+  instantaneous gauge. Same shape for `running`. Prefix-hit rate
+  stays as-is — cumulative is right for that one.
+- **Context**: 2026-05-20 STIG run mid-flight observation. UI tile in
+  `web/ui/src/components/ArchitecturePanel.tsx:134`; metric capture
+  in `run_logger.py:174-181`.
+
 ### DEF-22 — Two harness entry points with diverging observability
 
 - **What**: `gemma_forge/harness/ralph.py` is the active entry point

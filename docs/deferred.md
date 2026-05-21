@@ -589,6 +589,69 @@ promoted out of this file into active work.
   `web/ui/src/components/ArchitecturePanel.tsx:134`; metric capture
   in `run_logger.py:174-181`.
 
+### DEF-25 — Surface MTP in the dashboard hardware card (next-run package)
+
+- **What**: The 2026-05-20 run added Gemma 4 MTP speculative decoding
+  (2.74× synthetic / ~1.8× real-workload throughput) and **nothing in
+  the dashboard at `:3333` shows it**. Acceptance and effective
+  tok/step are live on the vLLM `/metrics` endpoint and on the
+  Grafana panel at `:3002`, but the ArchitecturePanel hardware card
+  has no MTP tile. The "Gemma 4 going fast on edge hardware *because
+  of MTP*" narrative therefore has no visceral demo surface — a
+  reviewer watching the dashboard sees Gemma 4 generating tokens but
+  no indication MTP exists.
+- **Why deferred**: Discovered mid-flight during the 2026-05-20 STIG
+  run. Wiring it up in three places (`run_logger.py`, `ralph.py`,
+  and the UI) while the run is in progress isn't worth the risk; the
+  Python harness has `run_logger` already imported so a mid-run edit
+  wouldn't take effect anyway, and any other workaround (sidecar
+  loggers, post-hoc JSONL backfill) compromises replay fidelity.
+- **Revisit when**: At the start of the next run. This is a coherent
+  package with DEF-23 (per-call `mtp` projection in JSONL) and
+  DEF-24 (KV-cache sampling fix); land all three together so the
+  next run's JSONL has full MTP fidelity for both live dashboards
+  and replays.
+- **Pain signal**: We give a live demo of the dashboard during a run
+  and have to verbally explain "the speedup you're seeing is from
+  MTP, which isn't shown on this panel."
+- **Concrete changes** (post-run, sequence them in this order):
+  1. **`gemma_forge/harness/run_logger.py`**: extend `_VLLM_CUM_NAMES`
+     with the three `spec_decode_num_*` counters; in the `snap` dict
+     construction, compute `mtp_acceptance = accepted/drafted`,
+     `mtp_tokens_per_step = 1 + accepted/drafts`, and keep raw
+     totals (`mtp_drafts_total`, `mtp_accepted_total`) for
+     analysis. Same cumulative-counter pattern as the existing
+     prefix-hit block. Cumulative is fine — at a 3+ hour horizon
+     it's the same "asymptotically stable headline number" shape as
+     prefix hit, and that's the right semantics here.
+  2. **`gemma_forge/harness/ralph.py`**: DEF-23 one-liner —
+     `"mtp": (event.custom_metadata or {}).get("mtp")` into the
+     agent_response `data` projection so per-call MTP also reaches
+     JSONL (independent path from the snapshot in vllm_state).
+  3. **`web/ui/src/components/types.ts`**: extend `VllmState` with
+     `mtp_acceptance?: number; mtp_tokens_per_step?: number;
+     mtp_drafts_total?: number; mtp_accepted_total?: number`.
+  4. **`web/ui/src/components/ArchitecturePanel.tsx`**: add a fourth
+     column to the existing KV Cache / Queue / Prefix Hit row.
+     Label: `MTP`. Value: `{Math.round(acc*100)}% · {tps.toFixed(2)}×/step`.
+     Color `#EC4899` (distinct from the existing purple/green).
+     Bar gauge driven by `acc * 100` like the others. Same graceful
+     fallback as `prefix_hit_rate` (`!== undefined` guard) so the
+     tile hides cleanly on replays of pre-fix runs (including this
+     2026-05-20 run).
+  5. **DEF-24 in the same batch**: background asyncio task in
+     run_logger that snapshots `/metrics` every 2-5s into a rolling
+     5s-max for `kv_cache_pct` and `running`. Emit those as the
+     gauge values instead of the post-call-instantaneous snapshot
+     so the dashboard's KV tile stops always showing 0%.
+- **Context**: 2026-05-20 STIG run mid-flight observation. UI fields
+  defined in [`web/ui/src/components/types.ts:33-35`](https://github.com/kenrollins/gemma-forge/blob/main/web/ui/src/components/types.ts#L33-L35);
+  hardware card layout in
+  [`web/ui/src/components/ArchitecturePanel.tsx:130-152`](https://github.com/kenrollins/gemma-forge/blob/main/web/ui/src/components/ArchitecturePanel.tsx#L130-L152).
+  Note that `web/ui/AGENTS.md` warns that this Next.js has breaking
+  changes vs training data — read `node_modules/next/dist/docs/`
+  before touching component code.
+
 ### DEF-22 — Two harness entry points with diverging observability
 
 - **What**: `gemma_forge/harness/ralph.py` is the active entry point

@@ -589,6 +589,67 @@ promoted out of this file into active work.
   `web/ui/src/components/ArchitecturePanel.tsx:134`; metric capture
   in `run_logger.py:174-181`.
 
+### DEF-27 — Per-retrieval causal attribution (context-graph signal on tip_retrievals)
+
+- **What**: The `stig.tip_retrievals` row records what was retrieved
+  and what outcome followed, but not whether the retrieved tip's
+  advice was actually used by the Worker. Without that causal
+  attribution signal, credit-assignment in the dream pass and the
+  retrieval ranker conflates two structurally different cases: tips
+  that helped vs. tips that were merely present during success. The
+  cryptography regression in Run 7 (journey/38.5) is the empirical
+  witness: five tips advising approach X were retrieved during R6's
+  successful attempt; R6's Worker used approach Y; outcomes marked
+  all five as `outcome_value=1`. R7's Worker followed the (wrong)
+  literal advice; the rule failed. The corpus had no signal to
+  distinguish.
+- **Why deferred**: Originally surfaced 2026-05-21 as the right
+  engineering answer to the cryptography regression. Landing as
+  part of the Run 8 pre-flight bundle alongside DEF-23, 24, 25,
+  26. This entry exists to *name* the work as a coherent
+  architectural change rather than letting it be hidden inside the
+  DEF-26 graded-outcome work.
+- **Revisit when**: This ships as part of Run 8 pre-flight. After
+  Run 8 + Run 9 data, refine: tune the LLM-judge / embedding
+  combination, decide whether per-skill judge prompts need to be
+  more bespoke than the STIG default.
+- **Pain signal**: Categories with long retrieval history regress
+  on success rate while fresh-history categories hold (the exact
+  Run 7 cryptography / logging / filesystem pattern). This is the
+  "plausible-but-misleading tips have accumulated" signature.
+- **Fix sketch**:
+  1. Migration: add `tip_followed_llm BOOLEAN`,
+     `tip_followed_emb DOUBLE PRECISION`,
+     `tip_followed_computed_at TIMESTAMPTZ` to
+     `stig.tip_retrievals` (and `cve.tip_retrievals` for parity).
+  2. Dream pass extension: at end-of-run, iterate over the run's
+     retrievals, fetch the corresponding attempt's `fix_script`
+     from the JSONL, score against the tip text via both
+     embedding cosine (`sentence-transformers/all-MiniLM-L6-v2`,
+     already on deps) and LLM judge (batched 8-way concurrent
+     against vLLM, low-temperature, fixed prompt). Write both
+     scores back. Estimated 12-15 min added to dream pass for a
+     full STIG run.
+  3. Per-skill artifact: `skills/stig-rhel9/prompts/tip_follow_judge.md`
+     — system prompt + few-shot examples. CVE gets its own when next
+     CVE run lands.
+  4. Retrieval ranker: include `tip_followed_*` in the weighted
+     score so tips with low follow rate get downweighted.
+  5. Dream-pass per-tip credit (closes DEF-03 cleanly): compute
+     `helpful_when_followed_rate` per tip and use it for
+     confidence adjustment.
+- **Context**: Architectural reasoning in
+  [`architecture/02`](journal/architecture/02-context-graphs-decision-provenance.md);
+  empirical witness in
+  [`journey/38.5`](journal/journey/38.5-the-cryptography-regression-postmortem.md);
+  the broader theoretical frame in
+  [`journey/38.6`](journal/journey/38.6-context-graphs-and-the-tip-causal-signal.md)
+  and the original (now-vindicated) spark in
+  [`journey/22`](journal/journey/22-context-graphs-and-the-memory-question.md).
+  This is what the V2 memory architecture was always going to need
+  once the corpus matured enough for lucky-neighbor outcomes to
+  dominate the credit signal.
+
 ### DEF-26 — STIG tip outcome_value is binary; we throw away graded signal we already have
 
 - **What**: `gemma_forge/harness/interfaces.py:OutcomeSignal` is

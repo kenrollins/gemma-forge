@@ -589,6 +589,68 @@ promoted out of this file into active work.
   `web/ui/src/components/ArchitecturePanel.tsx:134`; metric capture
   in `run_logger.py:174-181`.
 
+### DEF-26 — STIG tip outcome_value is binary; we throw away graded signal we already have
+
+- **What**: `gemma_forge/harness/interfaces.py:OutcomeSignal` is
+  designed graded (`value: float ∈ [0,1]`, `confidence: float ∈
+  [0,1]`) — that's a deliberate V2 architecture decision so the
+  same memory system can handle binary-deterministic (STIG, CVE),
+  graded (test coverage), and judgment (LLM-rated) skills. For
+  STIG, `outcome_signal_from_eval_result()` hardcodes
+  `value = 1.0 if result.passed else 0.0`. That's correct in the
+  narrow sense — OpenSCAP IS binary — but we collapse at least six
+  distinct retrieval shapes onto two integer values:
+  1. Tip retrieved on attempt 1 that won (gold) → 1.0
+  2. Tip retrieved on attempt 5 that finally won (helped slowly) → 1.0
+  3. Tip retrieved on failed attempt before later success → 0.0
+  4. Tip retrieved on attempt that escalated (misled) → 0.0
+  5. Tip retrieved and the Worker's response ignored its advice → 0.0
+  6. Tip retrieved on a rule that never got resolved → 0.0
+  Shapes 1+2 collapse to "helpful"; 3-6 collapse to "neutral."
+  Result: when querying `tip_retrievals`, the "harmful" column
+  always shows zero — we literally cannot represent "this tip
+  misled" because nothing in the recorded signal carries that
+  information.
+- **Why deferred**: This pairs with DEF-03 (dream-pass uses
+  category-level credit). DEF-03 is partly there *because*
+  per-tip signals are too coarse to drive per-tip credit
+  assignment. They're the same root issue: outcome signal is
+  undersized. Fixing both at once is more coherent than fixing
+  either alone.
+- **Revisit when**: DEF-03 work begins. The "no harmful" column
+  surfaces in a memory audit and the retrieval ranker can't
+  answer "this tip misled before, downrank it" — that's the
+  signal to ship this.
+- **Pain signal**: A post-run audit shows a tip with
+  `outcome_at_source_value > 0.5` whose retrieval-time
+  `avg(outcome_value)` across many retrievals is 0 — i.e., the
+  tip looked good when learned but never actually helps.
+  Currently invisible to the retrieval scorer because the
+  retrieval rows all read 0, indistinguishable from "tip helped
+  another rule but wasn't relevant here."
+- **Fix sketch**: Override `signal_for()` on the STIG Evaluator
+  to read `attempt_number` and `failure_mode` from the eval
+  context. Deterministic scoring function (NOT an LLM judge per
+  "Non-determinism has a cost" — we want defensible math):
+  ```
+  if passed and attempt_number == 1:    value=1.0   # gold
+  elif passed and attempt_number <= 3:  value=0.8   # solid
+  elif passed:                          value=0.5   # helped slowly
+  elif failure_mode == ESCALATED:       value=-0.3  # actively misled
+  elif failure_mode == CLEAN_FAILURE:   value=0.0   # neutral
+  elif failure_mode == HEALTH_FAILURE:  value=-0.2  # tip suggested unsafe action
+  ```
+  The exact numbers are open for tuning. The schema already
+  stores `double precision` so no DDL change required.
+- **Context**: 2026-05-21 mid-run memory audit. Smoking-gun
+  query: `SELECT count(*) FROM stig.tip_retrievals WHERE
+  outcome_value < 0` returns 0 across the entire 8,810-row
+  history. Architecture intent docs:
+  [`v2-architecture-plan.md`](drafts/v2-architecture-plan.md)
+  §2.2 (Phase E outcome signal). Related: DEF-03 (category-level
+  credit assignment that this richer signal would enable
+  per-tip).
+
 ### DEF-25 — Surface MTP in the dashboard hardware card (next-run package)
 
 - **What**: The 2026-05-20 run added Gemma 4 MTP speculative decoding

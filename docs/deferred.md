@@ -589,6 +589,73 @@ promoted out of this file into active work.
   `web/ui/src/components/ArchitecturePanel.tsx:134`; metric capture
   in `run_logger.py:174-181`.
 
+### DEF-28 — Worker doesn't have access to the OVAL/XCCDF rule check definition (the biggest available lift)
+
+- **What**: STIG's evaluator runs `oscap xccdf eval` against the
+  datastream at `/usr/share/xml/scap/ssg/content/ssg-rl9-ds.xml` —
+  27 MB of XML that contains, for every rule, the authoritative
+  description of what makes that rule pass: the exact file path,
+  the exact syntax (`typeset -xr` vs `export`), the exact string
+  the scanner expects in `/etc/issue`, the exact OVAL XPath. The
+  Worker's apply_fix prompt currently includes the rule's *title*
+  (e.g., "Set Account Expiration Following Inactivity") and the
+  Architect's plan. It does **not** include the XCCDF rule
+  description — the on-disk text that gives the answer.
+- **Why deferred**: Surfaced 2026-05-22 as the largest finding of
+  the four-run R6→R9 arc. Across 78 rules that failed in every
+  single run (R6, R7, R8, R9), the Reflector consistently
+  identified the "Scanner Gap" pattern — Worker satisfies the
+  system (kernel loads the audit rule, `auditctl -l` confirms it,
+  sshd is configured, banner file has text) but OpenSCAP's static
+  file analysis is looking for an exact form the Worker is
+  guessing at. The descriptions on disk literally contain the
+  answer. The Worker has never read them.
+- **Revisit when**: This should be Run 10's work, after DEF-03
+  (per-tip credit) lands. The combination would deliver:
+  DEF-03 fixes the credit-assignment consumer; DEF-28 gives
+  Workers the input they've been guessing at. Together these
+  are the structural changes the chronic-failure long tail
+  has been waiting for.
+- **Pain signal** (already firing): The "Scanner Gap" event in
+  ralph.py logs 70+ events per run, and `architect_reengaged`
+  with reason citing "evaluator continues to fail despite
+  health checks passing" appears in nearly every escalated
+  audit/banner/sshd rule's final reflection. The pattern is
+  named in the data; the harness can't act on it because the
+  Worker doesn't have the scanner's contract.
+- **Fix sketch**:
+  1. New tool in `gemma_forge/harness/tools/openscap.py`:
+     `get_rule_description(rule_id: str) -> dict` returning
+     `{title, description, oval_check_id, ocil_check_id,
+     remediation_hint}` extracted via xmllint XPath against the
+     datastream. Cache on first call per run.
+  2. Skill-level extension: `stig-rhel9/runtime.py` exposes the
+     tool to the Worker via the ADK FunctionTool wrapper, OR
+     prompts/architect.md plans get enriched at the harness
+     level with the description text for each rule the
+     Architect selects.
+  3. Prompt assembly change in `ralph.py`: add a new section
+     `xccdf_rule_definition` to apply_fix prompts. It's a
+     ~300-token-per-rule addition; tuning the context budget
+     accordingly is part of the change.
+  4. The OVAL definition itself is a separate, larger file
+     (`ssg-rhel9-oval.xml`) — for a deeper version of this
+     work, the Worker could get the actual OVAL XPath the
+     scanner uses. Start with the description; add OVAL as
+     follow-up if description alone doesn't close the gap.
+- **Expected outcome**: Empirically, 7 of 8 sampled chronic
+  failures in journey/38.7 have answers visible in the XCCDF
+  description text. The fix isn't a smarter loop — it's the
+  right input. Conservative projection: 30-50% of the 78
+  chronic failures convert to remediated in Run 11+. Even at
+  the low end that's +25 rules, ~10pp fix rate.
+- **Context**: [`journey/38.7`](journal/journey/38.7-runs-8-and-9-what-the-data-said.md)
+  is the source — the analysis that named the pattern after
+  finding the Reflector had been quietly diagnosing it for
+  months. The 27 MB datastream is already on the VM (it's what
+  `oscap xccdf eval` reads); harness just needs to read from it
+  too. No new infrastructure, no new dependencies.
+
 ### DEF-27 — Per-retrieval causal attribution (context-graph signal on tip_retrievals)
 
 - **What**: The `stig.tip_retrievals` row records what was retrieved

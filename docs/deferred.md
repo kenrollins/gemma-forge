@@ -589,6 +589,52 @@ promoted out of this file into active work.
   `web/ui/src/components/ArchitecturePanel.tsx:134`; metric capture
   in `run_logger.py:174-181`.
 
+### DEF-30 — A fourth verdict for "fix the inputs, not the reasoning"
+
+- **What**: Today the architect-reengagement verdict space is
+  CONTINUE / PIVOT / ESCALATE — three actions, all "try again with
+  the same inputs." When the Reflector identifies that the failure
+  isn't about the Worker's reasoning but about the Worker not having
+  the right *information* (the OpenSCAP scanner-gap pattern that
+  journey/38.7 and 38.8 name in detail), the harness has no verdict
+  to act on that. The diagnosis becomes log noise. DEF-28 ships the
+  manual version for STIG (pre-fetch XCCDF descriptions for every
+  rule at startup). The architectural version is a harness-level
+  pattern: detect "scanner_gap_detected for rule X" and dynamically
+  enrich X's apply_fix prompt with whatever the skill can provide,
+  *as a fourth verdict the architect can issue*.
+- **Why deferred**: Speculative until Run 10 data is in. If DEF-28's
+  unconditional XCCDF enrichment closes the gap, the dynamic version
+  is unnecessary — pre-fetching is cheaper and simpler than detection-
+  triggered enrichment. If DEF-28 closes *some* of the gap but
+  leaves a residual category of failures the Worker keeps hitting,
+  the dynamic verdict becomes the natural next architectural change.
+- **Revisit when**: Run 10 data shows a residual scanner-gap pattern
+  that XCCDF descriptions alone don't close — e.g., rules where the
+  description is too vague to operationalize and the Worker needs
+  the actual OVAL XPath instead. Then a "MISSING_INPUT" verdict
+  with a `skill.enrich_for_rule(rule_id, deficit_kind)` hook would
+  let the architecture progressively unblock individual rules
+  instead of pre-fetching for every rule.
+- **Pain signal**: After DEF-28 lands, `scanner_gap_detected`
+  events that survive into ESCALATEs — rules where the Worker
+  had the XCCDF description and *still* couldn't satisfy the
+  scanner. That residual set is what DEF-30 would address.
+- **Fix sketch**:
+  1. New `FailureMode.MISSING_INPUT` enum value.
+  2. Reflector prompt gains structured output schema where it
+     can emit "the issue is that the Worker doesn't have X; the
+     skill probably has Y available."
+  3. Architect re-engagement verdict adds `ENRICH_AND_RETRY`
+     option that calls a new `runtime.enrich_for_rule(rule_id,
+     deficit) -> dict | None` skill hook.
+  4. Worker's next apply_fix prompt includes whatever
+     enrichment came back.
+- **Context**: [journey/38.8](journal/journey/38.8-how-we-missed-the-descriptions.md)
+  named this pattern as the structural lesson — "a reflexive
+  system that can act on what its reflector says about itself
+  is qualitatively different from one that can only retry."
+
 ### DEF-29 — STIG adopts the existing per-family reboot pattern from CVE
 
 - **What**: A small subset of STIG rules (FIPS / kernel-crypto-state

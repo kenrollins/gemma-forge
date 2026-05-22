@@ -790,6 +790,19 @@ async def run_ralph(
     if runtime is None:
         raise RuntimeError("No skill specified — the harness requires a skill to run.")
 
+    # DEF-28 — optional skill pre-flight: skills that opt into the
+    # worker_context enrichment path benefit from pre-fetching their
+    # per-item description cache once at startup. STIG implements
+    # prefetch_xccdf_descriptions to pull the SCAP datastream and
+    # build an in-memory lookup. Skills without this hook are
+    # untouched.
+    if hasattr(runtime, "prefetch_xccdf_descriptions"):
+        try:
+            n = await runtime.prefetch_xccdf_descriptions()
+            logger.info("DEF-28 XCCDF prefetch: %d rule descriptions cached", n)
+        except Exception as exc:  # noqa: BLE001 — non-fatal
+            logger.warning("DEF-28 XCCDF prefetch failed: %s", exc)
+
     # Load skill-declared ordering constraints. Empty list is a valid
     # configuration (most skills won't have any). See ordering.py for
     # the mechanism; DEF-02 for the motivating pattern.
@@ -1312,6 +1325,26 @@ async def run_ralph(
             # 1: Architect's plan (bounded) — critical context
             work_sections.append((1, "architect_plan",
                 f"Architect's plan:\n{arch_resp[:500]}"))
+
+            # 1.5: DEF-28 — skill-provided work-item context. The STIG
+            # skill returns the XCCDF rule description (the authoritative
+            # scanner contract — file paths, exact directive form,
+            # required strings). Other skills return None and the
+            # section is skipped. See journey/38.7 for the discovery.
+            try:
+                ctx = runtime.worker_context(work_item) if hasattr(runtime, "worker_context") else None
+            except Exception as exc:  # noqa: BLE001 — never break the loop on enrichment failure
+                logger.warning("worker_context failed: %s", exc)
+                ctx = None
+            if ctx and ctx.get("description"):
+                desc_text = ctx["description"]
+                ctx_lines = [
+                    f"AUTHORITATIVE RULE SPECIFICATION ({ctx.get('check_artifact', 'XCCDF datastream')}):",
+                    f"This is the exact text the scanner evaluates against — match it precisely.",
+                    "",
+                    desc_text,
+                ]
+                work_sections.append((1, "work_item_context", "\n".join(ctx_lines)))
 
             # 2: Current attempt marker — tells the Worker where it is in the loop
             work_sections.append((2, "attempt_marker",

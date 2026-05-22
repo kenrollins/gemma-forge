@@ -53,6 +53,13 @@ class CategoryCredit:
     remediated: int = 0
     escalated: int = 0
     skipped: int = 0
+    # DEF-03: follow-aware signal derived from per-tip causal attribution.
+    # When the dream pass has DEF-27 data (Run 8+), prefer this signal
+    # over the legacy success_rate — it captures whether wins were
+    # earned through followed advice (lessons working as intended) or
+    # were lucky-neighbor outcomes (lessons present but ignored).
+    follow_aware_signal: Optional[float] = None  # in [-1, +1] when computed
+    follow_sample_size: int = 0                  # n retrievals contributing
 
     @property
     def total(self) -> int:
@@ -66,12 +73,16 @@ class CategoryCredit:
 
     @property
     def confidence_signal(self) -> float:
-        """Maps success_rate [0,1] to a confidence delta [-1, +1].
+        """Maps the category's outcome quality to a confidence delta [-1, +1].
 
-        0.0 success → -1.0 (strong negative)
-        0.5 success →  0.0 (neutral)
-        1.0 success → +1.0 (strong positive)
+        DEF-03: when follow-aware signal is available (DEF-27 data
+        populated for this run), use it — it reflects "wins earned via
+        followed advice" rather than raw pass/fail. Falls back to the
+        legacy success_rate-derived signal when follow-aware data is
+        absent (pre-DEF-27 runs, or new categories with no retrievals).
         """
+        if self.follow_aware_signal is not None and self.follow_sample_size >= 5:
+            return self.follow_aware_signal
         return 2.0 * self.success_rate - 1.0
 
 
@@ -113,7 +124,16 @@ def _pg_conninfo(role: str) -> str:
 
 
 def compute_category_credits(run_id: str) -> list[CategoryCredit]:
-    """Pull per-category outcome counts for a specific run from Postgres."""
+    """Pull per-category outcome counts for a specific run from Postgres.
+
+    DEF-03: when DEF-27 tip-follow data is available for this run's
+    retrievals, also compute the follow-aware category signal — the
+    average of (outcome × follow_modifier) across retrievals grouped
+    by the rule's category. This signal is preferred by
+    `CategoryCredit.confidence_signal` when populated, because it
+    reflects "wins earned via followed advice" rather than raw
+    pass/fail counts.
+    """
     with psycopg.connect(_pg_conninfo("forge_admin")) as conn:
         conn.execute("SET search_path TO stig")
         rows = conn.execute(
@@ -130,10 +150,52 @@ def compute_category_credits(run_id: str) -> list[CategoryCredit]:
             """,
             (run_id,),
         ).fetchall()
-    return [
-        CategoryCredit(category=r[0], remediated=r[1], escalated=r[2], skipped=r[3])
-        for r in rows
-    ]
+        credits = [
+            CategoryCredit(category=r[0], remediated=r[1], escalated=r[2], skipped=r[3])
+            for r in rows
+        ]
+
+        # DEF-03 — follow-aware signal per category. Only computed
+        # over rows that have non-NULL DEF-27 columns; pre-DEF-27
+        # runs (R7 and earlier) skip this entirely and the legacy
+        # success_rate signal handles them via the property fallback.
+        follow_rows = conn.execute(
+            """
+            SELECT wi.category,
+                   COUNT(*) AS n_judged,
+                   AVG(
+                     tr.outcome_value * tr.outcome_confidence
+                     * CASE
+                         WHEN tr.tip_followed_llm IS TRUE THEN 1.0
+                         WHEN tr.tip_followed_llm IS FALSE THEN 0.3
+                         WHEN tr.tip_followed_emb IS NOT NULL
+                              AND tr.tip_followed_emb >= 0.6 THEN 1.0
+                         WHEN tr.tip_followed_emb IS NOT NULL
+                              AND tr.tip_followed_emb <  0.6 THEN 0.3
+                         ELSE 0.5
+                       END
+                   ) AS follow_aware_mean
+            FROM tip_retrievals tr
+            JOIN work_items wi
+              ON wi.run_id = tr.run_id AND wi.item_id = tr.rule_id
+            WHERE tr.run_id = %s
+              AND tr.outcome_value IS NOT NULL
+              AND tr.outcome_confidence IS NOT NULL
+              AND (tr.tip_followed_llm IS NOT NULL
+                   OR tr.tip_followed_emb IS NOT NULL)
+            GROUP BY wi.category
+            """,
+            (run_id,),
+        ).fetchall()
+        follow_by_cat = {r[0]: (int(r[1]), float(r[2])) for r in follow_rows}
+
+    # Map mean ∈ [0,1] → signal ∈ [-1, +1] same shape as legacy.
+    for cc in credits:
+        if cc.category in follow_by_cat:
+            n, mean = follow_by_cat[cc.category]
+            cc.follow_sample_size = n
+            cc.follow_aware_signal = 2.0 * mean - 1.0
+    return credits
 
 
 async def update_neo4j_confidence(

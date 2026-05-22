@@ -329,6 +329,38 @@ class SkillRuntime(Protocol):
         """
         return (True, "no deferred items — skill has no resolve_deferred implementation", [])
 
+    def worker_context(self, item: WorkItem) -> Optional[dict]:
+        """Optional per-item enrichment for the Worker's apply_fix prompt.
+
+        DEF-28: a hook for skills to enrich the Worker's prompt with
+        whatever authoritative spec defines "what passes this check" in
+        their domain. STIG returns the XCCDF rule description (the
+        canonical text of what OpenSCAP's static analysis is looking for
+        — the file path, the exact directive form, the exact string).
+        CVE could return Vuls advisory metadata. Future skills return
+        whatever makes sense for their evaluator.
+
+        The harness adds the returned dict as a ``work_item_context``
+        section in the Worker's prompt assembly. Keys are skill-chosen
+        but a recommended shape is::
+
+            {
+              "description": "human-readable spec from authoritative source",
+              "remediation_hint": "specific actions the spec implies (optional)",
+              "check_artifact": "source path or check id (for traceability)",
+            }
+
+        Return ``None`` if the skill has no enrichment to provide for
+        this item — the harness will skip the section gracefully.
+
+        Skill-agnostic by construction: each skill provides what its
+        evaluator's "right answer" looks like; the harness doesn't have
+        to know what XCCDF or Vuls or OVAL is.
+
+        Default: ``None``. Skills that want to opt in override.
+        """
+        return None
+
 
 @dataclass(frozen=True)
 class DeferredItemOutcome:

@@ -286,6 +286,15 @@ class StigSkillRuntime:
         self._evaluator = StigEvaluator(ssh_config, profile, datastream)
         self._checkpoint = StigCheckpoint()
         self._ssh = ssh_config
+        self._datastream = datastream
+        # DEF-28: XCCDF rule descriptions cache. Populated lazily on
+        # first worker_context() call via prefetch_xccdf_descriptions().
+        # ~5 seconds to fetch + parse the 27 MB datastream once;
+        # subsequent lookups are O(1) dict reads. Empty dict means
+        # "not yet loaded" or "load failed" — worker_context returns
+        # None in either case and prompts work as before.
+        self._xccdf_cache: dict[str, dict] = {}
+        self._xccdf_load_attempted: bool = False
 
     @property
     def work_queue(self) -> WorkQueue:
@@ -313,6 +322,60 @@ class StigSkillRuntime:
     async def gather_diagnostics(self) -> dict:
         """Skill-specific: capture environment state for post-mortem."""
         return await gather_environment_diagnostics(self._ssh)
+
+    async def prefetch_xccdf_descriptions(self) -> int:
+        """Pre-load all XCCDF rule descriptions into the cache.
+
+        Optional but recommended — call this once at run start (after
+        the VM is reachable) so the first worker_context() call doesn't
+        pay the ~5 second SSH+parse cost mid-loop. The harness invokes
+        it automatically during the run's pre-flight phase.
+
+        Returns the number of rules cached. Safe to call repeatedly;
+        subsequent calls no-op if the cache is already populated.
+        """
+        if self._xccdf_cache:
+            return len(self._xccdf_cache)
+        from gemma_forge.harness.tools.openscap import extract_xccdf_descriptions
+        try:
+            self._xccdf_cache = await extract_xccdf_descriptions(
+                self._ssh, datastream=self._datastream,
+            )
+        except Exception as exc:
+            logger.warning("DEF-28 XCCDF prefetch failed: %s", exc)
+            self._xccdf_cache = {}
+        finally:
+            self._xccdf_load_attempted = True
+        return len(self._xccdf_cache)
+
+    def worker_context(self, item: WorkItem) -> dict | None:
+        """DEF-28 — return the XCCDF rule description for the Worker.
+
+        The 27 MB SCAP datastream on the target VM contains, for every
+        STIG rule, the authoritative description of what makes that rule
+        pass (file paths, exact directive syntax, required strings).
+        Without this, the Worker has been guessing at the scanner's
+        contract from the rule title alone — see journey/38.7 for the
+        78-rule chronic-failure analysis that motivated DEF-28.
+
+        Returns ``None`` when:
+          - the cache hasn't been pre-fetched (and we won't block here)
+          - the rule isn't in the XCCDF datastream (rare)
+          - the prefetch failed earlier (logged at warning level)
+
+        Returning None is safe: ralph.py's prompt assembly skips the
+        ``work_item_context`` section and the run proceeds as before.
+        """
+        if not self._xccdf_cache:
+            return None
+        entry = self._xccdf_cache.get(item.id)
+        if not entry:
+            return None
+        return {
+            "description": entry["description"],
+            "check_artifact": entry.get("source"),
+            "title": entry.get("title"),
+        }
 
 
 def _categorize_rule(rule_id: str) -> str:

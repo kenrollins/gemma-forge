@@ -108,15 +108,22 @@ def _fetch_hit_rates(pool: ConnectionPool, rule_id: str,
     from journey/38.5) don't accumulate utility scores by being lucky
     neighbors of successful outcomes.
 
-    The follow modifier is derived per row:
-      LLM judge says followed -> 1.0  (credit the tip for the outcome)
-      LLM judge says ignored  -> 0.0  (don't credit a tip whose advice
-                                       wasn't followed even on a win)
+    Follow modifier values, tuned 2026-05-22 after journey/38.7's
+    R8→R9 regression analysis. The original 0.0 for "followed=false
+    but rule passed" was too punitive — R9's audit-category losses
+    clustered on rules where tangentially-helpful tips were
+    discarded entirely by the formula. Moving to 0.3 keeps the
+    directional signal (followed tips earn 3.3x more credit than
+    ignored ones) while preserving load-bearing credit for tips
+    whose advice the Worker partially incorporated without literal
+    text matching:
+      LLM judge says followed -> 1.0  (full credit)
+      LLM judge says ignored  -> 0.3  (partial credit — tip was
+                                       in the prompt and may have
+                                       indirectly shaped the action)
       LLM judge NULL, embedding >= 0.6 -> 1.0 (deterministic fallback)
-      LLM judge NULL, embedding <  0.6 -> 0.0
-      Both NULL (pre-DEF-27 rows)      -> 0.5 (half credit, conservative
-                                              for data that predates the
-                                              attribution column).
+      LLM judge NULL, embedding <  0.6 -> 0.3
+      Both NULL (pre-DEF-27 rows)      -> 0.5 (half credit, unchanged)
     """
     # The CASE expression below evaluates the follow modifier per row,
     # then the outer AVG averages outcome×confidence×follow_modifier.
@@ -128,11 +135,11 @@ def _fetch_hit_rates(pool: ConnectionPool, rule_id: str,
                      outcome_value * outcome_confidence
                      * CASE
                          WHEN tip_followed_llm IS TRUE THEN 1.0
-                         WHEN tip_followed_llm IS FALSE THEN 0.0
+                         WHEN tip_followed_llm IS FALSE THEN 0.3
                          WHEN tip_followed_emb IS NOT NULL
                               AND tip_followed_emb >= 0.6 THEN 1.0
                          WHEN tip_followed_emb IS NOT NULL
-                              AND tip_followed_emb <  0.6 THEN 0.0
+                              AND tip_followed_emb <  0.6 THEN 0.3
                          ELSE 0.5
                        END
                    ) AS hit_rate

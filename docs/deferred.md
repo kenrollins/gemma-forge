@@ -589,6 +589,65 @@ promoted out of this file into active work.
   `web/ui/src/components/ArchitecturePanel.tsx:134`; metric capture
   in `run_logger.py:174-181`.
 
+### DEF-29 — STIG adopts the existing per-family reboot pattern from CVE
+
+- **What**: A small subset of STIG rules (FIPS / kernel-crypto-state
+  policy rules — `configure_crypto_policy`, `sysctl_crypto_fips_enabled`,
+  `fips_custom_stig_sub_policy`, the `*_crypto_policy` family of sshd
+  hardening rules) require a kernel reboot for the change to take
+  effect. The current STIG skill doesn't reboot, so these rules
+  attempt repeatedly, often break the system, then escalate. The CVE
+  skill already solved this for advisories with per-family reboot
+  batching (journey/36 design, journey/37 landing): group items by
+  family, snapshot before each family, apply + reboot + verify, roll
+  back the family snapshot on failure. The harness Protocol already
+  supports it via `EvaluatorMetadata.deferrable_failure_modes` +
+  `SkillRuntime.resolve_deferred()`.
+- **Why deferred**: Sequenced after DEF-28. DEF-28's projected lift
+  (~25-40 rules from the audit/banner/sshd scanner-gap chronic
+  failures) is much larger than DEF-29's projected lift (~5-10 rules
+  in the cryptography/FIPS subfamily). Doing both at once would
+  confound attribution. Sequence: DEF-28 first, then assess which
+  rules still escalate, then DEF-29 for the residual reboot-required
+  set.
+- **Revisit when**: DEF-28 lands and Run 11+ data is in. If a
+  cluster of rules consistently escalates with reasoning like
+  "requires reboot to take effect" or "FIPS not active in kernel,"
+  DEF-29 ships.
+- **Pain signal**: Reflector text repeatedly cites "reboot required"
+  / "kernel must be in FIPS mode" / "change doesn't take effect
+  until reboot" on the same handful of rules across multiple runs.
+- **Fix sketch (skill-side, harness already supports it)**:
+  1. `skills/stig-rhel9/runtime.py:StigEvaluator.metadata` adds
+     `NEEDS_REBOOT` to `deferrable_failure_modes`.
+  2. New evaluator step that detects the reboot-pending state:
+     OpenSCAP rule check FAIL + the rule's category is
+     "cryptography" or "kernel" + the Worker's script ran a
+     known reboot-triggering command (`update-crypto-policies`,
+     `fips-mode-setup`, `grubby --update-kernel`,
+     `sysctl --system` for certain keys).
+  3. `StigSkillRuntime.resolve_deferred` implementation that
+     mirrors CVE's: group deferred items by reboot-family,
+     `virsh snapshot-create` the VM, apply all family items in
+     one batch, `virsh shutdown` + wait for boot + ssh probe,
+     OpenSCAP re-evaluate each item, `virsh snapshot-revert` on
+     family failure.
+  4. Family ordering matches CVE's safest-first: SSH-policy
+     before kernel-FIPS, etc.
+- **Risk**: A bad reboot can wedge the VM. Mitigated by per-family
+  snapshot rollback (the exact pattern CVE proved out). Worst case
+  for STIG is the same as for CVE: family-level escalation, run
+  continues, no orphaned state.
+- **Demo narrative impact**: 12-hour Ralph that pauses to do 1-2
+  strategic reboots is fine ("watch the agent batch reboot-required
+  changes and resume"). 12-hour Ralph that hangs after a bad reboot
+  is a demo killer. The per-family snapshot pattern is what makes
+  the reboot acceptable as a story beat.
+- **Context**: User question 2026-05-22 morning, journey/38.7
+  finding that ~5-10 chronic failures are reboot-required (rest are
+  scanner-gap → DEF-28). CVE's per-family architecture in
+  journey/36, journey/37.
+
 ### DEF-28 — Worker doesn't have access to the OVAL/XCCDF rule check definition (the biggest available lift)
 
 - **What**: STIG's evaluator runs `oscap xccdf eval` against the

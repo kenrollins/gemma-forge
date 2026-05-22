@@ -89,10 +89,11 @@ def _find_eviction_candidates(
         # on tip_retrievals so tips with zero outcomes drop out naturally.
         # avg_utility uses the same follow-aware contribution formula
         # as retrieval._fetch_hit_rates — see DEF-27 / journey/38.6 for
-        # the architectural reasoning. A tip that's been retrieved many
-        # times during successes but whose advice was never followed
-        # earns a low utility here and gets retired, instead of
-        # accumulating credit as a lucky neighbor of unrelated wins.
+        # architectural reasoning and journey/38.7 for the 2026-05-22
+        # coefficient tune. The 0.3 for "followed=false but rule passed"
+        # (was 0.0) preserves load-bearing credit for tips whose advice
+        # the Worker partially incorporated without literal match —
+        # R9's audit-category regression motivated this change.
         cur.execute(
             """
             WITH utility AS (
@@ -105,11 +106,11 @@ def _find_eviction_candidates(
                          tr.outcome_value * tr.outcome_confidence
                          * CASE
                              WHEN tr.tip_followed_llm IS TRUE THEN 1.0
-                             WHEN tr.tip_followed_llm IS FALSE THEN 0.0
+                             WHEN tr.tip_followed_llm IS FALSE THEN 0.3
                              WHEN tr.tip_followed_emb IS NOT NULL
                                   AND tr.tip_followed_emb >= 0.6 THEN 1.0
                              WHEN tr.tip_followed_emb IS NOT NULL
-                                  AND tr.tip_followed_emb <  0.6 THEN 0.0
+                                  AND tr.tip_followed_emb <  0.6 THEN 0.3
                              ELSE 0.5
                            END
                        ) AS avg_utility

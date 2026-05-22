@@ -23,3 +23,4 @@ and what the thinking was at that point.
 ## Entries
 
 - [**The Harness Is a Training Data Factory**](harness-as-training-data-factory.md) — the open-weights case study nobody is running yet. The accumulated structured (context, action, outcome) data from agentic harness runs is, by construction, a fine-tuning corpus. With open weights you can close the loop locally; with closed weights you cannot.
+- [**Detection Engineering as a Third Skill**](detection-tuning-skill.md) — proposed weekend-project skill for tuning Sigma rules against labeled threat-telemetry corpora (DARPA OpTC, BOTS, MITRE Evaluations). Surfaced during KBR Cyber Range demo planning, captured with honest unknowns. Statistically-graded evaluator instead of binary pass/fail; corpus is per-run config so the tip pool accumulates corpus-independent Sigma authoring patterns. Tests the architectural claim that "skills are pluggable" against a structurally different problem shape than STIG/CVE.

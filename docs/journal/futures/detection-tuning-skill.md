@@ -8,19 +8,21 @@ related:
   - journey/38.7-runs-8-and-9-what-the-data-said
   - journey/33-second-skill-cve-pivot
 status: SPECULATIVE — proposal for a possible weekend project, not built, not scheduled
-one_line: "STIG and CVE both shipped as binary-evaluator remediation skills. A third skill — detection rule tuning against labeled threat-telemetry corpora — would put a meaningfully different-shaped problem on the same harness: statistical thresholds instead of pass/fail, output is a spec instead of a system state, cross-run intelligence is about authoring patterns instead of remediation patterns. Surfaced as a candidate KBR Cyber Range / Lab demo skill."
+one_line: "STIG and CVE both shipped as binary-evaluator remediation skills. A third skill — detection rule tuning against labeled threat-telemetry corpora — would put a meaningfully different-shaped problem on the same harness: statistical thresholds instead of pass/fail, output is a spec instead of a system state, cross-run intelligence is about authoring patterns instead of remediation patterns. Surfaced while looking for additional use cases that exercise different problem shapes than the two existing skills."
 ---
 
 # Detection Engineering as a Third Skill — Sigma Rule Tuning Against Labeled Corpora
 
 ## What this entry is
 
-A captured proposal, not a commitment. Surfaced 2026-05-22 during demo
-planning for a KBR Cyber Range / Lab tech-day showing. The CVE skill
-(journey/33) was internally noted as "underwhelming" because its loop
-shape duplicates STIG's — both are deterministic-pass/fail remediation
-loops. A third skill that's structurally different on the same harness
-would prove the architecture isn't just "STIG and STIG-shaped variants."
+A captured proposal, not a commitment. Surfaced 2026-05-22 while
+exploring additional use cases that could exercise the harness on a
+different problem shape than STIG/CVE. The CVE skill (journey/33)
+was internally noted as "underwhelming" because its loop shape
+duplicates STIG's — both are deterministic-pass/fail remediation
+loops. A third skill that's structurally different on the same
+harness would prove the architecture isn't just "STIG and STIG-shaped
+variants."
 
 This document captures the idea, the honest unknowns, an implementation
 sketch, and the decision points so that if someone builds it later they
@@ -66,7 +68,7 @@ Zero harness changes. Pure skill-side work.
 
 ## The cross-run intelligence story (the actual demo value)
 
-The architectural claim that matters for the KBR audience isn't "we
+The architectural claim that matters for any demo audience isn't "we
 can tune one rule." It's that **the tip pool accumulated over many
 runs is composed of generic Sigma authoring patterns that transfer
 across corpora and across threat scenarios**.
@@ -132,7 +134,7 @@ verify directly before building against any of them:
 
 | Corpus | Provenance | Why it might fit | What to verify |
 |---|---|---|---|
-| DARPA OpTC | DARPA Transparent Computing program | Federal pedigree — strongest credibility with KBR | Actual download size, label format, attack-vs-benign ground truth schema |
+| DARPA OpTC | DARPA Transparent Computing program | Federal pedigree — strongest credibility for defense-adjacent audiences | Actual download size, label format, attack-vs-benign ground truth schema |
 | MITRE ATT&CK Evaluations public data | MITRE Engenuity | Per-technique labels mapping to ATT&CK | Which evaluation rounds have public telemetry, format consistency |
 | Splunk BOTSv1/v2/v3 | Splunk public release | SOC-analyst-credible scenarios | License terms, dataset size, format (Splunk-specific or portable) |
 | EVTX-ATTACK-SAMPLES (sbousseaden GitHub) | Community | Per-technique Windows EVTX, smallest footprint | Whether it's labeled enough for precision/recall, or just per-technique demonstrations |
@@ -157,14 +159,15 @@ EVTX-ATTACK-SAMPLES, validate against OpTC, frame OpTC as the
 
 The following are questions I genuinely don't know the answers to
 and would benefit from someone with detection-engineering experience
-to weigh in. If anyone at KBR or in the network has this background,
-the answers shape the build significantly:
+to weigh in. If anyone in the network has this background, the
+answers shape the build significantly:
 
 1. **Is Sigma the right rule language, or should we target Splunk
-   SPL / Suricata / YARA-L instead?** KBR's actual SIEM and
-   detection stack matters. Sigma is portable and translates to
-   most others, but if their team writes Splunk SPL natively, a
-   Splunk-native skill is more useful to them.
+   SPL / Suricata / YARA-L instead?** Sigma is portable and
+   translates to most others, but a target audience that writes a
+   specific format natively (Splunk SPL, Elastic ESQL, etc.) is
+   better served by a skill that operates in their native format
+   from the start.
 
 2. **What does "noisy rule" mean to practitioners?** Are the natural
    thresholds precision-first (fewer false positives) or recall-first
@@ -258,10 +261,10 @@ cross-corpus framing if Run 2 measurably benefits from Run 1's tips.
 
 ## Decision points captured for the record
 
-- **Whether to build it**: depends on (a) the KBR meeting outcome
-  and whether they want this kind of skill, (b) whether the
-  practitioner check above produces a clean go signal, (c) appetite
-  for a weekend project.
+- **Whether to build it**: depends on (a) external-audience signal
+  about whether this kind of skill is interesting to them, (b)
+  whether the practitioner check above produces a clean go signal,
+  (c) appetite for a weekend project.
 - **Whether to use Sigma specifically vs the SIEM the audience uses**:
   ask before committing.
 - **Whether to ship publicly**: a detection-tuning skill against

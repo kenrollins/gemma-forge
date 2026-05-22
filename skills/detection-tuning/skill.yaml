@@ -1,0 +1,77 @@
+# GemmaForge Skill: Detection Engineering — Sigma Rule Tuning
+#
+# Third skill. Structurally different from STIG/CVE: statistical
+# thresholds (precision/recall/F1) instead of binary pass/fail; the
+# "fix" output is a tuned rule spec, not a system-state change.
+#
+# See futures/detection-tuning-skill.md (the proposal) and
+# futures/detection-tuning-preflight.md (the execution plan).
+
+name: "detection-tuning"
+description: "Autonomous Sigma rule tuning against labeled threat-telemetry corpora. Worker proposes rule modifications; evaluator runs the candidate against ground-truth events and returns precision/recall/F1."
+version: "0.0.1"
+target_os: "n/a — corpus-based, no VM target"
+status: friday-night-slice
+
+prompts:
+  architect: "prompts/architect.md"
+  worker: "prompts/worker.md"
+  auditor: "prompts/auditor.md"
+
+tools:
+  architect:
+    - run_corpus_scan
+  worker:
+    - apply_rule_change
+  auditor:
+    - check_eval_health
+
+# No validators — the corpus is a static labeled dataset, not a running
+# mission-critical app. Health for this skill is "the eval pipeline ran
+# without exceptions" (asserted inside the Evaluator).
+validators: []
+
+detection:
+  # Per-corpus configuration. Friday-night slice supports one corpus.
+  # Saturday afternoon adds a second to test cross-corpus tip transfer
+  # (see futures/detection-tuning-skill.md "cross-run intelligence" section).
+  corpus_name: "evtx-attack-samples"
+  corpus_csv: "/tmp/dt-corpora/evtx/evtx_data.csv"
+
+  # SigmaHQ public rules — the upstream library Ralph tunes against.
+  rules_repo: "/tmp/dt-rules/sigma"
+
+  # Per-rule working copy lives here; Checkpoint snapshots are
+  # text-level (read-the-file save/restore).
+  rule_workdir: "/tmp/dt-work/rules"
+
+  # PASS criterion (from the proposal — may be tuned per corpus later).
+  pass_precision: 0.95
+  pass_recall: 0.80
+
+  # Friday-night slice queues exactly this rule. WorkQueue scaling is
+  # Saturday-morning work; tonight we prove the loop shape end-to-end.
+  hardcoded_work_item:
+    rule_path: "rules/windows/process_access/proc_access_win_lsass_memdump.yml"
+    technique_id: "T1003.001"
+    positive_filename_keywords:
+      - "mimikatz"
+      - "hashdump"
+      - "lsass"
+      - "memdump"
+      - "credump"
+      - "dumpert"
+      - "andrewspecial"
+      - "ppldump"
+      - "hktl"
+
+ui:
+  title: "Detection Tuning"
+  work_item: "Sigma rule"
+  work_item_plural: "Sigma rules"
+  id_prefix_strip: ""
+  fixed_label: "Tuned"
+  outcomes:
+    - { type: "fixed", label: "Tuned (PASS)", color: "#22C55E" }
+    - { type: "escalated", label: "Escalated", color: "#EF4444" }
+    - { type: "skipped", label: "Skipped", color: "#6B7280" }

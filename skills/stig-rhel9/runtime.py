@@ -9,9 +9,12 @@ The harness imports this at runtime when the stig-rhel9 skill is loaded.
 """
 
 import logging
+from typing import Optional
 
 from gemma_forge.harness.interfaces import (
     Checkpoint,
+    DeferredItemOutcome,
+    EmitEvent,
     EvalResult,
     Evaluator,
     EvaluatorMetadata,
@@ -126,6 +129,49 @@ class StigExecutor:
         return [apply_fix]
 
 
+_REBOOT_REQUIRED_RULES: set[str] = {
+    # DEF-29 — STIG rules whose remediation requires a kernel reboot to
+    # take effect. Detected empirically across Runs 7-10: in every run,
+    # these rules' Reflector text named "kernel reboot required" or
+    # "kernel parameter immutable at runtime." See journey/38.9's
+    # "What's still escalating" section for the per-rule breakdown.
+    #
+    # Curated rather than pattern-matched because the "needs reboot"
+    # signal isn't reliably inferable from the rule id alone. Easier
+    # to maintain a known list than a brittle regex.
+    "xccdf_org.ssgproject.content_rule_configure_crypto_policy",
+    "xccdf_org.ssgproject.content_rule_fips_crypto_subpolicy",
+    "xccdf_org.ssgproject.content_rule_fips_custom_stig_sub_policy",
+    "xccdf_org.ssgproject.content_rule_harden_sshd_ciphers_openssh_conf_crypto_policy",
+    "xccdf_org.ssgproject.content_rule_harden_sshd_ciphers_opensshserver_conf_crypto_policy",
+    "xccdf_org.ssgproject.content_rule_harden_sshd_macs_openssh_conf_crypto_policy",
+    "xccdf_org.ssgproject.content_rule_harden_sshd_macs_opensshserver_conf_crypto_policy",
+    "xccdf_org.ssgproject.content_rule_sysctl_crypto_fips_enabled",
+    "xccdf_org.ssgproject.content_rule_aide_use_fips_hashes",
+    "xccdf_org.ssgproject.content_rule_grub2_audit_argument",
+    "xccdf_org.ssgproject.content_rule_enable_fips_mode",
+}
+
+
+def _stig_reboot_family(rule_id: str) -> str:
+    """Group reboot-required rules into families for per-family processing.
+
+    The per-family pattern from CVE (journey/36, /37) is intended to
+    isolate failure: if FIPS-related items succeed after reboot but
+    kernel-cmdline items fail, we want to keep the FIPS gains and
+    only roll back kernel-cmdline. For STIG specifically the FIPS
+    items dominate; kernel-cmdline is a 1-item family today.
+    """
+    rid = rule_id.lower()
+    if "grub2" in rid:
+        return "kernel-cmdline"
+    if any(k in rid for k in ("fips", "crypto_policy")):
+        return "fips"
+    if "aide_use_fips" in rid:
+        return "fips"  # depends on FIPS being active
+    return "other-reboot"
+
+
 class StigEvaluator:
     """Deterministic evaluation via OpenSCAP + health checks + journal."""
 
@@ -133,11 +179,15 @@ class StigEvaluator:
         signal_type="binary",
         expected_confidence="high",
         cost_per_evaluation="cheap",
-        # OpenSCAP is deterministic; we can act on per-(tip, rule) hits
-        # after only a few retrievals at a low utility floor (Xu et al.
-        # arxiv 2505.16067 §4.2).
         min_retrievals_before_eviction=3,
         eviction_threshold=0.3,
+        # DEF-29: STIG opts into the per-family reboot pattern from CVE.
+        # When a reboot-required rule's apply succeeds but the rule check
+        # still fails because the kernel hasn't picked up the change, the
+        # Evaluator returns NEEDS_REBOOT and the harness defers the item;
+        # StigSkillRuntime.resolve_deferred batches the deferred items by
+        # reboot family, snapshots, reboots, and re-evaluates.
+        deferrable_failure_modes=["needs_reboot"],
     )
 
     def __init__(self, ssh_config: SSHConfig, profile: str, datastream: str):
@@ -222,7 +272,15 @@ class StigEvaluator:
         if not health_ok:
             mode = FailureMode.HEALTH_FAILURE
         elif health_ok and not rule_ok:
-            mode = FailureMode.EVALUATOR_GAP
+            # DEF-29 — for the curated set of reboot-required rules, an
+            # evaluator-gap result (Worker applied something, system stayed
+            # healthy, rule still fails) typically means the change is on
+            # disk but the kernel hasn't picked it up. Defer rather than
+            # retry; resolve_deferred batches by family and reboots.
+            if item.id in _REBOOT_REQUIRED_RULES:
+                mode = FailureMode.NEEDS_REBOOT
+            else:
+                mode = FailureMode.EVALUATOR_GAP
         else:
             mode = FailureMode.CLEAN_FAILURE
 
@@ -373,9 +431,269 @@ class StigSkillRuntime:
             return None
         return {
             "description": entry["description"],
+            "oval_criteria": entry.get("oval_criteria") or "",  # DEF-28-deeper
             "check_artifact": entry.get("source"),
             "title": entry.get("title"),
         }
+
+    # ------------------------------------------------------------------
+    # DEF-29 — per-family reboot batching for reboot-required STIG rules.
+    #
+    # Mirrors the CVE pattern from journey/36 / journey/37. Differences:
+    #   - CVE's resolve_deferred applies dnf upgrade per family then
+    #     reboots. STIG's apply has ALREADY happened during the failed
+    #     attempt loop; we just need to snapshot, reboot, and re-evaluate
+    #     because the kernel hadn't picked up the change yet.
+    #   - Families for STIG today: "fips" (the crypto-policy family +
+    #     aide_use_fips_hashes), "kernel-cmdline" (grub2_audit_argument).
+    # ------------------------------------------------------------------
+
+    async def resolve_deferred(
+        self,
+        reason: str,
+        items: list,
+        emit: Optional[EmitEvent] = None,
+    ) -> tuple[bool, str, list[DeferredItemOutcome]]:
+        """Resolve deferred reboot-required STIG rules via per-family reboot.
+
+        Items have failure_mode=NEEDS_REBOOT, set by StigEvaluator for
+        rule ids in _REBOOT_REQUIRED_RULES that fail OpenSCAP rule-check
+        while keeping the system healthy. The Worker's apply already
+        happened during the failed attempt; we just need to reboot and
+        re-evaluate.
+
+        Per-family flow:
+            1. Save snapshot ``stig-pre-family-<name>``
+            2. Issue reboot via SSH (ignore the dropped connection)
+            3. Wait for SSH to come back (24×5s polls, 120s ceiling)
+            4. Mission healthcheck
+            5. Per-item: re-run oscap xccdf eval --rule <id>
+            6. On any family-level failure → revert snapshot, mark all
+               family items with the specific ``family_<mode>`` reason
+            7. Always delete the family snapshot afterward
+
+        Returns per-item DeferredItemOutcome list. Items with passed=True
+        flow to remediated; failed items get escalated with the per-item
+        reason captured.
+        """
+        emit = emit or (lambda _e, _d: None)
+
+        if reason != "needs_reboot":
+            return (True, f"StigSkillRuntime: unknown reason '{reason}'", [])
+        if not items:
+            return (True, "no items to resolve", [])
+
+        # --- Group by family ---------------------------------------------
+        by_family: dict[str, list] = {}
+        for item in items:
+            family = _stig_reboot_family(item.id)
+            by_family.setdefault(family, []).append(item)
+
+        # Order: fips first (sets up the kernel state most rules depend on),
+        # then kernel-cmdline, then any other-reboot tail. The order
+        # matters because if FIPS-related rules fail (rare), we want to
+        # know that before applying kernel-cmdline changes.
+        family_order = sorted(
+            by_family.keys(),
+            key=lambda f: {"fips": 0, "kernel-cmdline": 1, "other-reboot": 2}.get(f, 99),
+        )
+
+        logger.info(
+            "resolve_deferred: %d items across %d families: %s",
+            len(items), len(by_family),
+            {f: len(by_family[f]) for f in family_order},
+        )
+        emit("deferred_resolve_plan", {
+            "total_items": len(items),
+            "total_families": len(by_family),
+            "family_order": family_order,
+            "families": {f: [it.id for it in by_family[f]] for f in family_order},
+        })
+
+        outcomes: list[DeferredItemOutcome] = []
+        for pos, family in enumerate(family_order, start=1):
+            family_items = by_family[family]
+            family_outcomes = await self._process_stig_family_batch(
+                family, family_items,
+                emit=emit, position=pos, total_families=len(family_order),
+            )
+            outcomes.extend(family_outcomes)
+
+        passed_n = sum(1 for o in outcomes if o.passed)
+        summary = (
+            f"STIG resolve_deferred: {len(by_family)} families, "
+            f"{len(items)} items, {passed_n} verified, "
+            f"{len(outcomes) - passed_n} failed"
+        )
+        logger.info(summary)
+        return (passed_n > 0, summary, outcomes)
+
+    async def _process_stig_family_batch(
+        self,
+        family: str,
+        family_items: list,
+        *,
+        emit: EmitEvent,
+        position: int,
+        total_families: int,
+    ) -> list[DeferredItemOutcome]:
+        """Snapshot, reboot, verify one family. On any failure: revert all."""
+        snap_name = f"stig-pre-family-{family}"
+        logger.info(
+            "family=%s: %d items: %s", family, len(family_items),
+            [i.id for i in family_items],
+        )
+        emit("family_batch_start", {
+            "family": family,
+            "position": position,
+            "total_families": total_families,
+            "item_count": len(family_items),
+            "item_ids": [it.id for it in family_items],
+            "snapshot_name": snap_name,
+        })
+
+        snap_ok, snap_detail = await self._checkpoint.save(snap_name)
+        if not snap_ok:
+            logger.error("family=%s snapshot save failed: %s", family, snap_detail)
+            emit("family_batch_complete", {
+                "family": family, "passed": False,
+                "reason": "family_snapshot_save_failed",
+                "detail": snap_detail[:200],
+            })
+            return [
+                DeferredItemOutcome(
+                    rule_id=item.id, passed=False,
+                    reason="family_snapshot_save_failed",
+                    metadata={"family": family, "detail": snap_detail[:200]},
+                )
+                for item in family_items
+            ]
+
+        try:
+            outcomes = await self._reboot_and_verify_family(
+                family, family_items, emit=emit,
+            )
+            passed_n = sum(1 for o in outcomes if o.passed)
+            emit("family_batch_complete", {
+                "family": family, "passed": True,
+                "items_verified": passed_n, "items_total": len(outcomes),
+            })
+            return outcomes
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("family=%s: unhandled exception", family)
+            err_tag = type(exc).__name__.lower()
+            emit("family_exception", {
+                "family": family,
+                "exception_type": type(exc).__name__,
+                "detail": str(exc)[:200],
+            })
+            await self._checkpoint.restore(snap_name)
+            emit("family_batch_complete", {
+                "family": family, "passed": False,
+                "reason": f"family_exception_{err_tag}",
+                "detail": str(exc)[:200],
+            })
+            return [
+                DeferredItemOutcome(
+                    rule_id=item.id, passed=False,
+                    reason=f"family_exception_{err_tag}",
+                    metadata={"family": family, "exception": str(exc)[:200]},
+                )
+                for item in family_items
+            ]
+        finally:
+            try:
+                await self._checkpoint.delete(snap_name)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("family=%s snapshot delete failed: %s", family, exc)
+
+    async def _reboot_and_verify_family(
+        self,
+        family: str,
+        family_items: list,
+        *,
+        emit: EmitEvent,
+    ) -> list[DeferredItemOutcome]:
+        """Reboot, wait for SSH, healthcheck, per-item re-evaluate."""
+        import asyncio as _aio
+        import time as _time
+        from gemma_forge.harness.tools.ssh import _run_ssh
+
+        # --- 1. Issue reboot --------------------------------------------
+        logger.info("family=%s: issuing reboot", family)
+        emit("family_reboot_issued", {"family": family})
+        try:
+            await _run_ssh(self._ssh, "sudo reboot")
+        except Exception:
+            pass  # SSH drops mid-reboot, expected
+
+        # --- 2. Wait for SSH back ---------------------------------------
+        await _aio.sleep(10)
+        ssh_up = False
+        wait_start = _time.time()
+        for attempt in range(24):
+            try:
+                stdout, _stderr, _rc = await _run_ssh(self._ssh, "echo ok")
+                if "ok" in stdout:
+                    ssh_up = True
+                    wait_s = round(_time.time() - wait_start + 10, 1)
+                    logger.info("family=%s: SSH back up after ~%.1fs", family, wait_s)
+                    emit("family_ssh_up", {"family": family, "wait_s": wait_s})
+                    break
+            except Exception:
+                pass
+            emit("family_ssh_wait_tick", {
+                "family": family,
+                "elapsed_s": round(_time.time() - wait_start + 10, 1),
+                "attempt": attempt + 1, "max_attempts": 24,
+            })
+            await _aio.sleep(5)
+
+        if not ssh_up:
+            emit("family_ssh_timeout", {"family": family})
+            raise RuntimeError("reboot_ssh_timeout")
+
+        # --- 3. Mission healthcheck -------------------------------------
+        emit("family_healthcheck_start", {"family": family})
+        health = await mission_healthcheck(self._ssh)
+        if "HEALTHY" not in health:
+            logger.error(
+                "family=%s post-reboot healthcheck failed: %s",
+                family, health[:200],
+            )
+            emit("family_healthcheck_failed", {"family": family, "detail": health[:200]})
+            raise RuntimeError("reboot_health_failed")
+        emit("family_healthcheck_ok", {"family": family})
+
+        # --- 4. Per-item re-evaluate via OpenSCAP rule check ------------
+        emit("family_verify_start", {"family": family})
+        outcomes: list[DeferredItemOutcome] = []
+        for item in family_items:
+            rule_result = await stig_check_rule(
+                self._ssh, item.id, self._profile, self._datastream,
+            )
+            rule_ok = "PASS" in rule_result.upper()
+            reason = "family_verified" if rule_ok else "family_still_failing"
+            outcomes.append(
+                DeferredItemOutcome(
+                    rule_id=item.id, passed=rule_ok, reason=reason,
+                    metadata={"family": family, "rule_check": rule_result[:200]},
+                )
+            )
+            emit("family_item_verified", {
+                "family": family, "rule_id": item.id,
+                "passed": rule_ok, "outcome_reason": reason,
+            })
+
+        passed_n = sum(1 for o in outcomes if o.passed)
+        logger.info(
+            "family=%s: verified %d/%d items post-reboot",
+            family, passed_n, len(outcomes),
+        )
+        emit("family_verify_complete", {
+            "family": family, "passed": passed_n, "total": len(outcomes),
+        })
+        return outcomes
 
 
 def _categorize_rule(rule_id: str) -> str:

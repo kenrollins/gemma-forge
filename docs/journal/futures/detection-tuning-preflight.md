@@ -286,3 +286,114 @@ automation" without the cross-corpus claim.
   your own running notes)
 - **Architectural decisions**: ADR-0021 if any new patterns emerge
 - **Domain learnings**: journey entry promotion when the skill ships
+
+---
+
+## Pre-flight findings — 2026-05-22 19:53 PT
+
+Run alongside an active Run 10 (stig-rhel9, PID 655932). VM untouched.
+Total time: ~45 min (vs 2 h budget).
+
+### Pre-flight 1: ✅ green (after one yellow downgrade)
+
+Cloned `sbousseaden/EVTX-ATTACK-SAMPLES` to `/tmp/dt-corpora/evtx`.
+**278 EVTX files** organized by ATT&CK *tactic* (Credential Access,
+Defense Evasion, …), not technique. Filenames encode the
+technique/scenario (`CA_Mimikatz_Memssp_…evtx`).
+
+Per README, every EVTX is an attack-associated capture — no paired
+benign corpus included. That matched the doc's predicted **yellow**.
+
+The win that flipped it back to green: the repo ships
+`evtx_data.csv` (9886 rows, parsed by tactic), one row per event with:
+
+- `EVTX_FileName` — source EVTX
+- `EVTX_Tactic` — MITRE tactic
+- All the Windows/Sysmon event fields (`CommandLine`, `Image`,
+  `OriginalFileName`, `GrantedAccess`, `CallTrace`, `TargetImage`,
+  `ParentImage`, `EventID`, `Channel`, …) — the *exact* field names
+  Sigma rules reference
+
+Implication: no EVTX parsing needed in the skill — read the CSV with
+pandas. Cross-tactic noise (rule targeting Credential Access matches
+an event labeled Defense Evasion) provides the false-positive
+signal *without* needing a separate clean baseline.
+
+### Pre-flight 2: ✅ green
+
+Installed `sigma-cli 3.0.2` + `pysigma 1.3.3` + `pysigma-backend-splunk 2.1.0`
+into `/tmp/dt-venv`. Cloned `SigmaHQ/sigma` (3132 rules).
+
+Conversion works cleanly on representative rules with the
+`splunk_windows` pipeline:
+
+```
+$ sigma convert -t splunk -p splunk_windows proc_creation_win_hktl_mimikatz_command_line.yml
+CommandLine IN ("*DumpCreds*", "*mimikatz*")
+OR CommandLine IN ("*::aadcookie*", ...)
+OR CommandLine IN ("*rpc::*", "*token::*", "*crypto::*", ...)
+```
+
+Output is structured `Field="value"` / `Field IN (...)` SPL — easy
+to interpret in Python against the CSV columns. No Splunk install
+required.
+
+### Pre-flight 3: ✅ green (with build-design discovery)
+
+POC at `/tmp/dt-poc2.py`. Test rule:
+`proc_access_win_lsass_memdump.yml`. Scoped to Sysmon EID 10 events
+targeting `lsass.exe` (26 events: 23 cred-dumping positives, 3 negatives).
+
+Four iterations, all complete in <0.6 s wall-clock total:
+
+| Iteration | Rule change | P | R | F1 |
+|---|---|---|---|---|
+| 1 | rule as-written | 1.000 | 0.696 | 0.821 |
+| 2 | add `0x1010`, `0x1410`, `0x1000` to GrantedAccess | 0.917 | 0.957 | **0.936** |
+| 3 | (2) + exclude SourceImage=powershell.exe | 0.905 | 0.826 | 0.864 |
+| 4 | (2) + exclude common system source images | 0.895 | 0.739 | 0.810 |
+
+The signal is exactly what the harness needs: precision falls as
+recall rises, F1 peaks at a non-obvious tuning point, and an
+over-cautious "exclude everything that looks system-y" strategy
+*loses* F1 by dropping real Invoke-Mimikatz powershell.exe events.
+
+**Two non-obvious findings that shape the build:**
+
+1. **Logsource-aware scoping is required.** A Sigma rule declares
+   `logsource: category: process_access, product: windows`. The
+   evaluator must filter the corpus to *just* the matching events
+   (Sysmon EID 10 for process_access) before computing P/R. Naive
+   "any event in a malicious EVTX = positive" gives garbage numbers
+   because (a) most events in any given malicious capture are routine
+   system events, and (b) a rule that watches process_creation
+   shouldn't be penalized for not matching process_access events.
+   The Sigma `logsource:` taxonomy maps to specific `(Channel,
+   EventID)` filters — this mapping lives in the SigmaHQ pipelines
+   and the skill will need a copy.
+
+2. **Hex value normalization is required.** `GrantedAccess=0x001fffff`
+   in the corpus needs to match the rule's `0x1fffff` — substring
+   matching fails on leading zeros. The Sigma spec defines value
+   equality semantics; the evaluator must implement them rather
+   than naïvely substring-matching the SPL output. Easiest path:
+   walk the parsed pySigma AST directly instead of round-tripping
+   through SPL.
+
+Neither finding blocks the build, but both will shape Friday
+night's `sigma_eval.py` module. Documented here so the next session
+inherits them.
+
+### Decision: GREEN. Proceeding with build.
+
+All three pre-flight checks satisfy the green criteria from the
+table above. The build-design findings (logsource scoping, hex
+normalization) are *clarifications* of the evaluator's contract,
+not blockers — they're known-unknowns going into Friday night
+instead of mid-build surprises.
+
+POCs preserved at `/tmp/dt-poc.py` (initial mimikatz attempt that
+exposed the logsource-scoping issue) and `/tmp/dt-poc2.py` (the
+working LSASS demonstration). Corpus at `/tmp/dt-corpora/evtx/`,
+rules at `/tmp/dt-rules/sigma/`, venv at `/tmp/dt-venv/`.
+

@@ -1344,6 +1344,19 @@ async def run_ralph(
                     "",
                     desc_text,
                 ]
+                # DEF-28-deeper: OVAL criteria — the machine-checkable form
+                # of what the scanner actually verifies. Often more specific
+                # than the description (file paths, AND/OR logic, value bounds).
+                # See journey/38.9 for the scanner-gap edge cases this addresses.
+                oval = ctx.get("oval_criteria") or ""
+                if oval:
+                    ctx_lines.extend([
+                        "",
+                        "SCANNER CHECK CRITERIA (from OVAL — the exact conditions the scanner verifies):",
+                        "Match every leaf condition; an AND requires all branches, an OR requires any branch.",
+                        "",
+                        oval,
+                    ])
                 work_sections.append((1, "work_item_context", "\n".join(ctx_lines)))
 
             # 2: Current attempt marker — tells the Worker where it is in the loop

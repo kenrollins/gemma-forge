@@ -127,25 +127,34 @@ async def extract_xccdf_descriptions(
     config: SSHConfig,
     datastream: str = "/usr/share/xml/scap/ssg/content/ssg-rl9-ds.xml",
 ) -> dict[str, dict]:
-    """Pull per-rule {title, description} from the SCAP datastream.
+    """Pull per-rule {title, description, oval_criteria} from the SCAP datastream.
 
     Approach: fetch the datastream file once via SSH (~27 MB), parse
     locally with xml.etree. Faster than per-rule xmllint calls on the
     VM (which would do 250+ round-trips) and avoids gawk-specific
     syntax that varies between systems.
 
-    Returns a dict keyed by full rule_id (e.g.
-    ``xccdf_org.ssgproject.content_rule_accounts_tmout``) mapping to::
+    Returns a dict keyed by full rule_id mapping to::
 
-        {"title": "...", "description": "...", "source": "<datastream path>"}
+        {
+            "title": "...",
+            "description": "...",            # natural-language spec
+            "oval_criteria": "...",          # DEF-28-deeper: the
+                                             # machine-checkable OVAL
+                                             # criteria as a rendered
+                                             # nested bullet list. The
+                                             # description says what to
+                                             # do; the criteria say what
+                                             # the scanner verifies.
+                                             # Empty string if rule has
+                                             # no OVAL definition or
+                                             # the criteria are bare.
+            "source": "<datastream path>",
+        }
 
-    Failure-safe: returns ``{}`` on any error. The caller (typically
-    the STIG skill init) treats an empty dict as "no enrichment
-    available" and prompts continue to work as before.
+    Failure-safe: returns ``{}`` on any error.
     """
     try:
-        # `cat` the file via SSH; for 27 MB it's a few seconds over
-        # localhost virtual networking.
         stdout, stderr, rc = await _run_ssh(config, f"cat {datastream}")
         if rc != 0 or not stdout:
             return {}
@@ -159,11 +168,22 @@ async def extract_xccdf_descriptions(
     except ET.ParseError:
         return {}
 
-    # XCCDF uses namespaces; we match on local-name to avoid coupling
-    # to the schema version.
+    # --- Index OVAL definitions by id for fast lookup later -----------------
+    # OVAL definitions are embedded in the datastream (SCAP source-1.2 format)
+    # under their own component element. We pre-walk and index them so the
+    # XCCDF Rule iteration below can pull criteria by check-content-ref name.
+    oval_defs: dict[str, ET.Element] = {}
+    for elem in root.iter():
+        tag = elem.tag.rsplit("}", 1)[-1] if "}" in elem.tag else elem.tag
+        if tag != "definition":
+            continue
+        did = elem.get("id", "")
+        if did.startswith("oval:"):
+            oval_defs[did] = elem
+
+    # --- Walk XCCDF Rules ----------------------------------------------------
     out: dict[str, dict] = {}
     for elem in root.iter():
-        # Match <Rule id="..."> elements
         tag = elem.tag.rsplit("}", 1)[-1] if "}" in elem.tag else elem.tag
         if tag != "Rule":
             continue
@@ -172,24 +192,106 @@ async def extract_xccdf_descriptions(
             continue
         title = ""
         desc = ""
+        oval_ref_id = ""
         for child in elem:
             ctag = child.tag.rsplit("}", 1)[-1] if "}" in child.tag else child.tag
             if ctag == "title" and not title:
                 title = (child.text or "").strip()
             elif ctag == "description" and not desc:
-                # Description body may contain inline XHTML
-                # (<code>, <pre>, <tt>, etc.). itertext() concatenates
-                # all descendant text, ignoring the tags, which gives
-                # us a clean human-readable description.
                 desc_parts = list(child.itertext())
                 desc = " ".join(p for p in desc_parts if p).strip()
                 desc = re.sub(r"\s+", " ", desc)
                 if len(desc) > 1500:
                     desc = desc[:1500].rstrip() + "..."
-        if title and desc:
-            out[rid] = {
-                "title": title,
-                "description": desc,
-                "source": datastream,
-            }
+            elif ctag == "check":
+                # Find an OVAL check-content-ref. XCCDF rules often have
+                # multiple <check> elements (OVAL, OCIL); we only want OVAL.
+                for sub in child.iter():
+                    stag = sub.tag.rsplit("}", 1)[-1] if "}" in sub.tag else sub.tag
+                    if stag == "check-content-ref":
+                        name = sub.get("name", "")
+                        if name.startswith("oval:") and not oval_ref_id:
+                            oval_ref_id = name
+        if not title or not desc:
+            continue
+        oval_criteria = ""
+        if oval_ref_id and oval_ref_id in oval_defs:
+            oval_criteria = _render_oval_criteria(oval_defs[oval_ref_id])
+        out[rid] = {
+            "title": title,
+            "description": desc,
+            "oval_criteria": oval_criteria,
+            "source": datastream,
+        }
     return out
+
+
+def _render_oval_criteria(definition: "ET.Element") -> str:
+    """Render an OVAL <definition>'s <criteria> tree as nested bullets.
+
+    DEF-28-deeper: the natural-language XCCDF description says what to
+    do; the OVAL criteria say what the scanner *verifies*. The criteria
+    tree is the load-bearing signal for the scanner-gap pattern from
+    journey/38.7 — rules where the Worker did the right thing
+    semantically but missed a specific check the scanner applies.
+
+    Example output (mount_option_boot_nosuid)::
+
+        ALL of:
+          - ANY of:
+            - nosuid on /boot
+            - NOT: /boot does not exist
+          - ANY of:
+            - nosuid on /boot in /etc/fstab
+            - NOT: /boot does not exist in /etc/fstab
+
+    Returns empty string if the definition has no usable criteria or
+    if all criterion elements lack ``comment`` attributes. Falls back
+    silently — the description-only DEF-28 path still works.
+    """
+    import xml.etree.ElementTree as ET
+
+    def _local(tag: str) -> str:
+        return tag.rsplit("}", 1)[-1] if "}" in tag else tag
+
+    def _walk(node: ET.Element, depth: int) -> list[str]:
+        lines: list[str] = []
+        ltag = _local(node.tag)
+        indent = "  " * depth
+        if ltag == "criteria":
+            op = node.get("operator", "AND").upper()
+            label = "ALL of:" if op == "AND" else "ANY of:" if op == "OR" else f"{op} of:"
+            negate = node.get("negate", "false").lower() == "true"
+            if negate:
+                label = f"NOT ({label})"
+            lines.append(f"{indent}- {label}" if depth > 0 else f"{label}")
+            for child in node:
+                ctag = _local(child.tag)
+                if ctag in ("criteria", "criterion"):
+                    lines.extend(_walk(child, depth + 1))
+        elif ltag == "criterion":
+            comment = node.get("comment", "").strip()
+            test_ref = node.get("test_ref", "")
+            negate = node.get("negate", "false").lower() == "true"
+            if comment:
+                text = comment
+            elif test_ref:
+                # Bare reference — at least surface the test id so a
+                # downstream consumer can drill in later.
+                text = f"test: {test_ref}"
+            else:
+                return lines  # nothing useful here
+            if negate:
+                text = f"NOT: {text}"
+            lines.append(f"{indent}- {text}")
+        return lines
+
+    criteria = None
+    for child in definition:
+        if _local(child.tag) == "criteria":
+            criteria = child
+            break
+    if criteria is None:
+        return ""
+    rendered = "\n".join(_walk(criteria, 0))
+    return rendered.strip()

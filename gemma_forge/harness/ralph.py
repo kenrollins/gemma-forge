@@ -1594,6 +1594,17 @@ async def run_ralph(
                     await runtime.checkpoint.save("progress")
                 except Exception:
                     pass
+                # Persist work_items row so the end-of-rule save_attempt
+                # batch satisfies its FK constraint. Without this, deferred
+                # items hit "attempts_run_id_item_id_fkey" violations
+                # because the success and escalation branches normally do
+                # this write themselves. See journey/38.10 for the Run 11
+                # crash that surfaced this gap in DEF-29's flow.
+                mem_store.save_item_outcome(
+                    mem_run_id, selected["rule_id"], selected["title"],
+                    rule_category, "deferred", attempt,
+                    round(time.time() - rule_start_wall, 1),
+                )
                 # Flag this rule as deferred so the post-inner-loop
                 # escalation block doesn't fire. Post-loop phase owns
                 # its verdict via DeferredItemOutcome.

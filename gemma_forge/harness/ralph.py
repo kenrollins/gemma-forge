@@ -2179,6 +2179,13 @@ async def run_ralph(
             # envelope indexed by rule_id for outcome routing below.
             work_items = [pv["_item"] for pv in items if pv.get("_item") is not None]
             pv_by_id = {pv["rule_id"]: pv for pv in items}
+            # Strip the WorkItem object — pv envelopes flow into
+            # state.remediated/escalated below, which is JSON-serialized
+            # into the run summary persisted to Postgres. WorkItem isn't
+            # JSON-serializable; the `_item` key is only needed for the
+            # work_items extraction above. See journey/38.10 fallout.
+            for pv in items:
+                pv.pop("_item", None)
 
             # Progress-event callback — the skill streams phase
             # boundaries into the run log so the UI has events to

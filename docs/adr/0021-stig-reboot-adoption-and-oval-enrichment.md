@@ -134,6 +134,14 @@ Rejected for the same reason CVE picked per-family: failure isolation. If the FI
 - **Cryptography category**: should jump from 25% (R7-R10) to 60-80% — most cryptography escalations are reboot-required.
 - **Wall clock**: ~6.5-7h. R10 was 5.95h; DEF-29 adds 2-4 min for reboots, DEF-28-deeper adds ~100-300 tokens per Worker prompt (negligible).
 
+## Run 11 result and the FIPS calibration amendment
+
+Run 11 (journey/38.11) landed at 90.2% fix rate ex-skip — 0.6pp above R10's 89.6%, well below ADR's 94-96% projection. The miss traces to a single tuning constant: the FIPS family reboot's SSH-wait window was `range(24)` with 5s sleeps (~240s wall-clock), enough for a non-FIPS reboot but not for the first FIPS-mode boot from a non-FIPS baseline (dracut FIPS module reprobe). All 7 deferred FIPS items came back as `family_exception_runtimeerror`. If they had verified cleanly, fix rate would have landed at ~92.9%, still below the projected band but in-margin.
+
+**Fix landed before Run 12** (commit shipping with this amendment): replace the count-based poll loop with a deadline-based wait and introduce `_FAMILY_REBOOT_WAIT_S` — a per-family timeout dict where `fips` gets 600s and other families stay at 180s. The loop exits as soon as SSH actually answers, so the change costs nothing on a fast reboot.
+
+The architecture's behavior under the failure mode was otherwise correct: rules deferred, family batched, snapshot taken, timeout emitted as a named event with detail. The journey/38.10 bet "at least one DEF-29 family fails" hit (with medium confidence), but 38.10 underpriced its contagion onto the high-confidence bets.
+
 ## References
 
 - [`adr/0020`](0020-skill-provided-worker-context.md) — the `worker_context` Protocol method this ADR extends.

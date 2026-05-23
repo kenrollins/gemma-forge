@@ -153,6 +153,19 @@ _REBOOT_REQUIRED_RULES: set[str] = {
 }
 
 
+# DEF-29 calibration (journey/38.11): per-family max-wait for SSH to
+# return after a reboot. The FIPS family on a cold (non-FIPS → FIPS)
+# transition runs dracut's FIPS-module probe on first boot, which is
+# materially slower than a normal reboot. Run 11's 24×5s window was
+# enough for a non-FIPS reboot but not the first FIPS one. 600s gives
+# generous headroom; the loop exits as soon as SSH actually answers.
+_FAMILY_REBOOT_WAIT_S: dict[str, int] = {
+    "fips": 600,
+    "kernel-cmdline": 180,
+    "other-reboot": 180,
+}
+
+
 def _stig_reboot_family(rule_id: str) -> str:
     """Group reboot-required rules into families for per-family processing.
 
@@ -628,10 +641,19 @@ class StigSkillRuntime:
             pass  # SSH drops mid-reboot, expected
 
         # --- 2. Wait for SSH back ---------------------------------------
+        # Per-family timeout: FIPS-mode kernel boot from a non-FIPS baseline
+        # is materially slower because dracut re-probes the FIPS module on
+        # first boot. Run 11 (journey/38.11) timed out at the 24×5s window
+        # that worked for normal reboots; the FIPS family needs roughly
+        # 5-10 minutes. Other reboot families stay at the prior budget.
+        max_wait_s = _FAMILY_REBOOT_WAIT_S.get(family, _FAMILY_REBOOT_WAIT_S["other-reboot"])
         await _aio.sleep(10)
         ssh_up = False
         wait_start = _time.time()
-        for attempt in range(24):
+        deadline = wait_start + max_wait_s
+        attempt = 0
+        while _time.time() < deadline:
+            attempt += 1
             try:
                 stdout, _stderr, _rc = await _run_ssh(self._ssh, "echo ok")
                 if "ok" in stdout:
@@ -645,12 +667,16 @@ class StigSkillRuntime:
             emit("family_ssh_wait_tick", {
                 "family": family,
                 "elapsed_s": round(_time.time() - wait_start + 10, 1),
-                "attempt": attempt + 1, "max_attempts": 24,
+                "attempt": attempt, "max_wait_s": max_wait_s,
             })
             await _aio.sleep(5)
 
         if not ssh_up:
-            emit("family_ssh_timeout", {"family": family})
+            emit("family_ssh_timeout", {
+                "family": family,
+                "waited_s": round(_time.time() - wait_start + 10, 1),
+                "max_wait_s": max_wait_s,
+            })
             raise RuntimeError("reboot_ssh_timeout")
 
         # --- 3. Mission healthcheck -------------------------------------

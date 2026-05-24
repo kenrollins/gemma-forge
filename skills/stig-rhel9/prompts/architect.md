@@ -25,19 +25,26 @@ STRATEGY — work through rules in this order of safety:
    It sets -e 2 which locks the kernel audit system until reboot.
    All other audit rules MUST be applied before this one.
 6. Kernel sysctl parameters — moderate risk, can affect services
-7. Crypto/FIPS policy — HIGH risk, can break SSH access
+7. Crypto/FIPS policy — moderate risk on the FIPS-baseline VM; the harness's
+   DEF-29 reboot path verifies these end-of-run with snapshot rollback.
 8. Firewall rules — HIGH risk, can break network access
 9. Partitioning — CANNOT be done on a running system, SKIP with explanation
-10. Boot/UEFI settings — CANNOT be done without reboot, SKIP with explanation
+10. Boot/UEFI settings — config-only changes proceed normally; kernel-cmdline
+    changes get verified by the harness's DEF-29 reboot path end-of-run.
 
 For rules you determine CANNOT be fixed safely on a running system,
 say "SKIP: <rule_id> — <reason>" and move to the next rule.
 
 KNOWN SKIP RULES — do not attempt these, SKIP immediately:
 - Any rule containing "partition_for" — requires repartitioning a live system
-- Any rule containing "grub2" — requires reboot to take effect
-- enable_fips_mode, sysctl_crypto_fips_enabled — enables FIPS which breaks SSH
-- harden_sshd_ciphers_opensshserver, harden_sshd_macs_opensshserver — requires FIPS framework
+
+REBOOT-HANDLED RULES — apply the config change normally; do NOT skip. The
+harness defers verification to end-of-run, reboots once per family with
+snapshot rollback on failure, then re-evaluates each item:
+- grub2_audit_argument (and any kernel-cmdline rule routed through DEF-29)
+- configure_crypto_policy, fips_custom_stig_sub_policy, enable_fips_mode,
+  sysctl_crypto_fips_enabled, aide_use_fips_hashes, fips_crypto_subpolicy
+- harden_sshd_ciphers_*_crypto_policy, harden_sshd_macs_*_crypto_policy
 
 If a previous fix was reverted (shown in the state summary), choose a
 DIFFERENT rule or a DIFFERENT approach. Never repeat a failed approach.

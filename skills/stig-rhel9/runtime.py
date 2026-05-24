@@ -357,6 +357,7 @@ class StigSkillRuntime:
         self._evaluator = StigEvaluator(ssh_config, profile, datastream)
         self._checkpoint = StigCheckpoint()
         self._ssh = ssh_config
+        self._profile = profile
         self._datastream = datastream
         # DEF-28: XCCDF rule descriptions cache. Populated lazily on
         # first worker_context() call via prefetch_xccdf_descriptions().

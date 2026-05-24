@@ -261,7 +261,7 @@ class DetectionEvaluator:
         except (RuleParseError, FileNotFoundError, yaml.YAMLError) as exc:
             return EvalResult(
                 passed=False,
-                failure_mode=FailureMode.CLEAN_FAILURE,
+                failure_mode=FailureMode.RULE_PARSE_FAILURE,
                 summary=f"rule parse failed: {exc}",
                 signals={
                     "detection_failure_mode": "rule_parse_failure",
@@ -277,7 +277,7 @@ class DetectionEvaluator:
             except UnsupportedLogsource as exc:
                 return EvalResult(
                     passed=False,
-                    failure_mode=FailureMode.CLEAN_FAILURE,
+                    failure_mode=FailureMode.CORPUS_GAP,
                     summary=f"corpus gap: {exc}",
                     signals={
                         "detection_failure_mode": "corpus_gap",
@@ -294,7 +294,7 @@ class DetectionEvaluator:
         except RuleParseError as exc:
             return EvalResult(
                 passed=False,
-                failure_mode=FailureMode.CLEAN_FAILURE,
+                failure_mode=FailureMode.RULE_PARSE_FAILURE,
                 summary=f"rule uses unsupported construct: {exc}",
                 signals={
                     "detection_failure_mode": "rule_parse_failure",
@@ -305,18 +305,28 @@ class DetectionEvaluator:
         passed = (scores.precision >= self._pass_precision
                   and scores.recall >= self._pass_recall)
 
+        # Failure mode routing per ADR-0022 §2:
+        #   recall ok, precision low      → RULE_TOO_NOISY
+        #   precision ok, recall low      → RULE_TOO_NARROW
+        #   both axes below threshold     → RULE_TOO_NOISY (the "both" case),
+        #                                   with signals["detection_failure_mode"]
+        #                                   distinguishing for Reflector/Worker
         if passed:
+            failure_mode = FailureMode.CLEAN_FAILURE  # ignored when passed=True
             detection_failure_mode = None
         elif scores.precision < self._pass_precision and scores.recall >= self._pass_recall:
+            failure_mode = FailureMode.RULE_TOO_NOISY
             detection_failure_mode = "rule_too_noisy"
         elif scores.recall < self._pass_recall and scores.precision >= self._pass_precision:
+            failure_mode = FailureMode.RULE_TOO_NARROW
             detection_failure_mode = "rule_too_narrow"
         else:
+            failure_mode = FailureMode.RULE_TOO_NOISY
             detection_failure_mode = "rule_too_noisy_and_narrow"
 
         return EvalResult(
             passed=passed,
-            failure_mode=FailureMode.CLEAN_FAILURE,
+            failure_mode=failure_mode,
             summary=(
                 f"P={scores.precision:.3f} R={scores.recall:.3f} F1={scores.f1:.3f} "
                 f"(scope={len(scope.events)} events, "

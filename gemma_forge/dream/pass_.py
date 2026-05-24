@@ -375,7 +375,11 @@ def _load_judge_prompt(repo_root: Path, skill: str) -> Optional[tuple[str, str]]
     section in markdown — we extract both. Returns None if the file
     doesn't exist (then this skill skips LLM judging gracefully).
     """
-    skill_dir_map = {"stig": "stig-rhel9", "cve": "cve-response"}
+    skill_dir_map = {
+        "stig": "stig-rhel9",
+        "cve": "cve-response",
+        "detection": "detection-tuning",
+    }
     skill_dir = skill_dir_map.get(skill, skill)
     path = repo_root / "skills" / skill_dir / "prompts" / "tip_follow_judge.md"
     if not path.exists():

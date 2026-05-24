@@ -141,6 +141,17 @@ class FailureMode(Enum):
     NEEDS_REBOOT = "needs_reboot"
     RPM_CONFLICT = "rpm_conflict"
     POLICY_VIOLATION = "policy_violation"
+    # detection-tuning skill additions (ADR-0022). All four route through
+    # the same CLEAN_FAILURE-equivalent path (revert + reflect + retry);
+    # the distinction is for the Reflector and tip-pool attribution, not
+    # the harness's triage. The two-axis-loser case
+    # (precision AND recall both below threshold) reuses RULE_TOO_NOISY
+    # with signals["detection_failure_mode"]="rule_too_noisy_and_narrow"
+    # — see ADR-0022 §2 for the rationale.
+    RULE_TOO_NOISY = "rule_too_noisy"           # precision below threshold
+    RULE_TOO_NARROW = "rule_too_narrow"         # recall below threshold
+    RULE_PARSE_FAILURE = "rule_parse_failure"   # evaluator doesn't speak the rule's dialect
+    CORPUS_GAP = "corpus_gap"                   # rule's logsource isn't in this corpus
 
 
 @dataclass

@@ -157,16 +157,127 @@ class CorpusLoader:
     ) -> pd.Series:
         """Apply ground-truth labeling.
 
-        Friday-night slice: filename-keyword match against ``EVTX_FileName``.
-        This is the same labeling rule pre-flight 3 validated — sufficient
-        for cred-dumping-style techniques where filenames are descriptive.
+        Filename-keyword match against ``EVTX_FileName``. Sufficient for
+        cred-dumping-style techniques where filenames are descriptive.
+        Replace with a per-rule ATT&CK technique ID match if a future
+        corpus's per-tactic labeling proves too coarse for recall-focused
+        rules.
 
-        Saturday afternoon may replace this with a per-rule ATT&CK technique
-        ID match if the corpus's per-tactic labeling proves too coarse for
-        recall-focused rules.
+        ``SdsCorpus`` reuses this via the EVTX_FileName column it
+        synthesizes from JSON source filenames — single labeling
+        implementation, two corpora.
         """
         keywords = [k.lower() for k in positive_filename_keywords]
         if not keywords:
             return pd.Series(False, index=df.index)
         fn_lower = df["EVTX_FileName"].str.lower()
         return fn_lower.apply(lambda f: any(k in f for k in keywords))
+
+
+class SdsCorpus:
+    """Lazy-loaded labeled corpus for OTRF Security-Datasets captures.
+
+    Sibling to ``CorpusLoader`` (which reads EVTX-ATTACK-SAMPLES'
+    pre-parsed CSV). This one walks a directory of NDJSON files (the
+    SDS native format), concatenates them into one DataFrame, and
+    synthesizes an ``EVTX_FileName`` column from the source file
+    basename so the shared ``label_positives`` static method works
+    unmodified.
+
+    Schema compatibility: SDS events come from real Sysmon, with the
+    same ``Channel`` / ``EventID`` / ``CommandLine`` / ``GrantedAccess``
+    / ``CallTrace`` / ``TargetImage`` columns the EVTX corpus has.
+    The Evaluator doesn't need to know which corpus it's scoring
+    against — both expose the same shape.
+
+    The point of having a second corpus is to test the architectural
+    claim that knowledge transfers across corpora — same Sigma rule
+    will score differently on different telemetry sources, and a tip
+    pool built against one corpus should help on a second. See
+    docs/journal/futures/detection-tuning-skill.md "cross-run
+    intelligence story" section.
+    """
+
+    def __init__(self, extracted_dir: str | Path):
+        self._dir = Path(extracted_dir)
+        self._df: pd.DataFrame | None = None
+
+    def _load(self) -> pd.DataFrame:
+        if self._df is not None:
+            return self._df
+        if not self._dir.is_dir():
+            raise FileNotFoundError(
+                f"SDS extracted dir not found at {self._dir}. "
+                "Expected unzipped OTRF/Security-Datasets captures "
+                "(*.json NDJSON files)."
+            )
+        json_files = sorted(self._dir.glob("*.json"))
+        if not json_files:
+            raise FileNotFoundError(
+                f"No .json files found in {self._dir}. "
+                "Unzip the SDS captures first."
+            )
+
+        # NDJSON: one event per line. pandas read_json with lines=True
+        # is the fastest path, but it doesn't expose source filename.
+        # Read per-file so we can stamp EVTX_FileName for the label
+        # matcher. ~3 seconds for the 128k-event credential_access +
+        # execution subset.
+        frames = []
+        for jf in json_files:
+            try:
+                df = pd.read_json(jf, lines=True, dtype=False)
+            except ValueError as exc:
+                # Skip malformed files rather than failing the whole load —
+                # SDS occasionally ships truncated captures.
+                continue
+            df["EVTX_FileName"] = jf.name
+            frames.append(df)
+
+        df = pd.concat(frames, ignore_index=True, sort=False)
+        # Normalize types to match CorpusLoader: everything as string.
+        # pandas leaves int columns as int from read_json; cast for
+        # uniform downstream handling.
+        df = df.astype(str).fillna("")
+        for col in _HEX_COLUMNS:
+            if col in df.columns:
+                df[col] = df[col].apply(_normalize_hex_cell)
+        self._df = df
+        return df
+
+    @property
+    def total_events(self) -> int:
+        return len(self._load())
+
+    def scope_for_logsource(
+        self, category: str, product: str = "windows",
+    ) -> LogsourceScope:
+        """Same contract as ``CorpusLoader.scope_for_logsource``."""
+        key = (category, product)
+        if key not in _LOGSOURCE_FILTERS:
+            raise UnsupportedLogsource(
+                f"No logsource mapping for category={category!r} "
+                f"product={product!r}. Add it to corpus_loader."
+                "_LOGSOURCE_FILTERS if rules from this category need to "
+                "enter the queue."
+            )
+        channel, event_ids = _LOGSOURCE_FILTERS[key]
+        df = self._load()
+        subset = df[
+            (df["Channel"] == channel)
+            & (df["EventID"].isin(event_ids))
+        ].copy()
+        return LogsourceScope(
+            category=category,
+            product=product,
+            channel=channel,
+            event_ids=tuple(event_ids),
+            events=subset,
+        )
+
+    # Reuse the same label_positives implementation — the EVTX_FileName
+    # column is synthesized from json source files in _load() so the
+    # static method works as-is on either corpus. The explicit
+    # staticmethod() re-wrap is required because assigning a class's
+    # @staticmethod attribute to another class strips the descriptor.
+    label_positives = staticmethod(CorpusLoader.label_positives)

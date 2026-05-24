@@ -25,7 +25,6 @@ Out of scope tonight (Saturday morning):
 
 import json
 import logging
-import shutil
 from pathlib import Path
 
 import yaml
@@ -63,19 +62,24 @@ _skill_config: dict = {}
 
 
 def run_corpus_scan() -> str:
-    """Architect tool: report the work queue.
+    """Architect tool: report the current rule queue.
 
-    Friday-night slice: returns the single hardcoded item. Saturday
-    morning replaces this with a real per-rule scan that returns all
-    rules currently below the PASS threshold.
+    Returns one line per configured work item: rule name, technique,
+    and a short description. The Architect uses this to pick which
+    rule to hand to the Worker next. Per-rule scores live in the
+    state summary the harness assembles, not here — this tool is for
+    the queue snapshot, the scores are passed in conversation context.
     """
-    cfg = _skill_config
-    item = cfg.get("hardcoded_work_item", {})
-    return (
-        f"Detection-tuning queue (Friday-night slice): 1 rule\n"
-        f"- {item.get('rule_path', 'unknown')} "
-        f"(technique={item.get('technique_id', 'unknown')})"
-    )
+    items = _skill_config.get("work_items", [])
+    if not items:
+        return "Detection-tuning queue is empty."
+    lines = [f"Detection-tuning queue: {len(items)} rules"]
+    for it in items:
+        name = Path(it["rule_path"]).stem
+        tech = it.get("technique_id", "?")
+        desc = it.get("description", "")
+        lines.append(f"- {name}  [{tech}]  {desc}")
+    return "\n".join(lines)
 
 
 def apply_rule_change(candidate_rule_yaml: str, description: str) -> str:
@@ -106,31 +110,42 @@ def check_eval_health() -> str:
 
 
 class DetectionWorkQueue:
-    """Produces detection-tuning work items.
+    """Produces detection-tuning work items from the manifest's curated list.
 
-    Friday-night: returns a single hardcoded item from the manifest.
-    Saturday morning: scan SigmaHQ rules, return those below threshold.
+    Saturday-morning shape: iterates skill.yaml's `work_items:` list,
+    one WorkItem per entry. Each item carries its own ground-truth
+    keywords in metadata — the Evaluator uses those to label positives
+    for that item's rule.
+
+    Future (post-Saturday): replace the manifest's curated list with a
+    real SigmaHQ-wide scan that auto-labels via per-technique keyword
+    inference. Curated-list shape stays valid; the scan would just be
+    an additional WorkQueue implementation.
     """
 
-    def __init__(self, hardcoded_item_cfg: dict):
-        self._item_cfg = hardcoded_item_cfg
+    def __init__(self, items_cfg: list[dict]):
+        self._items_cfg = items_cfg
 
     async def scan(self) -> list[WorkItem]:
-        rule_path = self._item_cfg["rule_path"]
-        rule_id = Path(rule_path).stem
-        return [WorkItem(
-            id=rule_id,
-            title=f"Tune {rule_id}",
-            category="detection-rule",
-            metadata={
-                "rule_path": rule_path,
-                "technique_id": self._item_cfg.get("technique_id", ""),
-                "positive_filename_keywords": list(
-                    self._item_cfg.get("positive_filename_keywords", [])
-                ),
-            },
-            resources=[rule_path],
-        )]
+        items: list[WorkItem] = []
+        for cfg in self._items_cfg:
+            rule_path = cfg["rule_path"]
+            rule_id = Path(rule_path).stem
+            items.append(WorkItem(
+                id=rule_id,
+                title=f"Tune {rule_id}",
+                category="detection-rule",
+                metadata={
+                    "rule_path": rule_path,
+                    "technique_id": cfg.get("technique_id", ""),
+                    "description": cfg.get("description", ""),
+                    "positive_filename_keywords": list(
+                        cfg.get("positive_filename_keywords", [])
+                    ),
+                },
+                resources=[rule_path],
+            ))
+        return items
 
 
 class DetectionExecutor:
@@ -323,27 +338,36 @@ class DetectionEvaluator:
 
 
 class DetectionCheckpoint:
-    """In-memory text snapshot of per-item working rule files.
+    """In-memory text snapshot of the currently-active rule's working file.
 
     Sigma rules are tiny YAML files (a few KB), so we hold snapshots in
     a dict keyed by snapshot name. Survives only the process lifetime —
     matches the harness's revert contract (snapshots are scoped to one
     attempt, not persisted across runs).
+
+    Multi-item semantics: snapshots are global by name (e.g., "progress"),
+    not per-item. The harness drives one item at a time; "progress" is
+    always the snapshot of whatever item the Worker just applied to.
+    This mirrors STIG's VM-state model — there's only one "current
+    target," and the snapshot is named for the lifecycle phase rather
+    than the item.
+
+    ``baseline`` is treated as always-existing because we have an
+    immutable upstream SigmaHQ checkout to fall back to per-item via
+    the Evaluator's _resolve_rule_path; the harness's startup check
+    is satisfied without storing the upstream contents up front.
     """
 
-    def __init__(self, executor: DetectionExecutor, rules_repo: Path,
-                 hardcoded_rule_path: str):
+    def __init__(self, executor: DetectionExecutor, rules_repo: Path):
         self._executor = executor
         self._rules_repo = rules_repo
-        # For the Friday-night slice with one item, we initialize a single
-        # "baseline" entry from the pristine SigmaHQ source so the first
-        # `restore("baseline")` works even before any apply has run.
-        upstream = self._rules_repo / hardcoded_rule_path
         self._snapshots: dict[str, str] = {}
-        if upstream.is_file():
-            self._snapshots["baseline"] = upstream.read_text()
+        # Marker so exists("baseline") returns True at harness startup.
+        self._baseline_available = True
 
     async def exists(self, name: str) -> bool:
+        if name == "baseline":
+            return self._baseline_available
         return name in self._snapshots
 
     async def save(self, name: str) -> tuple[bool, str]:
@@ -378,15 +402,18 @@ class DetectionTuningSkillRuntime:
         corpus_csv: str,
         rules_repo: str,
         rule_workdir: str,
-        hardcoded_work_item: dict,
+        work_items: list[dict],
         pass_precision: float = 0.95,
         pass_recall: float = 0.80,
     ):
         global _skill_config
         _skill_config = {
-            "hardcoded_work_item": hardcoded_work_item,
+            "work_items": work_items,
             "rule_workdir": rule_workdir,
             "rules_repo": rules_repo,
+            # Set per-apply by DetectionExecutor.apply — captures whichever
+            # item the harness is currently driving so Checkpoint knows
+            # which working file to snapshot/restore.
             "_current_work_file": None,
         }
 
@@ -394,28 +421,21 @@ class DetectionTuningSkillRuntime:
         workdir_p = Path(rule_workdir)
         workdir_p.mkdir(parents=True, exist_ok=True)
 
-        # Seed the working file from the pristine rule on first init so
-        # the first evaluate() call has something to read.
-        item_id = Path(hardcoded_work_item["rule_path"]).stem
-        upstream = rules_repo_p / hardcoded_work_item["rule_path"]
-        work_path = workdir_p / f"{item_id}.yml"
-        if upstream.is_file() and not work_path.is_file():
-            shutil.copy(upstream, work_path)
-        _skill_config["_current_work_file"] = str(work_path)
+        # Work files are NOT pre-seeded from upstream — Evaluator's
+        # _resolve_rule_path falls back to the rules_repo path on first
+        # read, so initial evaluations score the pristine rule. Worker
+        # apply() is what creates the per-item work file.
 
         self._corpus = CorpusLoader(corpus_csv)
         self._executor = DetectionExecutor(workdir_p)
-        self._work_queue = DetectionWorkQueue(hardcoded_work_item)
+        self._work_queue = DetectionWorkQueue(work_items)
         self._evaluator = DetectionEvaluator(
             self._corpus, self._executor,
             pass_precision=pass_precision,
             pass_recall=pass_recall,
             rules_repo=rules_repo_p,
         )
-        self._checkpoint = DetectionCheckpoint(
-            self._executor, rules_repo_p,
-            hardcoded_work_item["rule_path"],
-        )
+        self._checkpoint = DetectionCheckpoint(self._executor, rules_repo_p)
 
     @property
     def work_queue(self) -> WorkQueue:

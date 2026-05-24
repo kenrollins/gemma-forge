@@ -49,21 +49,62 @@ detection:
   pass_precision: 0.95
   pass_recall: 0.80
 
-  # Friday-night slice queues exactly this rule. WorkQueue scaling is
-  # Saturday-morning work; tonight we prove the loop shape end-to-end.
-  hardcoded_work_item:
-    rule_path: "rules/windows/process_access/proc_access_win_lsass_memdump.yml"
-    technique_id: "T1003.001"
-    positive_filename_keywords:
-      - "mimikatz"
-      - "hashdump"
-      - "lsass"
-      - "memdump"
-      - "credump"
-      - "dumpert"
-      - "andrewspecial"
-      - "ppldump"
-      - "hktl"
+  # Curated work-item queue. Each entry is one Sigma rule the harness
+  # will evaluate (and, if below threshold, hand to the Worker for tuning).
+  #
+  # Picked by /tmp/dt-find-candidates.py scan over the windows/ subset
+  # of SigmaHQ — these are rules that (a) use logsources our corpus
+  # loader supports, (b) parse cleanly with our evaluator, and (c) have
+  # at least one positive event in the EVTX-ATTACK-SAMPLES corpus.
+  #
+  # Diversity targets exercised in this set:
+  #   - both process_access and process_creation logsources
+  #   - all three failure modes: rule_too_narrow (P=1, low R),
+  #     rule_too_noisy_and_narrow (both axes below threshold), and
+  #     one near-pass (so the Architect's skip-PASSING-rules logic
+  #     gets tested).
+  work_items:
+    - rule_path: "rules/windows/process_access/proc_access_win_lsass_memdump.yml"
+      technique_id: "T1003.001"
+      description: "LSASS process_access cred-dumping detection"
+      positive_filename_keywords:
+        - "mimikatz"
+        - "hashdump"
+        - "lsass"
+        - "memdump"
+        - "credump"
+        - "dumpert"
+        - "andrewspecial"
+        - "ppldump"
+        - "hktl"
+    - rule_path: "rules/windows/process_access/proc_access_win_lsass_dump_keyword_image.yml"
+      technique_id: "T1003.001"
+      description: "LSASS dump by suspicious image-name keyword"
+      positive_filename_keywords:
+        - "mimikatz"
+        - "hashdump"
+        - "lsass"
+        - "memdump"
+        - "credump"
+        - "dumpert"
+        - "andrewspecial"
+        - "ppldump"
+        - "hktl"
+    - rule_path: "rules/windows/process_creation/proc_creation_win_mshta_lethalhta_technique.yml"
+      technique_id: "T1218.005"
+      description: "MSHTA LethalHTA injection technique"
+      positive_filename_keywords:
+        - "mshta"
+    - rule_path: "rules/windows/process_creation/proc_creation_win_mshta_inline_vbscript.yml"
+      technique_id: "T1059.005"
+      description: "MSHTA inline VBScript execution"
+      positive_filename_keywords:
+        - "mshta"
+    - rule_path: "rules/windows/process_creation/proc_creation_win_wscript_cscript_mshta_dropper.yml"
+      technique_id: "T1059.005"
+      description: "WSCRIPT/CSCRIPT/MSHTA dropper pattern"
+      positive_filename_keywords:
+        - "mshta"
 
 ui:
   title: "Detection Tuning"

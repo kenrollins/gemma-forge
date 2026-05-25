@@ -18,7 +18,7 @@
  * or the literal character. We use the literal characters here.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Tab } from "./types";
 
 export type ChromeMode = "live" | "replay";
@@ -314,7 +314,31 @@ function RunPicker({
   label: string;
 }) {
   const [open, setOpen] = useState(false);
+  // Skill filter inside the dropdown — defaults to the active run's skill
+  // so the user lands on a list scoped to whatever they're currently
+  // looking at. "All" stays available for cross-skill comparison.
+  const activeRunObj = runs.find((r) => r.filename === activeRun);
+  const [skillFilter, setSkillFilter] = useState<string>(
+    activeRunObj?.skill_id || "all",
+  );
   const ref = useRef<HTMLDivElement>(null);
+
+  // Skill buckets derived from the live run list — used for filter chips.
+  const skillBuckets = useMemo(() => {
+    const m = new Map<string, { id: string; name: string; count: number }>();
+    for (const r of runs) {
+      const id = r.skill_id || "unknown";
+      const name = r.skill_name || "(no skill manifest)";
+      const cur = m.get(id) || { id, name, count: 0 };
+      cur.count += 1;
+      m.set(id, cur);
+    }
+    return Array.from(m.values()).sort((a, b) => b.count - a.count);
+  }, [runs]);
+
+  const visibleRuns = skillFilter === "all"
+    ? runs
+    : runs.filter((r) => (r.skill_id || "unknown") === skillFilter);
 
   useEffect(() => {
     if (!open) return;
@@ -337,13 +361,40 @@ function RunPicker({
       </button>
       {open && (
         <div
-          className="absolute z-50 top-full left-0 mt-1 w-[340px] max-h-[400px] overflow-y-auto rounded-md border border-[#2A2F38] bg-[#0A0C10] shadow-2xl"
+          className="absolute z-50 top-full left-0 mt-1 w-[380px] max-h-[460px] overflow-y-auto rounded-md border border-[#2A2F38] bg-[#0A0C10] shadow-2xl"
           style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.6)" }}
         >
           <div className="px-3 py-1.5 text-[9px] font-semibold uppercase tracking-[0.2em] text-[#4B5563] border-b border-[#1C1F26]">
             Pick a run to replay
           </div>
-          {runs.map((r) => {
+          {/* Skill filter row — sticky at the top of the scroll area so
+              the user can re-scope mid-scroll. Mirrors the RunsTab
+              pattern. */}
+          {skillBuckets.length > 0 && (
+            <div className="sticky top-0 z-10 bg-[#0A0C10] px-2 py-1.5 border-b border-[#141820] flex items-center gap-1 flex-wrap">
+              <DropdownSkillChip
+                label="All"
+                count={runs.length}
+                active={skillFilter === "all"}
+                onClick={() => setSkillFilter("all")}
+              />
+              {skillBuckets.map((s) => (
+                <DropdownSkillChip
+                  key={s.id}
+                  label={s.id}
+                  count={s.count}
+                  active={skillFilter === s.id}
+                  onClick={() => setSkillFilter(s.id)}
+                />
+              ))}
+            </div>
+          )}
+          {visibleRuns.length === 0 && (
+            <div className="px-3 py-4 text-[10px] text-[#6B7280] italic">
+              No runs for this skill.
+            </div>
+          )}
+          {visibleRuns.map((r) => {
             const isActive = r.filename === activeRun;
             const summary = r.summary || {};
             const fixed = summary["remediated"] as number | undefined;
@@ -402,8 +453,21 @@ function RunPicker({
                     </span>
                   )}
                 </div>
-                <div className="text-[9px] text-[#4B5563] mt-0.5 tabular-nums">
-                  {r.events.toLocaleString()} events
+                <div className="text-[9px] text-[#4B5563] mt-0.5 tabular-nums flex items-center gap-1.5 flex-wrap">
+                  {r.skill_id && (
+                    <span
+                      className="px-1.5 py-px rounded-sm font-mono text-[8.5px] uppercase tracking-wider"
+                      style={{
+                        background: "#13161D",
+                        border: "1px solid #2A2F38",
+                        color: "#9CA3AF",
+                      }}
+                      title={r.skill_name || r.skill_id}
+                    >
+                      {r.skill_id}
+                    </span>
+                  )}
+                  <span>{r.events.toLocaleString()} events</span>
                   {fixed !== undefined && esc !== undefined && (
                     <>
                       <span className="mx-1.5 text-[#2A2F38]">·</span>
@@ -421,6 +485,37 @@ function RunPicker({
     </div>
   );
 }
+
+function DropdownSkillChip({
+  label,
+  count,
+  active,
+  onClick,
+}: {
+  label: string;
+  count: number;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="px-1.5 py-0.5 rounded-sm text-[9px] font-mono uppercase tracking-wider transition-colors"
+      style={{
+        background: active ? "#13161D" : "transparent",
+        borderWidth: 1,
+        borderStyle: "solid",
+        borderColor: active ? "#3B82F6" : "#2A2F38",
+        color: active ? "#E8EAED" : "#9CA3AF",
+      }}
+      title={label}
+    >
+      <span className="truncate inline-block align-middle max-w-[120px]">{label}</span>
+      <span className="ml-1.5 text-[#6B7280] tabular-nums">{count}</span>
+    </button>
+  );
+}
+
 
 function ModeButton({
   label,

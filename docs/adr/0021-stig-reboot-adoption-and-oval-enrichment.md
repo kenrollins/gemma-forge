@@ -142,6 +142,16 @@ Run 11 (journey/38.11) landed at 90.2% fix rate ex-skip — 0.6pp above R10's 89
 
 The architecture's behavior under the failure mode was otherwise correct: rules deferred, family batched, snapshot taken, timeout emitted as a named event with detail. The journey/38.10 bet "at least one DEF-29 family fails" hit (with medium confidence), but 38.10 underpriced its contagion onto the high-confidence bets.
 
+## Arc-close amendment (Run 14 / journey/38.13)
+
+Run 14 (journey/38.13) was the first run across all 14 STIG attempts where DEF-29's per-family reboot pattern verified end-to-end without exception. The FIPS family rebooted in 28s, mission healthcheck passed, the per-item rule check loop ran cleanly via `stig_check_rule(self._ssh, item.id, self._profile, self._datastream)` — `self._profile` having been added to `StigSkillRuntime.__init__` in the same commit that fixed the architect prompt's over-skipping (commit `ce1abf2`).
+
+The four FIPS-tail items the family rebooted for (`aide_use_fips_hashes`, `configure_crypto_policy`, `enable_fips_mode`, `fips_custom_stig_sub_policy`) still verified as `family_still_failing` — but for a different reason than this ADR's architecture concerns itself with: the Worker's apply scripts wrote `--set FIPS` when the scanner specifically checks for `--set FIPS:STIG` (the combined sub-policy), wrote AIDE config with syntax errors, and failed to create the custom STIG-CUSTOM policy module file in the correct location and format. These are Worker script quality problems, not architecture problems. The DEF-29 mechanism correctly deferred them, snapshotted, rebooted, verified, and reported the scanner's honest verdict that the rules remained non-compliant.
+
+The arc-closing fix rate across R8 → R14 clustered in a ~3pp band at roughly 90%, despite each run shipping a substantive architectural addition. The empirical architectural ceiling for the current paradigm is named at ~90% fix rate ex-skip. The remaining 10pp decomposes into (a) ~3pp environmental / scope-bounded rules, (b) ~3pp scanner-gap edges DEF-28-deeper doesn't fully close, (c) ~4pp Worker script quality issues. Breaking past the ceiling would require paradigm-level moves: DEF-30 (dynamic prompt enrichment via the Reflector's diagnosis becoming the Worker's input), a skill-bundled remediation library, or a richer Worker model — none committed to as of this amendment.
+
+This ADR's decisions (DEF-29 + DEF-28-deeper) are accepted, deployed, and verified working end-to-end. Further STIG work would either ship one of the three named paradigm-level moves or feel like polishing.
+
 ## References
 
 - [`adr/0020`](0020-skill-provided-worker-context.md) — the `worker_context` Protocol method this ADR extends.

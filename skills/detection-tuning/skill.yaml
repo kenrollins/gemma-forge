@@ -40,12 +40,6 @@ tools:
 validators: []
 
 detection:
-  # Per-corpus configuration. Friday-night slice supports one corpus.
-  # Saturday afternoon adds a second to test cross-corpus tip transfer
-  # (see futures/detection-tuning-skill.md "cross-run intelligence" section).
-  corpus_name: "evtx-attack-samples"
-  corpus_csv: "/tmp/dt-corpora/evtx/evtx_data.csv"
-
   # SigmaHQ public rules — the upstream library Ralph tunes against.
   rules_repo: "/tmp/dt-rules/sigma"
 
@@ -57,62 +51,87 @@ detection:
   pass_precision: 0.95
   pass_recall: 0.80
 
+  # Default corpus when neither config/harness.yaml's detection.corpus
+  # nor the DT_CORPUS environment variable is set. The same Sigma rules
+  # score against whatever corpus is selected at runtime — that's the
+  # corpus-as-input shape from ADR-0022.
+  default_corpus: evtx-attack-samples
+
+  # Available corpora. Each entry declares its loader format, source
+  # path, and per-technique positive-event labeling. The labeling has
+  # to be per-corpus because filename conventions differ — EVTX-
+  # ATTACK-SAMPLES uses descriptive prefixes (CA_Mimikatz_*); SDS
+  # uses tooling-prefixed names (empire_*, covenant_*, cmd_*) for
+  # the same techniques. Without per-corpus keywords, Run 2 would
+  # silently label zero positives and score every rule at R=0.
+  corpora:
+    evtx-attack-samples:
+      format: evtx_csv
+      path: "/tmp/dt-corpora/evtx/evtx_data.csv"
+      keywords_by_technique:
+        T1003.001:  # Credential dumping (LSASS / SAM / NTDS)
+          - mimikatz
+          - hashdump
+          - lsass
+          - memdump
+          - credump
+          - dumpert
+          - andrewspecial
+          - ppldump
+          - hktl
+        T1218.005:  # Mshta proxy execution
+          - mshta
+        T1059.005:  # Visual Basic interpreter
+          - mshta
+
+    sds:
+      format: sds_ndjson
+      path: "/tmp/dt-corpora/sds-extracted"
+      keywords_by_technique:
+        T1003.001:  # Credential dumping
+          - mimikatz
+          - lsass
+          - hashdump
+          - sam
+          - ntds
+          - dcsync
+          - dumpert
+          - lsadump
+          - ninjacopy
+          - rubeus
+          - logonpasswords
+        T1218.005:  # Mshta — extract defense_evasion subdir for hits
+          - mshta
+        T1059.005:
+          - mshta
+          - wscript
+          - cscript
+
   # Curated work-item queue. Each entry is one Sigma rule the harness
   # will evaluate (and, if below threshold, hand to the Worker for tuning).
   #
-  # Picked by /tmp/dt-find-candidates.py scan over the windows/ subset
-  # of SigmaHQ — these are rules that (a) use logsources our corpus
-  # loader supports, (b) parse cleanly with our evaluator, and (c) have
-  # at least one positive event in the EVTX-ATTACK-SAMPLES corpus.
+  # Per-rule labeling now flows from the active corpus's
+  # keywords_by_technique map, so work_items declare technique_id only.
   #
-  # Diversity targets exercised in this set:
-  #   - both process_access and process_creation logsources
-  #   - all three failure modes: rule_too_narrow (P=1, low R),
-  #     rule_too_noisy_and_narrow (both axes below threshold), and
-  #     one near-pass (so the Architect's skip-PASSING-rules logic
-  #     gets tested).
+  # Picked by /tmp/dt-find-candidates.py scan over the windows/ subset
+  # of SigmaHQ. Diversity exercised: process_access AND process_creation
+  # logsources; rule_too_narrow + rule_too_noisy_and_narrow failure modes.
   work_items:
     - rule_path: "rules/windows/process_access/proc_access_win_lsass_memdump.yml"
       technique_id: "T1003.001"
       description: "LSASS process_access cred-dumping detection"
-      positive_filename_keywords:
-        - "mimikatz"
-        - "hashdump"
-        - "lsass"
-        - "memdump"
-        - "credump"
-        - "dumpert"
-        - "andrewspecial"
-        - "ppldump"
-        - "hktl"
     - rule_path: "rules/windows/process_access/proc_access_win_lsass_dump_keyword_image.yml"
       technique_id: "T1003.001"
       description: "LSASS dump by suspicious image-name keyword"
-      positive_filename_keywords:
-        - "mimikatz"
-        - "hashdump"
-        - "lsass"
-        - "memdump"
-        - "credump"
-        - "dumpert"
-        - "andrewspecial"
-        - "ppldump"
-        - "hktl"
     - rule_path: "rules/windows/process_creation/proc_creation_win_mshta_lethalhta_technique.yml"
       technique_id: "T1218.005"
       description: "MSHTA LethalHTA injection technique"
-      positive_filename_keywords:
-        - "mshta"
     - rule_path: "rules/windows/process_creation/proc_creation_win_mshta_inline_vbscript.yml"
       technique_id: "T1059.005"
       description: "MSHTA inline VBScript execution"
-      positive_filename_keywords:
-        - "mshta"
     - rule_path: "rules/windows/process_creation/proc_creation_win_wscript_cscript_mshta_dropper.yml"
       technique_id: "T1059.005"
       description: "WSCRIPT/CSCRIPT/MSHTA dropper pattern"
-      positive_filename_keywords:
-        - "mshta"
 
 ui:
   title: "Detection Tuning"

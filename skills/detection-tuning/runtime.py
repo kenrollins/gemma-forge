@@ -43,6 +43,7 @@ from gemma_forge.harness.interfaces import (
 from gemma_forge.harness.tools.sigma.corpus_loader import (
     CorpusLoader,
     LogsourceScope,
+    SdsCorpus,
     UnsupportedLogsource,
 )
 from gemma_forge.harness.tools.sigma.sigma_eval import (
@@ -112,36 +113,41 @@ def check_eval_health() -> str:
 class DetectionWorkQueue:
     """Produces detection-tuning work items from the manifest's curated list.
 
-    Saturday-morning shape: iterates skill.yaml's `work_items:` list,
-    one WorkItem per entry. Each item carries its own ground-truth
-    keywords in metadata — the Evaluator uses those to label positives
-    for that item's rule.
+    Iterates skill.yaml's `work_items:` list, one WorkItem per entry.
+    Per-corpus ground-truth keywords are resolved here at scan time
+    via the active corpus's `keywords_by_technique` map — that way
+    swapping corpora doesn't require rebuilding the queue, the
+    metadata changes per scan.
 
-    Future (post-Saturday): replace the manifest's curated list with a
-    real SigmaHQ-wide scan that auto-labels via per-technique keyword
-    inference. Curated-list shape stays valid; the scan would just be
-    an additional WorkQueue implementation.
+    Future: replace the manifest's curated list with a SigmaHQ-wide
+    auto-scan. The curated-list shape stays valid; auto-scan would
+    just be a different WorkQueue implementation.
     """
 
-    def __init__(self, items_cfg: list[dict]):
+    def __init__(
+        self,
+        items_cfg: list[dict],
+        keywords_by_technique: dict[str, list[str]],
+    ):
         self._items_cfg = items_cfg
+        self._kw_by_tech = keywords_by_technique
 
     async def scan(self) -> list[WorkItem]:
         items: list[WorkItem] = []
         for cfg in self._items_cfg:
             rule_path = cfg["rule_path"]
             rule_id = Path(rule_path).stem
+            technique_id = cfg.get("technique_id", "")
+            keywords = list(self._kw_by_tech.get(technique_id, []))
             items.append(WorkItem(
                 id=rule_id,
                 title=f"Tune {rule_id}",
                 category="detection-rule",
                 metadata={
                     "rule_path": rule_path,
-                    "technique_id": cfg.get("technique_id", ""),
+                    "technique_id": technique_id,
                     "description": cfg.get("description", ""),
-                    "positive_filename_keywords": list(
-                        cfg.get("positive_filename_keywords", [])
-                    ),
+                    "positive_filename_keywords": keywords,
                 },
                 resources=[rule_path],
             ))
@@ -409,10 +415,12 @@ class DetectionTuningSkillRuntime:
 
     def __init__(
         self,
-        corpus_csv: str,
+        corpus,                       # CorpusLoader or SdsCorpus instance
         rules_repo: str,
         rule_workdir: str,
         work_items: list[dict],
+        keywords_by_technique: dict[str, list[str]],
+        corpus_name: str = "",
         pass_precision: float = 0.95,
         pass_recall: float = 0.80,
     ):
@@ -421,6 +429,7 @@ class DetectionTuningSkillRuntime:
             "work_items": work_items,
             "rule_workdir": rule_workdir,
             "rules_repo": rules_repo,
+            "corpus_name": corpus_name,
             # Set per-apply by DetectionExecutor.apply — captures whichever
             # item the harness is currently driving so Checkpoint knows
             # which working file to snapshot/restore.
@@ -436,9 +445,10 @@ class DetectionTuningSkillRuntime:
         # read, so initial evaluations score the pristine rule. Worker
         # apply() is what creates the per-item work file.
 
-        self._corpus = CorpusLoader(corpus_csv)
+        self._corpus = corpus
+        self._corpus_name = corpus_name
         self._executor = DetectionExecutor(workdir_p)
-        self._work_queue = DetectionWorkQueue(work_items)
+        self._work_queue = DetectionWorkQueue(work_items, keywords_by_technique)
         self._evaluator = DetectionEvaluator(
             self._corpus, self._executor,
             pass_precision=pass_precision,
@@ -528,17 +538,20 @@ def build_runtime(harness_cfg: dict) -> "DetectionTuningSkillRuntime":
     config layout. Matches the shape of stig-rhel9 / cve-response
     `build_runtime()` after the 9ff8688 refactor.
 
-    Config sources (in order of priority):
-      1. harness_cfg['detection'] — per-deployment overrides in
-         config/harness.yaml (corpus paths, thresholds, etc.)
-      2. skill.yaml's `detection:` block — curated skill content
-         (the work_items list, default paths). Loaded by reading
+    Config sources (in priority order):
+      1. ``DT_CORPUS`` env var — operator override at run-time.
+      2. ``harness_cfg['detection']`` — per-deployment overrides in
+         config/harness.yaml (corpus selection, thresholds, etc.)
+      3. ``skill.yaml``'s ``detection:`` block — curated skill content
+         (work_items, corpora map, default_corpus). Loaded by reading
          skill.yaml co-located with this module.
 
-    This split keeps work_items (a long curated list) in the skill
-    definition where it belongs, while letting deployment knobs
-    (corpus paths, pass thresholds) live in harness.yaml.
+    The split keeps work_items + corpora map (long curated content)
+    in the skill definition where it belongs, while letting deployment
+    knobs (which corpus to load, pass thresholds) live in harness.yaml
+    or env vars so operators can swap corpora without editing skills/.
     """
+    import os
     import yaml as _yaml
 
     skill_yaml = Path(__file__).parent / "skill.yaml"
@@ -548,7 +561,6 @@ def build_runtime(harness_cfg: dict) -> "DetectionTuningSkillRuntime":
             raw = _yaml.safe_load(_f) or {}
         manifest_det_cfg = raw.get("detection", {}) or {}
 
-    # harness_cfg overrides manifest defaults for per-deployment values.
     override = (harness_cfg or {}).get("detection", {}) or {}
 
     def cfg(key, fallback):
@@ -558,11 +570,50 @@ def build_runtime(harness_cfg: dict) -> "DetectionTuningSkillRuntime":
             return manifest_det_cfg[key]
         return fallback
 
+    # Corpus selection. DT_CORPUS env wins (run-time override);
+    # then harness_cfg.detection.corpus; then manifest's default_corpus.
+    corpus_name = (
+        os.environ.get("DT_CORPUS")
+        or cfg("corpus", None)
+        or cfg("default_corpus", "evtx-attack-samples")
+    )
+
+    corpora = manifest_det_cfg.get("corpora", {}) or {}
+    if corpus_name not in corpora:
+        raise RuntimeError(
+            f"detection-tuning: unknown corpus {corpus_name!r}. "
+            f"Available: {sorted(corpora)}. Edit skill.yaml's "
+            "detection.corpora to add new corpora."
+        )
+    corpus_cfg = corpora[corpus_name]
+    fmt = corpus_cfg.get("format", "evtx_csv")
+    path = corpus_cfg.get("path", "")
+    keywords_by_technique = corpus_cfg.get("keywords_by_technique", {}) or {}
+
+    if fmt == "evtx_csv":
+        corpus = CorpusLoader(path)
+    elif fmt == "sds_ndjson":
+        corpus = SdsCorpus(path)
+    else:
+        raise RuntimeError(
+            f"detection-tuning: unknown corpus format {fmt!r} for {corpus_name!r}. "
+            "Supported: evtx_csv, sds_ndjson."
+        )
+
+    logger.info(
+        "detection-tuning build_runtime: corpus=%s format=%s path=%s "
+        "techniques=%d work_items=%d",
+        corpus_name, fmt, path, len(keywords_by_technique),
+        len(cfg("work_items", [])),
+    )
+
     return DetectionTuningSkillRuntime(
-        corpus_csv=cfg("corpus_csv", "/tmp/dt-corpora/evtx/evtx_data.csv"),
+        corpus=corpus,
+        corpus_name=corpus_name,
         rules_repo=cfg("rules_repo", "/tmp/dt-rules/sigma"),
         rule_workdir=cfg("rule_workdir", "/tmp/dt-work/rules"),
         work_items=cfg("work_items", []),
+        keywords_by_technique=keywords_by_technique,
         pass_precision=cfg("pass_precision", 0.95),
         pass_recall=cfg("pass_recall", 0.80),
     )

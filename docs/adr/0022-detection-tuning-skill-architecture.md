@@ -146,7 +146,19 @@ The first end-to-end `forge run detection-tuning --corpus evtx-attack-samples` p
 - [`ADR-0020`](0020-skill-provided-worker-context.md) — DEF-28 `worker_context`, the pattern this skill validates in a second domain
 - `gemma_forge/harness/interfaces.py` — Protocol contracts; FailureMode extension lives here
 - `gemma_forge/harness/tools/sigma/` — corpus loaders + Sigma evaluator
-- `skills/detection-tuning/runtime.py` — the SkillRuntime adapter
-- Friday-night commit: `5bbde57`
-- Path A commit (real prompts + multi-item queue): `5ff98b6`
-- Path C commit (second corpus, SDS): `bd06ba6`
+- `skills/detection-tuning/runtime.py` — the `DetectionTuningSkillRuntime` + manifest-declared `build_runtime` entry point
+- Friday-night commit: `beb1c9b`
+- Path A commit (real prompts + multi-item queue): `11d1349`
+- Path C commit (second corpus, SDS): `b9ed562`
+- Manifest-driven dispatch adapter (post-rebase): `cf02a4c`
+
+## Addendum — manifest-driven dispatch (post-rebase)
+
+After this ADR was first written, `main` adopted the manifest-driven skill-instantiation pattern (commit `9ff8688`): `ralph._build_skill_runtime` no longer has per-skill if/elif branches; instead, every skill declares a `runtime:` block in `skill.yaml` (`module`, `builder`, `schema`) and a module-level `build_runtime(harness_cfg: dict) -> SkillRuntime` function in `runtime.py`. The harness dispatches dynamically.
+
+This skill's `build_runtime` (in `skills/detection-tuning/runtime.py`) follows the new pattern with one twist worth recording: detection-tuning's config splits between two YAML sources by intent.
+
+- `skill.yaml`'s `detection:` block holds curated content — the `work_items` list (which Sigma rules to tune, with per-rule ground-truth keywords). Long, skill-defining, lives with the skill.
+- `config/harness.yaml`'s optional `detection:` block holds per-deployment knobs — corpus paths, `pass_precision` / `pass_recall` thresholds. Operators can swap corpora or tighten the PASS bar without editing `skills/`.
+
+When both define the same key, `harness_cfg` wins. STIG and CVE collapse this distinction because their per-skill YAML state is small (profile + datastream, scan mode); detection-tuning's curated work_items list is too long to live in `harness.yaml`, so this skill's `build_runtime` reads both. This split is consistent with the manifest-driven pattern's intent: the *builder* decides config layout, the harness stays uninformed.

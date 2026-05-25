@@ -519,3 +519,50 @@ class DetectionTuningSkillRuntime:
         except Exception as exc:
             logger.warning("worker_context failed for %s: %s", item.id, exc)
             return None
+
+
+def build_runtime(harness_cfg: dict) -> "DetectionTuningSkillRuntime":
+    """Manifest-declared builder. Called by the harness's _build_skill_runtime.
+
+    The harness has no skill-specific knowledge — this function owns the
+    config layout. Matches the shape of stig-rhel9 / cve-response
+    `build_runtime()` after the 9ff8688 refactor.
+
+    Config sources (in order of priority):
+      1. harness_cfg['detection'] — per-deployment overrides in
+         config/harness.yaml (corpus paths, thresholds, etc.)
+      2. skill.yaml's `detection:` block — curated skill content
+         (the work_items list, default paths). Loaded by reading
+         skill.yaml co-located with this module.
+
+    This split keeps work_items (a long curated list) in the skill
+    definition where it belongs, while letting deployment knobs
+    (corpus paths, pass thresholds) live in harness.yaml.
+    """
+    import yaml as _yaml
+
+    skill_yaml = Path(__file__).parent / "skill.yaml"
+    manifest_det_cfg: dict = {}
+    if skill_yaml.is_file():
+        with open(skill_yaml) as _f:
+            raw = _yaml.safe_load(_f) or {}
+        manifest_det_cfg = raw.get("detection", {}) or {}
+
+    # harness_cfg overrides manifest defaults for per-deployment values.
+    override = (harness_cfg or {}).get("detection", {}) or {}
+
+    def cfg(key, fallback):
+        if key in override:
+            return override[key]
+        if key in manifest_det_cfg:
+            return manifest_det_cfg[key]
+        return fallback
+
+    return DetectionTuningSkillRuntime(
+        corpus_csv=cfg("corpus_csv", "/tmp/dt-corpora/evtx/evtx_data.csv"),
+        rules_repo=cfg("rules_repo", "/tmp/dt-rules/sigma"),
+        rule_workdir=cfg("rule_workdir", "/tmp/dt-work/rules"),
+        work_items=cfg("work_items", []),
+        pass_precision=cfg("pass_precision", 0.95),
+        pass_recall=cfg("pass_recall", 0.80),
+    )

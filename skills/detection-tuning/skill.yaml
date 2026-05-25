@@ -13,6 +13,14 @@ version: "0.0.1"
 target_os: "n/a — corpus-based, no VM target"
 status: friday-night-slice
 
+# How the harness instantiates this skill's runtime (manifest-driven
+# dispatch; matches stig-rhel9 / cve-response shape after the
+# 9ff8688 refactor on main).
+runtime:
+  module: runtime.py
+  builder: build_runtime
+  schema: detection      # Postgres schema for memory (tip pool, work_items, etc.)
+
 prompts:
   architect: "prompts/architect.md"
   worker: "prompts/worker.md"

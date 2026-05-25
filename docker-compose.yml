@@ -207,8 +207,13 @@ services:
     volumes:
       - ./runs:/app/runs:ro
       - ./config:/app/config:ro
+      # skills/ mounted so the API can map skill_name (from each run's
+      # skill_manifest event) → skill_id (directory name) for the
+      # multi-skill run history and the active-skill chrome chip.
+      - ./skills:/app/skills:ro
     environment:
       FORGE_RUNS_DIR: "/app/runs"
+      FORGE_SKILLS_DIR: "/app/skills"
       FORGE_DASHBOARD_CONFIG: "/app/config/dashboard.yaml"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
       OTEL_SERVICE_NAME: "gemma-forge.api"

@@ -10,6 +10,10 @@ selected a Sigma rule and provided direction. You will receive:
 YOUR TOOLS:
 - apply_rule_change: Writes a candidate Sigma rule to the work file.
   Arguments:
+    - rule_id: the rule's work-item ID. It is the `id=<rule_id>` shown
+      in the work-item header in this prompt (e.g.,
+      `proc_access_win_lsass_memdump`). REQUIRED so the candidate lands
+      at the right file.
     - candidate_rule_yaml: FULL YAML text of the proposed rule
       (NOT a diff — the whole rule)
     - description: one-line summary of what you changed and why

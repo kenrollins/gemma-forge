@@ -62,7 +62,7 @@ logger = logging.getLogger(__name__)
 _skill_config: dict = {}
 
 
-def run_corpus_scan() -> str:
+async def run_corpus_scan() -> str:
     """Architect tool: report the current rule queue.
 
     Returns one line per configured work item: rule name, technique,
@@ -83,20 +83,30 @@ def run_corpus_scan() -> str:
     return "\n".join(lines)
 
 
-def apply_rule_change(candidate_rule_yaml: str, description: str) -> str:
-    """Worker tool: write a candidate Sigma rule to the work file.
+async def apply_rule_change(
+    rule_id: str, candidate_rule_yaml: str, description: str,
+) -> str:
+    """Worker tool: write a candidate Sigma rule to its working file.
 
     Args:
+        rule_id: The work item's rule_id (e.g.
+            `proc_access_win_lsass_memdump`). The Worker sees this in
+            the assembled prompt — pass it through so the candidate
+            lands at the right file.
         candidate_rule_yaml: Full YAML text of the proposed rule.
         description: One-line summary of what the Worker changed and why.
     """
-    work_path = Path(_skill_config["_current_work_file"])
+    workdir = Path(_skill_config.get("rule_workdir", "/tmp/dt-work/rules"))
+    work_path = workdir / f"{rule_id}.yml"
     work_path.parent.mkdir(parents=True, exist_ok=True)
     work_path.write_text(candidate_rule_yaml)
+    # Side-effect: record what was just written so any harness-side
+    # checkpointing of the "current work file" still works.
+    _skill_config["_current_work_file"] = str(work_path)
     return f"wrote candidate to {work_path} — {description}"
 
 
-def check_eval_health() -> str:
+async def check_eval_health() -> str:
     """Auditor tool: confirm the eval pipeline is functioning.
 
     For this skill there is no separate "mission app health" — health
@@ -167,9 +177,9 @@ class DetectionExecutor:
                     revert_script: str, description: str) -> str:
         # In this skill, fix_script IS the candidate Sigma rule YAML text.
         # revert_script is unused — Checkpoint handles revert.
-        work_path = self.work_file_for(item)
-        _skill_config["_current_work_file"] = str(work_path)
-        return apply_rule_change(fix_script, description)
+        # Path used by the smoke test (which calls Executor.apply directly);
+        # the live harness uses the apply_rule_change tool path instead.
+        return await apply_rule_change(item.id, fix_script, description)
 
     def get_agent_tools(self) -> list:
         return [apply_rule_change]
@@ -396,6 +406,27 @@ class DetectionCheckpoint:
         return True, f"snapshotted {wf.name} as {name}"
 
     async def restore(self, name: str) -> tuple[bool, str]:
+        if name == "baseline":
+            # Baseline = pristine upstream rule. The Evaluator's
+            # _resolve_rule_path falls back to upstream when the
+            # work file is missing or matches upstream — so a
+            # baseline restore is "delete the work file" for the
+            # currently-active item. If no current work file is
+            # tracked (first attempt of first rule), nothing to do.
+            wf_str = _skill_config.get("_current_work_file") or ""
+            if wf_str:
+                wf = Path(wf_str)
+                if wf.is_file():
+                    wf.unlink()
+                return True, f"baseline restored — removed {wf.name}"
+            return True, "baseline restored — no work file to remove"
+        if name == "progress" and name not in self._snapshots:
+            # First attempt of a rule: no progress snapshot exists yet
+            # because save("progress") fires AFTER apply. STIG's libvirt
+            # restore is global so this case doesn't surface there; for
+            # detection-tuning we no-op cleanly — nothing was applied
+            # past the upstream baseline.
+            return True, "no progress snapshot yet — nothing to revert"
         if name not in self._snapshots:
             return False, f"unknown snapshot: {name}"
         wf = Path(_skill_config.get("_current_work_file", ""))
@@ -476,6 +507,27 @@ class DetectionTuningSkillRuntime:
     def get_scan_tool(self):
         return run_corpus_scan
 
+    async def gather_diagnostics(self) -> dict:
+        """No-op diagnostics for skills without a running target.
+
+        STIG/CVE's gather_diagnostics SSH to a VM and capture state
+        before a revert. Detection-tuning has no VM and no mission app —
+        the evaluator runs locally over a static corpus. Returning an
+        empty dict satisfies the harness's diagnostic-gather expectation
+        without surfacing the spurious "Diagnostic gather failed" warning.
+        """
+        return {}
+
+    async def check_sudo_healthy(self) -> tuple[bool, str]:
+        """No-op post-restore probe for skills without a running target.
+
+        STIG calls SSH+sudo on the VM after each revert to confirm the
+        target is reachable. Detection-tuning's "target" is files in
+        /tmp/dt-work/rules/, which can't go unreachable — we always
+        return healthy.
+        """
+        return True, "detection-tuning has no remote target — always healthy"
+
     def worker_context(self, item: WorkItem) -> dict | None:
         """DEF-28: return what the Worker needs to author this rule.
 
@@ -517,13 +569,33 @@ class DetectionTuningSkillRuntime:
                 .head(3)
                 .to_dict(orient="records")
             )
+            # The harness currently only plumbs `description` (+
+            # optional `oval_criteria`) from worker_context into the
+            # Worker's prompt; other keys are ignored. So we PACK the
+            # rule YAML + positive samples into the description blob.
+            # When the harness is generalized to pass arbitrary keys,
+            # this collapses back to a clean dict per ADR-0020.
+            current_yaml = rule_path.read_text()
+            description = (
+                f"{rule.get('title', item.id)}\n\n"
+                f"{rule.get('description', '')}\n\n"
+                f"=== WORK ITEM ID (pass this exactly as `rule_id` to "
+                f"apply_rule_change) ===\n{item.id}\n\n"
+                f"=== CURRENT RULE YAML ===\n"
+                f"This is the EXACT current contents of the rule file. "
+                f"Your candidate must be a MODIFICATION of this — preserve "
+                f"title, id (the UUID), status, references, author, date, "
+                f"tags, level, and the entire logsource block including "
+                f"category. Modify ONLY the detection: block.\n\n"
+                f"{current_yaml}\n"
+                f"=== 3 POSITIVE SAMPLE EVENTS FROM THE CORPUS ===\n"
+                f"These are real events labeled as positives for this "
+                f"technique. Your candidate must match these (recall) "
+                f"and not match unrelated events (precision).\n\n"
+                f"{json.dumps(samples, indent=2)}\n"
+            )
             return {
-                "description": (
-                    f"{rule.get('title', item.id)}\n\n"
-                    f"{rule.get('description', '')}"
-                ),
-                "sample_positive_events": json.dumps(samples, indent=2),
-                "current_rule_yaml": rule_path.read_text(),
+                "description": description,
                 "check_artifact": str(rule_path),
             }
         except Exception as exc:

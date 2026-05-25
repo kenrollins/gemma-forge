@@ -25,6 +25,7 @@ prompts:
   architect: "prompts/architect.md"
   worker: "prompts/worker.md"
   auditor: "prompts/auditor.md"
+  reflector: "prompts/reflector.md"
 
 tools:
   architect:

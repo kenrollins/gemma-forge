@@ -111,6 +111,8 @@ interface RunInfo {
   start: string;
   elapsed_s: number;
   summary: Record<string, unknown>;
+  skill_name?: string | null;
+  skill_id?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -716,6 +718,15 @@ export default function Dashboard() {
           // The openStream call inside the mode/run effect handles this
           // automatically when activeRun changes.
         }}
+        activeSkillName={(() => {
+          // Prefer the live skill_manifest event (most current);
+          // fall back to the manifest data we got from /api/runs.
+          const fromEvent = events.find((e) => e.event_type === "skill_manifest");
+          if (fromEvent?.data?.skill_name)
+            return fromEvent.data.skill_name as string;
+          const active = runs.find((r) => r.filename === activeRun);
+          return active?.skill_name ?? null;
+        })()}
       />
 
       {mode === "replay" && activeTab === "live" && (

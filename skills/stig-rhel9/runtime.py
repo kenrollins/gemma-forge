@@ -751,3 +751,26 @@ def _categorize_rule(rule_id: str) -> str:
     if "service" in rid or "systemd" in rid: return "service-config"
     if any(k in rid for k in ("user", "account", "umask")): return "user-account"
     return "other"
+
+
+def build_runtime(harness_cfg: dict) -> "StigSkillRuntime":
+    """Manifest-declared builder. Called by the harness's _build_skill_runtime.
+
+    Reads `vm` and `stig` blocks from harness_cfg. The harness has no
+    skill-specific knowledge — this function owns the config layout.
+    """
+    from gemma_forge.harness.tools.ssh import SSHConfig
+    vm_cfg = harness_cfg.get("vm", {}) or {}
+    stig_cfg = harness_cfg.get("stig", {}) or {}
+    ssh_config = SSHConfig(
+        host=vm_cfg.get("ip", "192.168.122.43"),
+        user=vm_cfg.get("user", "adm-forge"),
+        key_path=vm_cfg.get("ssh_key", "/data/vm/gemma-forge/keys/adm-forge"),
+    )
+    profile = stig_cfg.get(
+        "profile", "xccdf_org.ssgproject.content_profile_stig",
+    )
+    datastream = stig_cfg.get(
+        "datastream", "/usr/share/xml/scap/ssg/content/ssg-rl9-ds.xml",
+    )
+    return StigSkillRuntime(ssh_config, profile, datastream)

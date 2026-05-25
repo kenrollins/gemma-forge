@@ -41,6 +41,11 @@ export interface RunOption {
   start: string;
   elapsed_s: number;
   summary: Record<string, unknown>;
+  // Skill provenance — surfaced so the chrome chip and the RunsTab
+  // skill filter both work without a separate lookup. May be absent
+  // on pre-skill_manifest runs or runs from skills no longer present.
+  skill_name?: string | null;
+  skill_id?: string | null;
 }
 
 export interface ChromeBarProps {
@@ -62,6 +67,10 @@ export interface ChromeBarProps {
   runs?: RunOption[];
   activeRun?: string;
   setActiveRun?: (filename: string) => void;
+  // Skill the active run belongs to. When set, renders a chip in the
+  // chrome so the viewer can tell at a glance which skill they're
+  // looking at. Falls back to nothing rendered when unknown.
+  activeSkillName?: string | null;
 }
 
 const MODE = {
@@ -93,6 +102,7 @@ export default function ChromeBar({
   runs,
   activeRun,
   setActiveRun,
+  activeSkillName,
 }: ChromeBarProps) {
   const speedActive = mode === "replay";
   const palette = MODE[mode];
@@ -199,6 +209,29 @@ export default function ChromeBar({
           )
         )}
       </div>
+
+      {/* === Skill chip ============================================
+           Surfaces which skill the active run belongs to. Quiet
+           styling — informative, not attention-grabbing — because
+           the question "what skill is this?" needs answering but
+           rarely needs the viewer's foreground attention. Only
+           rendered when activeSkillName is provided. */}
+      {activeSkillName && (
+        <div className="flex items-center gap-2">
+          <span
+            className="text-[9px] font-semibold tracking-[0.2em] uppercase"
+            style={{ color: "#4B5563" }}
+          >
+            Skill
+          </span>
+          <span
+            className="px-2 py-1 rounded-sm text-[10px] font-mono text-[#E8EAED] bg-[#13161D] border border-[#2A2F38] truncate max-w-[260px]"
+            title={activeSkillName}
+          >
+            {activeSkillName}
+          </span>
+        </div>
+      )}
 
       {/* === Tabs ==================================================
            Read as clearly clickable: each tab is a discrete pill with

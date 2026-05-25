@@ -11,6 +11,12 @@ description: "Autonomous STIG compliance remediation against DISA RHEL 9 STIG on
 version: "0.1.0"
 target_os: "Rocky Linux 9"
 
+# How the harness instantiates this skill's runtime.
+runtime:
+  module: runtime.py
+  builder: build_runtime
+  schema: stig          # Postgres schema for memory (tip pool, work_items, etc.)
+
 prompts:
   architect: "prompts/architect.md"
   worker: "prompts/worker.md"

@@ -37,6 +37,56 @@ RUNS_DIR = Path(os.environ.get("FORGE_RUNS_DIR", "/data/code/gemma-forge/runs"))
 DASHBOARD_CONFIG = Path(
     os.environ.get("FORGE_DASHBOARD_CONFIG", "/data/code/gemma-forge/config/dashboard.yaml")
 )
+SKILLS_DIR = Path(os.environ.get("FORGE_SKILLS_DIR", "/data/code/gemma-forge/skills"))
+
+
+def _skill_name_to_id() -> dict[str, str]:
+    """Map skill display name → skill directory name.
+
+    Built from skills/*/skill.yaml at every call so adding a new skill is
+    pick-up-on-next-request (no API restart). Cheap — there are 3-10 skills.
+    """
+    out: dict[str, str] = {}
+    if not SKILLS_DIR.is_dir():
+        return out
+    for manifest_path in SKILLS_DIR.glob("*/skill.yaml"):
+        try:
+            data = yaml.safe_load(manifest_path.read_text()) or {}
+        except Exception:
+            continue
+        display = data.get("name")
+        if display:
+            out[display] = manifest_path.parent.name
+    return out
+
+
+def _extract_skill_from_jsonl(path: Path) -> tuple[str | None, str | None]:
+    """Find skill_name + skill_id by scanning the first ~50 events of a run.
+
+    Returns (skill_name, skill_id). Either may be None if the run predates the
+    skill_manifest event or the skill is no longer in the skills/ directory.
+    """
+    name_to_id = _skill_name_to_id()
+    skill_name = None
+    try:
+        with open(path) as f:
+            for i, line in enumerate(f):
+                if i > 50:
+                    break
+                if not line.strip():
+                    continue
+                try:
+                    ev = json.loads(line)
+                except Exception:
+                    continue
+                if ev.get("event_type") == "skill_manifest":
+                    skill_name = (ev.get("data") or {}).get("skill_name")
+                    break
+    except Exception:
+        return None, None
+    if not skill_name:
+        return None, None
+    return skill_name, name_to_id.get(skill_name)
 
 
 def _load_dashboard_config() -> dict:
@@ -58,21 +108,53 @@ def _load_dashboard_config() -> dict:
 
 
 @app.get("/api/runs")
-def list_runs():
-    """List available run logs."""
+def list_runs(skill: str | None = Query(default=None, description="Filter by skill_id (skill directory name, e.g. 'stig-rhel9')")):
+    """List available run logs, optionally filtered by skill.
+
+    Each run carries `skill_name` (display name from the manifest) and
+    `skill_id` (skill directory name — stable, suitable for routing/filtering).
+    """
     runs = []
     for f in sorted(RUNS_DIR.glob("run-*.jsonl"), reverse=True):
         events = f.read_text().strip().split("\n")
         first = json.loads(events[0]) if events else {}
         last = json.loads(events[-1]) if events else {}
+        skill_name, skill_id = _extract_skill_from_jsonl(f)
+        if skill and skill_id != skill:
+            continue
         runs.append({
             "filename": f.name,
             "events": len(events),
             "start": first.get("timestamp", ""),
             "elapsed_s": last.get("elapsed_s", 0),
             "summary": last.get("data", {}) if last.get("event_type") == "run_complete" else {},
+            "skill_name": skill_name,
+            "skill_id": skill_id,
         })
     return runs
+
+
+@app.get("/api/skills")
+def list_skills():
+    """List skills that have at least one run on disk.
+
+    Returns id (directory name), name (display name from manifest), and
+    run_count. The UI uses this to populate a skill selector in the
+    history view.
+    """
+    counts: dict[str, int] = {}
+    names: dict[str, str] = {}
+    for f in RUNS_DIR.glob("run-*.jsonl"):
+        skill_name, skill_id = _extract_skill_from_jsonl(f)
+        if not skill_id:
+            continue
+        counts[skill_id] = counts.get(skill_id, 0) + 1
+        if skill_name:
+            names[skill_id] = skill_name
+    return [
+        {"id": sid, "name": names.get(sid, sid), "run_count": n}
+        for sid, n in sorted(counts.items(), key=lambda kv: -kv[1])
+    ]
 
 
 @app.get("/api/runs/{filename}/events")

@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +93,25 @@ class OrderingConstraintConfig(BaseModel):
     reason: str = ""
 
 
+class RuntimeConfig(BaseModel):
+    """How to instantiate this skill's runtime — replaces ralph.py's per-skill if/elif.
+
+    Each skill's runtime module exposes a `build_runtime(harness_cfg: dict) -> SkillRuntime`
+    function. The harness loads the module dynamically and calls the builder; the
+    builder decides which pieces of harness_cfg (vm, stig, cve, etc.) it needs.
+
+    `memory_schema` declares the Postgres schema this skill's memory tables
+    live in (used by the dream pass and eviction sweep to find the right tip
+    pool). Aliased to `schema` in YAML for brevity.
+    """
+
+    module: str = "runtime.py"
+    builder: str = "build_runtime"
+    memory_schema: Optional[str] = Field(default=None, alias="schema")
+
+    model_config = {"populate_by_name": True}
+
+
 class SkillManifest(BaseModel):
     """Schema for a skill.yaml manifest file."""
 
@@ -100,6 +119,11 @@ class SkillManifest(BaseModel):
     description: str
     version: str = "0.1.0"
     target_os: str = "Rocky Linux 9"
+
+    # How to instantiate this skill's runtime. Optional for backward-compat
+    # with the original hardcoded-per-skill dispatch; new skills should
+    # declare this explicitly.
+    runtime: RuntimeConfig = RuntimeConfig()
 
     # Ordering constraints — skill-declared, harness-enforced. Closes
     # the "prompt guidance is not enforcement" gap (entry 32, DEF-02).

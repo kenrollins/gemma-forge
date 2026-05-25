@@ -98,10 +98,41 @@ function summarize(r: RunOption): Summarized {
 export default function RunsTab({ runs, activeRun, onLaunch }: RunsTabProps) {
   const [sort, setSort] = useState<RunsSort>("newest");
   const [hideSmoke, setHideSmoke] = useState(true);
+  // Skill filter — derived from RunOption.skill_id / skill_name on the
+  // server-extracted skill_manifest event. Default selection picks the
+  // skill with the most runs so the busy person lands on their main work.
+  const skillBuckets = useMemo(() => {
+    const counts = new Map<string, { id: string; name: string; count: number }>();
+    for (const r of runs) {
+      const id = r.skill_id || "unknown";
+      const name = r.skill_name || "(no skill manifest)";
+      const cur = counts.get(id) || { id, name, count: 0 };
+      cur.count += 1;
+      counts.set(id, cur);
+    }
+    return Array.from(counts.values()).sort((a, b) => b.count - a.count);
+  }, [runs]);
+  const [skillFilter, setSkillFilter] = useState<string>(() =>
+    skillBuckets[0]?.id || "all",
+  );
+  // If runs arrive after the initial render, snap the default selection
+  // to the busiest skill the first time we see real data.
+  const [defaultPicked, setDefaultPicked] = useState(false);
+  useMemo(() => {
+    if (!defaultPicked && skillBuckets.length > 0) {
+      setSkillFilter(skillBuckets[0].id);
+      setDefaultPicked(true);
+    }
+  }, [skillBuckets, defaultPicked]);
 
   const rows = useMemo<Summarized[]>(() => {
     const summarized = runs.map(summarize);
-    const filtered = hideSmoke ? summarized.filter((r) => r.isDemoCandidate) : summarized;
+    const skillFiltered = skillFilter === "all"
+      ? summarized
+      : summarized.filter((r) => (r.skill_id || "unknown") === skillFilter);
+    const filtered = hideSmoke
+      ? skillFiltered.filter((r) => r.isDemoCandidate)
+      : skillFiltered;
     const cmp: Record<RunsSort, (a: Summarized, b: Summarized) => number> = {
       newest: (a, b) => b.dateObj.getTime() - a.dateObj.getTime(),
       oldest: (a, b) => a.dateObj.getTime() - b.dateObj.getTime(),
@@ -110,14 +141,43 @@ export default function RunsTab({ runs, activeRun, onLaunch }: RunsTabProps) {
       "duration-desc": (a, b) => b.elapsed_s - a.elapsed_s,
     };
     return [...filtered].sort(cmp[sort]);
-  }, [runs, sort, hideSmoke]);
+  }, [runs, sort, hideSmoke, skillFilter]);
 
-  const smokeCount = runs.length - rows.length;
+  const skillScopedRuns = skillFilter === "all"
+    ? runs
+    : runs.filter((r) => (r.skill_id || "unknown") === skillFilter);
+  const smokeCount = skillScopedRuns.length - rows.length;
 
   return (
     <div className="flex-1 overflow-y-auto bg-[#0B0D11]">
-      {/* Header strip: sort + filter */}
+      {/* Header strip: skill filter + sort + smoke toggle */}
       <div className="sticky top-0 z-10 bg-[#0B0D11]/95 backdrop-blur border-b border-[#1C1F26] px-6 py-3">
+        {/* Top row: skill picker — skill-first navigation. Each chip is
+            a discrete skill bucket; the user picks one to scope the
+            cards below. "All" is a fallback when comparing across
+            skills (rare but useful). */}
+        {skillBuckets.length > 0 && (
+          <div className="flex items-center gap-2 mb-3 max-w-[1400px] mx-auto flex-wrap">
+            <span className="text-[10px] font-semibold tracking-[0.2em] uppercase text-[#4B5563]">
+              Skill
+            </span>
+            <SkillChip
+              label="All"
+              count={runs.length}
+              active={skillFilter === "all"}
+              onClick={() => setSkillFilter("all")}
+            />
+            {skillBuckets.map((s) => (
+              <SkillChip
+                key={s.id}
+                label={s.name}
+                count={s.count}
+                active={skillFilter === s.id}
+                onClick={() => setSkillFilter(s.id)}
+              />
+            ))}
+          </div>
+        )}
         <div className="flex items-baseline gap-4 max-w-[1400px] mx-auto">
           <div>
             <div className="text-[10px] font-semibold tracking-[0.2em] uppercase text-[#4B5563]">
@@ -190,6 +250,37 @@ export default function RunsTab({ runs, activeRun, onLaunch }: RunsTabProps) {
     </div>
   );
 }
+
+function SkillChip({
+  label,
+  count,
+  active,
+  onClick,
+}: {
+  label: string;
+  count: number;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="px-2.5 py-1 rounded-sm text-[10px] font-mono transition-colors"
+      style={{
+        background: active ? "#13161D" : "transparent",
+        borderWidth: 1,
+        borderStyle: "solid",
+        borderColor: active ? "#3B82F6" : "#2A2F38",
+        color: active ? "#E8EAED" : "#9CA3AF",
+      }}
+      title={label}
+    >
+      <span className="truncate max-w-[260px] inline-block align-middle">{label}</span>
+      <span className="ml-2 text-[#6B7280] tabular-nums">{count}</span>
+    </button>
+  );
+}
+
 
 function RunCard({
   row,

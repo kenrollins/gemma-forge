@@ -703,62 +703,40 @@ class TriageState:
 # -- Main loop ----------------------------------------------------------------
 
 def _build_skill_runtime(skill: Skill, harness_cfg: dict) -> SkillRuntime:
-    """Instantiate the skill's runtime from its plugin or built-in runtimes."""
-    vm_cfg = harness_cfg.get("vm", {})
-    stig_cfg = harness_cfg.get("stig", {})
+    """Instantiate the skill's runtime via its manifest-declared builder.
 
-    if skill.manifest.stig:
-        stig_cfg = {
-            "profile": skill.manifest.stig.profile,
-            "datastream": skill.manifest.stig.datastream,
-        }
+    The skill's `runtime:` block in skill.yaml names a module path + builder
+    function. The harness imports the module dynamically and calls
+    `<builder>(harness_cfg) -> SkillRuntime`. The builder decides what it
+    needs from harness_cfg (vm, stig, cve, detection, etc.) — the harness
+    has no per-skill knowledge.
 
-    # Import skill runtime dynamically
-    from gemma_forge.harness.tools.ssh import SSHConfig
-    ssh_config = SSHConfig(
-        host=vm_cfg.get("ip", "192.168.122.43"),
-        user=vm_cfg.get("user", "adm-forge"),
-        key_path=vm_cfg.get("ssh_key", "/data/vm/gemma-forge/keys/adm-forge"),
+    Adding a new skill is now: drop a skills/<name>/skill.yaml with a
+    `runtime:` block + a runtime.py with a build_runtime() function.
+    No ralph.py edit required.
+    """
+    rt_cfg = skill.manifest.runtime
+    module_path = skill.skill_dir / rt_cfg.module
+    if not module_path.is_file():
+        raise RuntimeError(
+            f"Skill '{skill.name}': runtime module not found at {module_path} "
+            f"(declared by manifest.runtime.module='{rt_cfg.module}')"
+        )
+
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        f"skill_runtime_{skill.skill_dir.name}", module_path,
     )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
 
-    # For now, detect runtime by skill name. In the future, skills will
-    # declare their runtime class in skill.yaml.
-    if skill.name == "stig-rhel9" or skill.manifest.stig:
-        # Dynamic import of the skill's runtime module
-        import importlib.util
-        runtime_path = Path("skills/stig-rhel9/runtime.py")
-        spec = importlib.util.spec_from_file_location("stig_runtime", runtime_path)
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        StigSkillRuntime = mod.StigSkillRuntime
-        profile = stig_cfg.get("profile", "xccdf_org.ssgproject.content_profile_stig")
-        datastream = stig_cfg.get("datastream", "/usr/share/xml/scap/ssg/content/ssg-rl9-ds.xml")
-        return StigSkillRuntime(ssh_config, profile, datastream)
-
-    if skill.name == "cve-response" or skill.skill_dir.name == "cve-response":
-        import importlib.util
-        runtime_path = Path("skills/cve-response/runtime.py")
-        spec = importlib.util.spec_from_file_location("cve_runtime", runtime_path)
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        CveSkillRuntime = mod.CveSkillRuntime
-
-        # Pull skill-specific CVE config from the manifest's `cve` block
-        # (see skills/cve-response/skill.yaml). Falls back to sensible
-        # defaults if the block is missing or partial.
-        raw = {}
-        manifest_path = skill.skill_dir / "skill.yaml"
-        if manifest_path.is_file():
-            import yaml as _yaml
-            with open(manifest_path) as _f:
-                raw = _yaml.safe_load(_f) or {}
-        cve_cfg = raw.get("cve", {}) or {}
-        vuls_config_path = cve_cfg.get("vuls_config", "/data/vuls/config/config.toml")
-        scan_mode = cve_cfg.get("scan_mode", "fast")
-        severity_filter = cve_cfg.get("severity_filter", ["Critical", "Important"])
-        return CveSkillRuntime(ssh_config, vuls_config_path, scan_mode, severity_filter)
-
-    raise ValueError(f"No runtime implementation for skill '{skill.name}'")
+    builder = getattr(mod, rt_cfg.builder, None)
+    if builder is None:
+        raise RuntimeError(
+            f"Skill '{skill.name}': runtime module {module_path} has no "
+            f"'{rt_cfg.builder}' function (declared by manifest.runtime.builder)"
+        )
+    return builder(harness_cfg)
 
 
 async def run_ralph(
@@ -2403,16 +2381,17 @@ async def _run_auto_consolidation(
         # inline to avoid a tight coupling between ralph.py and the
         # eviction CLI's helper.
         import importlib.util
-        # Map schema → skill directory. Skill dirs sometimes carry an
-        # os-suffix (stig-rhel9) while the schema is short (stig); skills
-        # added later must register their own mapping here. Falls back to
-        # the schema name itself for skills where it matches the dir.
-        _skill_dir_map = {
-            "stig": "stig-rhel9",
-            "cve":  "cve-response",
-        }
-        skill_dir_name = _skill_dir_map.get(skill_schema, skill_schema)
-        runtime_path = repo_root / "skills" / skill_dir_name / "runtime.py"
+        from gemma_forge.skills.loader import find_skill_dir_by_schema
+        # Resolve schema → skill directory via each skill's manifest.
+        # No hardcoded mapping — each skill declares its schema in
+        # skill.yaml under `runtime.schema`. Falls back to schema-as-dirname
+        # for skills where the dir happens to match the schema.
+        skill_dir = find_skill_dir_by_schema(
+            skill_schema, skills_dir=str(repo_root / "skills"),
+        )
+        if skill_dir is None:
+            skill_dir = repo_root / "skills" / skill_schema
+        runtime_path = skill_dir / "runtime.py"
         spec = importlib.util.spec_from_file_location(
             f"{skill_schema}_runtime_for_eviction", runtime_path,
         )

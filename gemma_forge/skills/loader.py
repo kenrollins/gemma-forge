@@ -85,3 +85,31 @@ def load_skill(skill_name: str, skills_dir: str = "skills") -> Skill:
 
     manifest = SkillManifest(**raw)
     return Skill(manifest=manifest, skill_dir=skill_dir)
+
+
+def find_skill_dir_by_schema(
+    schema: str, skills_dir: str = "skills",
+) -> Path | None:
+    """Find a skill directory whose manifest declares the given Postgres schema.
+
+    Replaces the old hardcoded `_skill_dir_map` in ralph.py. The dream pass
+    and eviction sweep call this to resolve a schema name (e.g. "stig") to
+    a skill directory path (e.g. skills/stig-rhel9) so they can import the
+    runtime's Evaluator class for its metadata.
+    """
+    skills_path = Path(skills_dir)
+    if not skills_path.exists():
+        return None
+    for manifest_path in skills_path.glob("*/skill.yaml"):
+        try:
+            with open(manifest_path) as f:
+                raw = yaml.safe_load(f) or {}
+        except Exception:
+            continue
+        runtime = raw.get("runtime") or {}
+        # YAML uses `schema:` for brevity; model field is `memory_schema`.
+        # Accept either to be tolerant of both forms.
+        declared = runtime.get("schema") or runtime.get("memory_schema")
+        if declared == schema:
+            return manifest_path.parent
+    return None

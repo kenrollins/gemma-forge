@@ -323,22 +323,26 @@ function RunPicker({
   );
   const ref = useRef<HTMLDivElement>(null);
 
-  // Skill buckets derived from the live run list — used for filter chips.
+  // Skill buckets from runs that DO declare a skill — runs without a
+  // skill_manifest event are dropped from the picker entirely (they're
+  // pre-instrumentation smoke tests and have no useful replay value
+  // for the multi-skill story).
+  const knownRuns = useMemo(() => runs.filter((r) => !!r.skill_id), [runs]);
   const skillBuckets = useMemo(() => {
     const m = new Map<string, { id: string; name: string; count: number }>();
-    for (const r of runs) {
-      const id = r.skill_id || "unknown";
-      const name = r.skill_name || "(no skill manifest)";
+    for (const r of knownRuns) {
+      const id = r.skill_id!;
+      const name = r.skill_name || id;
       const cur = m.get(id) || { id, name, count: 0 };
       cur.count += 1;
       m.set(id, cur);
     }
     return Array.from(m.values()).sort((a, b) => b.count - a.count);
-  }, [runs]);
+  }, [knownRuns]);
 
   const visibleRuns = skillFilter === "all"
-    ? runs
-    : runs.filter((r) => (r.skill_id || "unknown") === skillFilter);
+    ? knownRuns
+    : knownRuns.filter((r) => r.skill_id === skillFilter);
 
   useEffect(() => {
     if (!open) return;
@@ -364,31 +368,28 @@ function RunPicker({
           className="absolute z-50 top-full left-0 mt-1 w-[380px] max-h-[460px] overflow-y-auto rounded-md border border-[#2A2F38] bg-[#0A0C10] shadow-2xl"
           style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.6)" }}
         >
-          <div className="px-3 py-1.5 text-[9px] font-semibold uppercase tracking-[0.2em] text-[#4B5563] border-b border-[#1C1F26]">
-            Pick a run to replay
+          <div className="px-3 py-1.5 text-[9px] font-semibold uppercase tracking-[0.2em] text-[#4B5563] border-b border-[#1C1F26] flex items-center justify-between gap-2">
+            <span>Pick a run to replay</span>
+            {/* Skill filter — native styled select. Scales to arbitrary
+                skill counts where the previous chip row didn't. Sticky
+                at the top of the scroll area so the user can re-scope
+                mid-scroll without scrolling back. */}
+            {skillBuckets.length > 0 && (
+              <select
+                value={skillFilter}
+                onChange={(e) => setSkillFilter(e.target.value)}
+                className="bg-[#0F1217] border border-[#2A2F38] rounded-sm px-1.5 py-0.5 text-[10px] font-mono normal-case tracking-normal text-[#E8EAED] focus:outline-none focus:border-[#3B82F6]"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <option value="all">All ({knownRuns.length})</option>
+                {skillBuckets.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.id} ({s.count})
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
-          {/* Skill filter row — sticky at the top of the scroll area so
-              the user can re-scope mid-scroll. Mirrors the RunsTab
-              pattern. */}
-          {skillBuckets.length > 0 && (
-            <div className="sticky top-0 z-10 bg-[#0A0C10] px-2 py-1.5 border-b border-[#141820] flex items-center gap-1 flex-wrap">
-              <DropdownSkillChip
-                label="All"
-                count={runs.length}
-                active={skillFilter === "all"}
-                onClick={() => setSkillFilter("all")}
-              />
-              {skillBuckets.map((s) => (
-                <DropdownSkillChip
-                  key={s.id}
-                  label={s.id}
-                  count={s.count}
-                  active={skillFilter === s.id}
-                  onClick={() => setSkillFilter(s.id)}
-                />
-              ))}
-            </div>
-          )}
           {visibleRuns.length === 0 && (
             <div className="px-3 py-4 text-[10px] text-[#6B7280] italic">
               No runs for this skill.
@@ -485,37 +486,6 @@ function RunPicker({
     </div>
   );
 }
-
-function DropdownSkillChip({
-  label,
-  count,
-  active,
-  onClick,
-}: {
-  label: string;
-  count: number;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className="px-1.5 py-0.5 rounded-sm text-[9px] font-mono uppercase tracking-wider transition-colors"
-      style={{
-        background: active ? "#13161D" : "transparent",
-        borderWidth: 1,
-        borderStyle: "solid",
-        borderColor: active ? "#3B82F6" : "#2A2F38",
-        color: active ? "#E8EAED" : "#9CA3AF",
-      }}
-      title={label}
-    >
-      <span className="truncate inline-block align-middle max-w-[120px]">{label}</span>
-      <span className="ml-1.5 text-[#6B7280] tabular-nums">{count}</span>
-    </button>
-  );
-}
-
 
 function ModeButton({
   label,

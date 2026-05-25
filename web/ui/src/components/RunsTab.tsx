@@ -98,20 +98,23 @@ function summarize(r: RunOption): Summarized {
 export default function RunsTab({ runs, activeRun, onLaunch }: RunsTabProps) {
   const [sort, setSort] = useState<RunsSort>("newest");
   const [hideSmoke, setHideSmoke] = useState(true);
+  // Drop runs without a skill_manifest event (pre-instrumentation
+  // smoke tests with no useful replay value for the multi-skill story).
+  const knownRuns = useMemo(() => runs.filter((r) => !!r.skill_id), [runs]);
   // Skill filter — derived from RunOption.skill_id / skill_name on the
   // server-extracted skill_manifest event. Default selection picks the
   // skill with the most runs so the busy person lands on their main work.
   const skillBuckets = useMemo(() => {
     const counts = new Map<string, { id: string; name: string; count: number }>();
-    for (const r of runs) {
-      const id = r.skill_id || "unknown";
-      const name = r.skill_name || "(no skill manifest)";
+    for (const r of knownRuns) {
+      const id = r.skill_id!;
+      const name = r.skill_name || id;
       const cur = counts.get(id) || { id, name, count: 0 };
       cur.count += 1;
       counts.set(id, cur);
     }
     return Array.from(counts.values()).sort((a, b) => b.count - a.count);
-  }, [runs]);
+  }, [knownRuns]);
   const [skillFilter, setSkillFilter] = useState<string>(() =>
     skillBuckets[0]?.id || "all",
   );
@@ -126,10 +129,10 @@ export default function RunsTab({ runs, activeRun, onLaunch }: RunsTabProps) {
   }, [skillBuckets, defaultPicked]);
 
   const rows = useMemo<Summarized[]>(() => {
-    const summarized = runs.map(summarize);
+    const summarized = knownRuns.map(summarize);
     const skillFiltered = skillFilter === "all"
       ? summarized
-      : summarized.filter((r) => (r.skill_id || "unknown") === skillFilter);
+      : summarized.filter((r) => r.skill_id === skillFilter);
     const filtered = hideSmoke
       ? skillFiltered.filter((r) => r.isDemoCandidate)
       : skillFiltered;
@@ -141,43 +144,17 @@ export default function RunsTab({ runs, activeRun, onLaunch }: RunsTabProps) {
       "duration-desc": (a, b) => b.elapsed_s - a.elapsed_s,
     };
     return [...filtered].sort(cmp[sort]);
-  }, [runs, sort, hideSmoke, skillFilter]);
+  }, [knownRuns, sort, hideSmoke, skillFilter]);
 
   const skillScopedRuns = skillFilter === "all"
-    ? runs
-    : runs.filter((r) => (r.skill_id || "unknown") === skillFilter);
+    ? knownRuns
+    : knownRuns.filter((r) => r.skill_id === skillFilter);
   const smokeCount = skillScopedRuns.length - rows.length;
 
   return (
     <div className="flex-1 overflow-y-auto bg-[#0B0D11]">
       {/* Header strip: skill filter + sort + smoke toggle */}
       <div className="sticky top-0 z-10 bg-[#0B0D11]/95 backdrop-blur border-b border-[#1C1F26] px-6 py-3">
-        {/* Top row: skill picker — skill-first navigation. Each chip is
-            a discrete skill bucket; the user picks one to scope the
-            cards below. "All" is a fallback when comparing across
-            skills (rare but useful). */}
-        {skillBuckets.length > 0 && (
-          <div className="flex items-center gap-2 mb-3 max-w-[1400px] mx-auto flex-wrap">
-            <span className="text-[10px] font-semibold tracking-[0.2em] uppercase text-[#4B5563]">
-              Skill
-            </span>
-            <SkillChip
-              label="All"
-              count={runs.length}
-              active={skillFilter === "all"}
-              onClick={() => setSkillFilter("all")}
-            />
-            {skillBuckets.map((s) => (
-              <SkillChip
-                key={s.id}
-                label={s.name}
-                count={s.count}
-                active={skillFilter === s.id}
-                onClick={() => setSkillFilter(s.id)}
-              />
-            ))}
-          </div>
-        )}
         <div className="flex items-baseline gap-4 max-w-[1400px] mx-auto">
           <div>
             <div className="text-[10px] font-semibold tracking-[0.2em] uppercase text-[#4B5563]">
@@ -192,6 +169,30 @@ export default function RunsTab({ runs, activeRun, onLaunch }: RunsTabProps) {
               )}
             </div>
           </div>
+
+          {/* Skill selector — primary navigation. Native styled <select>
+              so this scales cleanly past 4-5 skills (chip rows didn't).
+              Default selection picks the skill with the most runs so
+              the busy person lands on their main work. */}
+          {skillBuckets.length > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-semibold tracking-[0.2em] uppercase text-[#4B5563]">
+                Skill
+              </span>
+              <select
+                value={skillFilter}
+                onChange={(e) => setSkillFilter(e.target.value)}
+                className="bg-[#0F1217] border border-[#2A2F38] rounded-md px-2 py-1 text-[11px] font-mono text-[#E8EAED] focus:outline-none focus:border-[#3B82F6]"
+              >
+                <option value="all">All ({knownRuns.length})</option>
+                {skillBuckets.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.id} ({s.count})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <div className="ml-auto flex items-center gap-3 text-[10px] font-mono">
             <label className="flex items-center gap-1.5 text-[#9CA3AF] cursor-pointer">
@@ -250,37 +251,6 @@ export default function RunsTab({ runs, activeRun, onLaunch }: RunsTabProps) {
     </div>
   );
 }
-
-function SkillChip({
-  label,
-  count,
-  active,
-  onClick,
-}: {
-  label: string;
-  count: number;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className="px-2.5 py-1 rounded-sm text-[10px] font-mono transition-colors"
-      style={{
-        background: active ? "#13161D" : "transparent",
-        borderWidth: 1,
-        borderStyle: "solid",
-        borderColor: active ? "#3B82F6" : "#2A2F38",
-        color: active ? "#E8EAED" : "#9CA3AF",
-      }}
-      title={label}
-    >
-      <span className="truncate max-w-[260px] inline-block align-middle">{label}</span>
-      <span className="ml-2 text-[#6B7280] tabular-nums">{count}</span>
-    </button>
-  );
-}
-
 
 function RunCard({
   row,

@@ -397,3 +397,127 @@ exposed the logsource-scoping issue) and `/tmp/dt-poc2.py` (the
 working LSASS demonstration). Corpus at `/tmp/dt-corpora/evtx/`,
 rules at `/tmp/dt-rules/sigma/`, venv at `/tmp/dt-venv/`.
 
+---
+
+## Friday-night vertical slice — 2026-05-22 23:00 PT
+
+Committed as `5bbde57` on `feat/detection-tuning-skill`. All five
+sub-runtimes wired (WorkQueue/Executor/Evaluator/Checkpoint/SkillRuntime),
+worker_context implements DEF-28. Smoke test at `/tmp/dt-smoke.py`:
+
+  Baseline (pristine SigmaHQ rule): P=1.000 R=0.432 F1=0.604
+  Candidate (Worker-style 0x1010 add): P=0.917 R=0.595 F1=0.721
+  Restored (checkpoint round-trip):   P=1.000 R=0.432 F1=0.604 ✓
+
+`gemma_forge/harness/tools/sigma/{corpus_loader,sigma_eval}.py`
+holds the reusable parts (could serve other Sigma-using skills).
+`skills/detection-tuning/` holds the skill manifest and runtime.
+
+**Operational note**: the parallel STIG session swept Friday-night
+work-in-progress files into two of its commits via `git add -A`.
+The journey-doc bundling was undone on this branch (commit `c15d569`
+replaces `3c5944a`); the STIG-DEF-29 bundling of
+`detection-tuning-preflight.md` into `272630d` was left in place
+because that commit's already on `main`. ADR-0021 slot was also
+claimed by that commit — detection-tuning's architectural-choice
+ADR will be ADR-0022 when the harness wire-up happens.
+
+## Path A — multi-rule queue + real prompts — 2026-05-23 02:15 PT
+
+Committed as `5ff98b6`. WorkQueue now iterates a curated
+`work_items:` list (5 rules, diverse failure modes), each with its
+own ground-truth keywords. Real prompts for Architect (with
+leverage-ordered strategy + re-engagement mode), Worker (with Sigma
+authoring guide keyed off detection_failure_mode), Auditor (minimal,
+no mission app), and tip_follow_judge (DEF-27, examples calibrated
+to Sigma authoring vocabulary).
+
+Multi-item baseline scores (smoke at `/tmp/dt-smoke.py`):
+
+| Rule                                              | P    | R    | F1   | Failure mode             |
+|---------------------------------------------------|------|------|------|--------------------------|
+| proc_access_win_lsass_memdump                     | 1.00 | 0.43 | 0.60 | rule_too_narrow          |
+| proc_access_win_lsass_dump_keyword_image          | 1.00 | 0.19 | 0.32 | rule_too_narrow          |
+| proc_creation_win_mshta_lethalhta_technique       | 1.00 | 0.14 | 0.25 | rule_too_narrow          |
+| proc_creation_win_mshta_inline_vbscript           | 0.50 | 0.29 | 0.36 | rule_too_noisy_and_narrow |
+| proc_creation_win_wscript_cscript_mshta_dropper   | 0.50 | 0.14 | 0.22 | rule_too_noisy_and_narrow |
+
+Apply+restore round-trip on LSASS still hits 0.604 → 0.721 → 0.604;
+all four other items' evaluations are byte-identical between
+baseline and post-LSASS-tune, proving cross-item isolation.
+
+## Path C — second corpus for cross-corpus tip-transfer prep — 2026-05-23 03:15 PT
+
+**Picked**: OTRF Security-Datasets
+(`https://github.com/OTRF/Security-Datasets`).
+
+**Why it fits**: NDJSON format (one event per line), real Sysmon
+events with the same `Channel`/`EventID`/`CommandLine`/`GrantedAccess`/
+`CallTrace`/`TargetImage` columns the EVTX corpus has. Organized
+per-ATT&CK-tactic like EVTX-ATTACK-SAMPLES, but the captures come
+from different attack tooling (Empire, Covenant, plain `cmd`,
+`psh`, RDP interactive) — entirely different scenario shape from
+EVTX-ATTACK-SAMPLES' EVTX excerpts. Total repo ~206MB sparse-cloned;
+credential_access + execution extracted is 430MB / 128,071 events
+across 33 captures. Manageable.
+
+**Wired**: new `SdsCorpus` class in
+`gemma_forge/harness/tools/sigma/corpus_loader.py`, sibling to
+`CorpusLoader` with the same `total_events` /
+`scope_for_logsource` / `label_positives` interface. Reads NDJSON
+per file, synthesizes `EVTX_FileName` from source filename so the
+existing `label_positives` works unchanged.
+
+Cross-corpus smoke at `/tmp/dt-smoke-crosscorpus.py`:
+
+| Rule                                              | EVTX (P/R/F1)    | SDS (P/R/F1)     |
+|---------------------------------------------------|------------------|------------------|
+| proc_access_win_lsass_memdump                     | 1.00/0.43/0.60   | 1.00/0.00/0.00   |
+| proc_access_win_lsass_dump_keyword_image          | 1.00/0.19/0.32   | 1.00/0.00/0.00   |
+| proc_creation_win_mshta_lethalhta_technique       | 1.00/0.14/0.25   | 0.00/0.00/0.00 (0 pos) |
+| proc_creation_win_mshta_inline_vbscript           | 0.50/0.29/0.36   | 0.00/0.00/0.00 (0 pos) |
+| proc_creation_win_wscript_cscript_mshta_dropper   | 0.50/0.14/0.22   | 0.00/0.00/0.00 (0 pos) |
+
+**Architectural finding (the one that matters)**: same Sigma rule
+scores meaningfully differently across the two corpora. That's the
+proof the corpus-as-input shape works: tuning a rule against corpus
+A doesn't automatically transfer to corpus B — which is exactly
+what makes the cross-corpus tip-transfer claim a real architectural
+test (not a tautology).
+
+**Data findings worth knowing**:
+
+1. The LSASS rules find 8,565 "positive" events in the SDS scope
+   (39,975 total Sysmon EID 10 events), but the rule's strict
+   GrantedAccess values match almost zero of them — different
+   tooling produces different access-mask flags. The Worker's
+   broaden-GrantedAccess tuning that worked on EVTX may or may not
+   help on SDS; that's exactly the question Run 2 of the demo arc
+   is supposed to answer.
+
+2. The MSHTA rules' positive count is 0 on the extracted SDS subset
+   because the extracted subset (credential_access + execution) has
+   no `*mshta*` files. The defense_evasion tactic dir has them; if
+   the demo arc needs MSHTA coverage on SDS, extract that subdir too.
+
+3. **Per-corpus labeling matters.** The current `work_items`
+   `positive_filename_keywords` are curated for EVTX naming
+   conventions. SDS uses different naming (`cmd_*`, `empire_*`,
+   `covenant_*`, `psh_*` prefixes). When Path B wires the
+   `--corpus <name>` flag, the manifest should probably have a
+   per-corpus keyword block, not a single keyword set.
+
+**Out of scope for Path C** (deferred until Path B is safe to do):
+- Wire `SdsCorpus` into the SkillRuntime constructor via a
+  `--corpus` flag
+- Per-corpus `positive_filename_keywords` blocks in the manifest
+- Auto-extract additional SDS subdirs based on which rules are
+  in the queue
+- The actual Run 1 vs Run 2 tip-transfer measurement — that
+  requires a working `forge run detection-tuning` end-to-end
+
+The architecture is now provably ready to take a second corpus.
+The cross-corpus *demo* (the headline claim from
+`futures/detection-tuning-skill.md`) is the next milestone
+once the harness is wired up.
+

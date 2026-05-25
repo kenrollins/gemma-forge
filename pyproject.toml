@@ -87,6 +87,15 @@ infra = [
     "hf-transfer>=0.1.8,<1.0",  # accelerated parallel downloads for HF
 ]
 
+# Detection-tuning skill (ADR-0022). Loads labeled threat-telemetry
+# corpora into pandas DataFrames and scores Sigma rules against them.
+# Optional because STIG and CVE skills don't need pandas — keeping
+# them out of the base `dependencies` keeps the harness install lean
+# on hosts that only run the binary-shaped skills.
+detection = [
+    "pandas>=2.0,<3.0",  # corpus DataFrames; NDJSON + CSV loading
+]
+
 [project.urls]
 Homepage = "https://github.com/kenrollins/gemma-forge"
 Repository = "https://github.com/kenrollins/gemma-forge"

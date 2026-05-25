@@ -374,9 +374,17 @@ def _load_judge_prompt(repo_root: Path, skill: str) -> Optional[tuple[str, str]]
     The prompt file has a `## System` section and a `## User template`
     section in markdown — we extract both. Returns None if the file
     doesn't exist (then this skill skips LLM judging gracefully).
+
+    Resolves ``skill`` (a Postgres schema short-name like "stig" / "cve"
+    / "detection") to the skill directory via the manifest-scanning
+    helper, so adding a new skill doesn't require editing a local map
+    here. Falls back to a direct ``skill``-as-dirname lookup for skills
+    whose schema equals their directory name.
     """
-    skill_dir_map = {"stig": "stig-rhel9", "cve": "cve-response"}
-    skill_dir = skill_dir_map.get(skill, skill)
+    from gemma_forge.skills.loader import find_skill_dir_by_schema
+
+    resolved = find_skill_dir_by_schema(skill, skills_dir=str(repo_root / "skills"))
+    skill_dir = resolved.name if resolved is not None else skill
     path = repo_root / "skills" / skill_dir / "prompts" / "tip_follow_judge.md"
     if not path.exists():
         return None

@@ -813,8 +813,11 @@ async def run_ralph(
     scan_tool = runtime.get_scan_tool()
     agent_tools = runtime.executor.get_agent_tools()
 
+    # Skills without an Architect scan tool (e.g. network-pentest, where
+    # the work-queue overview is sufficient context) return None.
+    architect_tools = [scan_tool] if scan_tool is not None else []
     architect = Agent(name="architect", model=_make_llm(),
-                      instruction=arch_prompt, tools=[scan_tool])
+                      instruction=arch_prompt, tools=architect_tools)
     worker = Agent(name="worker", model=_make_llm(),
                    instruction=work_prompt, tools=agent_tools)
     reflector = Agent(name="reflector", model=_make_llm(),
@@ -841,11 +844,16 @@ async def run_ralph(
     run_log = RunLogger()
     # Per-skill memory schema inside the shared `gemma_forge` Postgres DB
     # (ADR-0016). One Postgres role per skill (forge_<skill>) with the
-    # search_path pinned at bootstrap. The skill family is the first
-    # segment of the skill name (e.g., "stig" from "stig-rhel9"), and
-    # maps to the schema name (stig) and role (forge_stig) created by
-    # tools/bootstrap_skill.sh.
-    skill_schema = (skill_name or "stig").split("-")[0].split("/")[0]
+    # search_path pinned at bootstrap. Schema comes from the manifest's
+    # `runtime.schema` field; fall back to the first hyphen-segment of
+    # the skill name for older skills that don't declare it
+    # (network-pentest is the first skill whose dir name doesn't equal
+    # the schema name, so the legacy heuristic produced "network"
+    # instead of "pentest" until this lookup landed).
+    skill_schema = (
+        (skill.manifest.runtime.memory_schema if skill else None)
+        or (skill_name or "stig").split("-")[0].split("/")[0]
+    )
     mem_store = PostgresMemoryStore(skill=skill_schema)
     mem_store.initialize()
     mem_run_id = mem_store.start_run(skill_name or "unknown", harness_cfg)

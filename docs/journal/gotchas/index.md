@@ -74,6 +74,12 @@ Agents, harness, Ralph loop, tool calling, memory.
   ADK session history grows when the model makes multiple tool
   calls inside a single turn. This is where overflow comes from,
   not from between-turn state.
+- [**Pen-test Phase 3 architectural surprises**](pentest-phase-3-architectural-surprises.md)
+  — five bugs that smokes caught and unit tests would have missed:
+  fingerprint-only lookup vs 27k-CVE corpus, vendor-alias bleed,
+  msfconsole not on `$PATH` for `docker exec`, banner-occluded
+  vulnerable components, and `importlib.module_from_spec` orphaning
+  state from `sys.modules`.
 
 ## Related
 

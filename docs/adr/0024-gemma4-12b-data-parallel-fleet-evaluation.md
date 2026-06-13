@@ -1,7 +1,7 @@
 # ADR-0024: Evaluate Gemma 4 12B vs 31B (bf16) — does the system close the model-size gap?
 
-- **Status:** Proposed
-- **Date:** 2026-06-05 (reframed 2026-06-11)
+- **Status:** Accepted — tiered/hybrid (measured 2026-06-13; see Results)
+- **Date:** 2026-06-05 (reframed 2026-06-11; resolved 2026-06-13)
 - **Deciders:** Ken Rollins
 - **Related:** [ADR-0013](0013-one-triton-per-l4-no-nvlink.md), [ADR-0015](0015-gemma-4-model-lineup.md), [ADR-0016](0016-graphiti-neo4j-postgres-memory-stack.md), [ADR-0018](0018-vllm-mtp-cutover.md)
 
@@ -153,6 +153,43 @@ set. Permitted outcomes, all clean:
 - **GPU exclusivity.** 31B and 12B both need the L4s; conditions run in
   sequence in a teardown window against the shared, boot-enabled 31B
   service (see the preflight's stop/restore).
+
+## Measured results & decision (2026-06-13)
+
+Ran the **full 263-rule corpus on both models** from the identical pristine
+52-run memory and the same baseline VM (12B first; its deposits rewound so the
+31B started from the same clean state). Full narrative: [`journey/43`](../journal/journey/43-memory-isnt-reasoning.md).
+
+| | 12B (bf16 TP=2) | 31B (bf16 TP=4) |
+|---|---|---|
+| Remediated | 198/260 (76%) | 235/257 (91%) |
+| Escalated | 58 | 18 |
+| Total attempts | 663 | 360 |
+| Completion tokens | 644k | 335k |
+| Rule wall-clock | 7.0h | 4.6h |
+| **`sysctl_net` family** | **1/21** | **21/21** |
+
+**Outcome vs the pre-registered gate:** the system did **not** close the gap on
+the hard tail. The two models were near-identical on the declarative majority
+(auth/audit/ssh/packages 90–100% both), but the entire 15-point gap concentrated
+in one cliff — kernel/`sysctl_net` precise-persistent-state rules — where the 12B
+went 1/21 *despite hydrating the relevant lessons from memory*. Same VM, same
+memory, 1/21 vs 21/21 ⇒ a **model-capability gap, not environmental**. Corroborated
+by published benchmarks (LiveCodeBench-v6 +8, MMLU-Pro +8). Memory ≠ reasoning.
+
+**Decision — tiered/hybrid, not a single-model swap:**
+
+- The 12B (cheap, single-GPU) runs the corpus and autonomously clears the ~76%
+  declarative bulk.
+- Its **preemptive escalations** (55/58 of failures — it reliably knows when it's
+  stuck) are the routing signal: the hard class escalates to the 31B (or a human).
+  This buys ~91%-class outcomes at mostly-12B cost.
+- Cost intuition **inverts at the wall**: the 12B burned *more* tokens and
+  wall-clock grinding rules it could not solve (35–37 attempts × 20 min on single
+  sysctl rules) than the 31B spent succeeding. Edge systems must **cap-and-escalate**,
+  not grind.
+- A single-GPU quantized fleet remains shelved pending an official FP8/NVFP4 12B;
+  this experiment was bf16/official to keep it Federal-defensible.
 
 ## References
 

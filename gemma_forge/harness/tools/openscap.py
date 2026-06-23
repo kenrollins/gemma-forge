@@ -13,6 +13,7 @@ to the Worker's prompt. See journey/38.7 for why this exists.
 from __future__ import annotations
 
 import re
+import xml.etree.ElementTree as ET
 
 from .ssh import SSHConfig, _run_ssh
 
@@ -52,7 +53,7 @@ echo "fail"
 grep -c 'result="notselected"' {results_dir}/results.xml 2>/dev/null || echo "0"
 echo "notselected"
 """
-    stdout, stderr, rc = await _run_ssh(config, scan_script)
+    stdout, _stderr, _rc = await _run_ssh(config, scan_script)
 
     # The scan itself returns non-zero when rules fail — that's expected.
     # Parse the output to extract just the failing rules (compact format).
@@ -100,7 +101,7 @@ oscap xccdf eval \
     --rule {rule_id} \
     {datastream} 2>&1 | tail -5
 """
-    stdout, stderr, rc = await _run_ssh(config, check_script)
+    stdout, _stderr, _rc = await _run_ssh(config, check_script)
 
     if "pass" in stdout.lower():
         return f"RULE_CHECK: {rule_id} = PASS"
@@ -155,13 +156,11 @@ async def extract_xccdf_descriptions(
     Failure-safe: returns ``{}`` on any error.
     """
     try:
-        stdout, stderr, rc = await _run_ssh(config, f"cat {datastream}")
+        stdout, _stderr, rc = await _run_ssh(config, f"cat {datastream}")
         if rc != 0 or not stdout:
             return {}
     except Exception:
         return {}
-
-    import xml.etree.ElementTree as ET
 
     try:
         root = ET.fromstring(stdout)
@@ -226,7 +225,7 @@ async def extract_xccdf_descriptions(
     return out
 
 
-def _render_oval_criteria(definition: "ET.Element") -> str:
+def _render_oval_criteria(definition: ET.Element) -> str:
     """Render an OVAL <definition>'s <criteria> tree as nested bullets.
 
     DEF-28-deeper: the natural-language XCCDF description says what to
@@ -249,7 +248,6 @@ def _render_oval_criteria(definition: "ET.Element") -> str:
     if all criterion elements lack ``comment`` attributes. Falls back
     silently — the description-only DEF-28 path still works.
     """
-    import xml.etree.ElementTree as ET
 
     def _local(tag: str) -> str:
         return tag.rsplit("}", 1)[-1] if "}" in tag else tag

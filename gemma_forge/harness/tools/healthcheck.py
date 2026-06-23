@@ -20,5 +20,5 @@ async def mission_healthcheck(
         "HEALTHY: ..." if all services are up, or
         "UNHEALTHY: ..." with details of what's broken.
     """
-    stdout, stderr, rc = await _run_ssh(config, healthcheck_cmd)
+    stdout, _stderr, _rc = await _run_ssh(config, healthcheck_cmd)
     return stdout.strip()

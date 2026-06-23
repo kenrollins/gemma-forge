@@ -23,10 +23,10 @@ from __future__ import annotations
 
 from gemma_forge.harness.ralph import parse_architect_verdict
 
-
 # =============================================================================
 # Property: parser handles every plausible LLM output format
 # =============================================================================
+
 
 class TestVerdictParserFormatRobustness:
     def test_property_clean_format_parses(self):
@@ -110,6 +110,7 @@ VERDICT: PIVOT
 # Property: parser falls back to CONTINUE on unparseable input
 # =============================================================================
 
+
 class TestVerdictParserFallback:
     def test_property_empty_string_falls_back_to_continue(self):
         result = parse_architect_verdict("")
@@ -143,6 +144,7 @@ class TestVerdictParserFallback:
 # =============================================================================
 # Property: NEW_PLAN extraction is bounded
 # =============================================================================
+
 
 class TestNewPlanExtraction:
     def test_property_new_plan_extracted_when_present(self):
@@ -179,6 +181,7 @@ class TestNewPlanExtraction:
 # =============================================================================
 # Property: parser output structure is consistent
 # =============================================================================
+
 
 class TestVerdictParserOutputShape:
     def test_property_always_returns_dict_with_all_keys(self):

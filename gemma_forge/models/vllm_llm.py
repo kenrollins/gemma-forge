@@ -30,6 +30,11 @@ from collections.abc import AsyncGenerator
 from typing import Any
 
 import httpx
+from google.adk.models.base_llm import BaseLlm
+from google.adk.models.llm_request import LlmRequest
+from google.adk.models.llm_response import LlmResponse
+from google.genai import types
+from openai import AsyncOpenAI
 
 
 @contextlib.contextmanager
@@ -37,11 +42,6 @@ def _nullcontext():
     """Null context manager for when OTel isn't available."""
     yield None
 
-from google.adk.models.base_llm import BaseLlm
-from google.adk.models.llm_request import LlmRequest
-from google.adk.models.llm_response import LlmResponse
-from google.genai import types
-from openai import AsyncOpenAI
 
 logger = logging.getLogger(__name__)
 
@@ -79,10 +79,8 @@ async def _snapshot_mtp_counters(metrics_url: str) -> dict[str, float] | None:
                 if line.startswith(prefix):
                     parts = line.rsplit(maxsplit=1)
                     if len(parts) == 2:
-                        try:
+                        with contextlib.suppress(ValueError):
                             out[key] = float(parts[1])
-                        except ValueError:
-                            pass
                     break
         if set(_MTP_COUNTERS.values()) <= out.keys():
             return out
@@ -156,27 +154,35 @@ class VllmLlm(BaseLlm):
                 # Tool call from the model
                 elif part.function_call is not None:
                     fc = part.function_call
-                    messages.append({
-                        "role": "assistant",
-                        "content": None,
-                        "tool_calls": [{
-                            "id": fc.id or f"call_{fc.name}",
-                            "type": "function",
-                            "function": {
-                                "name": fc.name,
-                                "arguments": json.dumps(fc.args or {}),
-                            },
-                        }],
-                    })
+                    messages.append(
+                        {
+                            "role": "assistant",
+                            "content": None,
+                            "tool_calls": [
+                                {
+                                    "id": fc.id or f"call_{fc.name}",
+                                    "type": "function",
+                                    "function": {
+                                        "name": fc.name,
+                                        "arguments": json.dumps(fc.args or {}),
+                                    },
+                                }
+                            ],
+                        }
+                    )
 
                 # Tool response
                 elif part.function_response is not None:
                     fr = part.function_response
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": fr.id or f"call_{fr.name}",
-                        "content": json.dumps(fr.response) if isinstance(fr.response, dict) else str(fr.response),
-                    })
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": fr.id or f"call_{fr.name}",
+                            "content": json.dumps(fr.response)
+                            if isinstance(fr.response, dict)
+                            else str(fr.response),
+                        }
+                    )
 
         return messages
 
@@ -252,14 +258,16 @@ class VllmLlm(BaseLlm):
                     "required": required,
                 }
 
-                functions.append({
-                    "type": "function",
-                    "function": {
-                        "name": name,
-                        "description": desc,
-                        "parameters": schema,
-                    },
-                })
+                functions.append(
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": name,
+                            "description": desc,
+                            "parameters": schema,
+                        },
+                    }
+                )
             except Exception as e:
                 logger.warning("Failed to convert tool %s: %s", name, e)
 
@@ -285,13 +293,15 @@ class VllmLlm(BaseLlm):
                 except (json.JSONDecodeError, TypeError):
                     args = {"raw": tc.function.arguments}
 
-                parts.append(types.Part(
-                    function_call=types.FunctionCall(
-                        id=tc.id,
-                        name=tc.function.name,
-                        args=args,
+                parts.append(
+                    types.Part(
+                        function_call=types.FunctionCall(
+                            id=tc.id,
+                            name=tc.function.name,
+                            args=args,
+                        )
                     )
-                ))
+                )
 
         return types.Content(role="model", parts=parts)
 
@@ -314,14 +324,10 @@ class VllmLlm(BaseLlm):
             si = llm_request.config.system_instruction
             if isinstance(si, str):
                 system_instruction = si
-            elif hasattr(si, 'parts') and si.parts:
-                system_instruction = " ".join(
-                    p.text for p in si.parts if p.text
-                )
+            elif hasattr(si, "parts") and si.parts:
+                system_instruction = " ".join(p.text for p in si.parts if p.text)
 
-        messages = self._contents_to_messages(
-            llm_request.contents, system_instruction
-        )
+        messages = self._contents_to_messages(llm_request.contents, system_instruction)
         tools = self._tools_to_functions(llm_request.tools_dict)
 
         # Build the request
@@ -347,6 +353,7 @@ class VllmLlm(BaseLlm):
         # OTel tracing — emit a span for each LLM call with GenAI conventions
         try:
             from gemma_forge.observability.otel import get_tracer, record_token_usage
+
             tracer = get_tracer("gemma_forge.models")
         except Exception:
             tracer = None
@@ -389,9 +396,13 @@ class VllmLlm(BaseLlm):
 
                 if span:
                     record_token_usage(span, prompt_tokens, completion_tokens)
-                    span.set_attribute("gen_ai.response.finish_reasons", [choice.finish_reason or ""])
+                    span.set_attribute(
+                        "gen_ai.response.finish_reasons", [choice.finish_reason or ""]
+                    )
                     if choice.message.tool_calls:
-                        span.set_attribute("gen_ai.response.tool_calls", len(choice.message.tool_calls))
+                        span.set_attribute(
+                            "gen_ai.response.tool_calls", len(choice.message.tool_calls)
+                        )
                     if mtp:
                         span.set_attribute("gen_ai.vllm.mtp.drafts", mtp["drafts"])
                         span.set_attribute("gen_ai.vllm.mtp.drafted", mtp["drafted"])
@@ -399,7 +410,9 @@ class VllmLlm(BaseLlm):
                         if mtp["acceptance"] is not None:
                             span.set_attribute("gen_ai.vllm.mtp.acceptance", mtp["acceptance"])
                         if mtp["tokens_per_step"] is not None:
-                            span.set_attribute("gen_ai.vllm.mtp.tokens_per_step", mtp["tokens_per_step"])
+                            span.set_attribute(
+                                "gen_ai.vllm.mtp.tokens_per_step", mtp["tokens_per_step"]
+                            )
 
                 yield LlmResponse(
                     content=content,

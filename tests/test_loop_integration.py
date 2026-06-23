@@ -25,13 +25,10 @@ default pytest run. Invoke explicitly with:
 import asyncio
 import json
 import logging
-import os
-import tempfile
-import yaml
 from pathlib import Path
-from typing import Any
 
 import pytest
+import yaml
 
 from gemma_forge.harness.ralph import run_ralph
 from gemma_forge.harness.tools.ssh import _run_snapshot_cmd
@@ -148,15 +145,15 @@ class TestInnerLoopIntegration:
         # (every run must emit these regardless of outcome)
         required = {
             "run_start",
-            "skill_manifest",       # fix #2: UI manifest
-            "snapshot_preflight",   # fix #5: snapshot preflight
+            "skill_manifest",  # fix #2: UI manifest
+            "snapshot_preflight",  # fix #5: snapshot preflight
             "scan_complete",
             "iteration_start",
-            "rule_selected",         # fix #4: architect-visible rule choice
-            "attempt_start",         # fix #4: per-attempt marker
+            "rule_selected",  # fix #4: architect-visible rule choice
+            "attempt_start",  # fix #4: per-attempt marker
             "agent_response",
-            "prompt_assembled",      # fix #2: context budget telemetry
-            "rule_complete",          # the punchline: per-rule summary
+            "prompt_assembled",  # fix #2: context budget telemetry
+            "rule_complete",  # the punchline: per-rule summary
         }
         missing = required - event_types
         assert not missing, f"Missing required event types: {missing}"
@@ -190,20 +187,19 @@ class TestInnerLoopIntegration:
         # --- If escalated, escalation_reason must be set ---
         if rc_data["outcome"] == "escalated":
             assert rc_data.get("escalation_reason") in (
-                "time_budget", "retry_ceiling", "architect_preemptive"
+                "time_budget",
+                "retry_ceiling",
+                "architect_preemptive",
             ), f"Unknown escalation reason: {rc_data.get('escalation_reason')}"
 
         # --- Worker turns must have tool_calls <= 1 (fix #1 single-action) ---
         worker_responses = [
-            e for e in events
-            if e["event_type"] == "agent_response" and e.get("agent") == "worker"
+            e for e in events if e["event_type"] == "agent_response" and e.get("agent") == "worker"
         ]
         for wr in worker_responses:
             tc = wr["data"].get("tool_calls")
             if tc is not None:  # field present
-                assert tc <= 1, (
-                    f"Worker turn made {tc} tool calls — single-action cap violated"
-                )
+                assert tc <= 1, f"Worker turn made {tc} tool calls — single-action cap violated"
 
         # --- prompt_assembled events must show the budget was respected ---
         prompt_events = [e for e in events if e["event_type"] == "prompt_assembled"]
@@ -237,7 +233,7 @@ class TestInnerLoopIntegration:
                     )
 
         # --- Log summary for human inspection ---
-        print(f"\n=== Tier 5 integration run summary ===")
+        print("\n=== Tier 5 integration run summary ===")
         print(f"  Log: {log_path.name}")
         print(f"  Total events: {len(events)}")
         print(f"  Rule: {rc_data['rule_id']}")

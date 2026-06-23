@@ -5,6 +5,7 @@ mechanism. The STIG manifest declares audit_rules_immutable should
 defer until audit is nearly complete; these tests verify both states
 (constraint active → deferred; constraint released → visible).
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -77,7 +78,8 @@ def test_load_from_stig_manifest_roundtrip():
     constraints = load_constraints_from_manifest(skill_dir)
     assert len(constraints) >= 1
     immutable = next(
-        (c for c in constraints if "audit_rules_immutable" in c.rule_id), None,
+        (c for c in constraints if "audit_rules_immutable" in c.rule_id),
+        None,
     )
     assert immutable is not None
     assert immutable.predicate == "category_nearly_complete"

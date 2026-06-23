@@ -7,24 +7,17 @@ These tests verify:
   - Interface protocol satisfaction (STIG runtime)
 """
 
-import pytest
-
 from gemma_forge.harness.interfaces import (
     EvalResult,
     FailureMode,
     WorkItem,
-    Checkpoint,
-    Evaluator,
-    Executor,
-    WorkQueue,
-    SkillRuntime,
 )
 from gemma_forge.harness.ralph import TriageState
-
 
 # =============================================================================
 # Property: EvalResult always has required fields
 # =============================================================================
+
 
 class TestEvalResult:
     def test_property_default_is_clean_failure(self):
@@ -58,6 +51,7 @@ class TestEvalResult:
 # =============================================================================
 # Property: TriageState detects scanner gaps correctly
 # =============================================================================
+
 
 class TestTriageState:
     def test_property_no_gap_initially(self):
@@ -107,6 +101,7 @@ class TestTriageState:
 # Property: WorkItem is a proper data container
 # =============================================================================
 
+
 class TestWorkItem:
     def test_property_has_required_fields(self):
         item = WorkItem(id="test-1", title="Test Item")
@@ -118,7 +113,8 @@ class TestWorkItem:
 
     def test_property_resources_and_deps_are_mutable_lists(self):
         item = WorkItem(
-            id="test-1", title="Test",
+            id="test-1",
+            title="Test",
             resources=["/etc/ssh/sshd_config"],
             depends_on=["prereq-1"],
         )
@@ -141,6 +137,7 @@ class TestWorkItem:
 # Property: STIG runtime satisfies protocol contracts
 # =============================================================================
 
+
 class TestStigRuntimeProtocol:
     """Verify the STIG runtime implements all five interfaces.
 
@@ -151,8 +148,10 @@ class TestStigRuntimeProtocol:
     def test_property_stig_runtime_is_importable(self):
         import importlib.util
         from pathlib import Path
+
         spec = importlib.util.spec_from_file_location(
-            "stig_runtime", Path("skills/stig-rhel9/runtime.py"))
+            "stig_runtime", Path("skills/stig-rhel9/runtime.py")
+        )
         assert spec is not None
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
@@ -161,12 +160,15 @@ class TestStigRuntimeProtocol:
     def test_property_runtime_has_all_interface_properties(self):
         import importlib.util
         from pathlib import Path
+
         spec = importlib.util.spec_from_file_location(
-            "stig_runtime", Path("skills/stig-rhel9/runtime.py"))
+            "stig_runtime", Path("skills/stig-rhel9/runtime.py")
+        )
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
 
         from gemma_forge.harness.tools.ssh import SSHConfig
+
         ssh = SSHConfig(host="test", user="test", key_path="/dev/null")
         runtime = mod.StigSkillRuntime(ssh, "profile", "datastream")
 

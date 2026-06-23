@@ -25,11 +25,11 @@ from the skill's ``EvaluatorMetadata``, not from a hardcoded constant
 here. A graded-signal skill with noisy outcomes can set
 ``min_retrievals=10, threshold=0.5`` and this function works the same.
 """
+
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Optional
 
 from psycopg_pool import ConnectionPool
 
@@ -41,18 +41,20 @@ logger = logging.getLogger(__name__)
 @dataclass
 class TipUtilitySnapshot:
     """One row in the pre-eviction utility report."""
+
     tip_id: int
-    source_rule_id: Optional[str]
+    source_rule_id: str | None
     tip_type: str
     n_outcomes: int
     avg_utility: float
-    text_preview: str                   # first 120 chars for human-readable dream report
+    text_preview: str  # first 120 chars for human-readable dream report
 
 
 @dataclass
 class EvictionReport:
     """Summary of one eviction sweep. Suitable for logging, the dream
     report, and JSONL emission."""
+
     skill: str
     min_retrievals: int
     threshold: float
@@ -69,7 +71,8 @@ class EvictionReport:
 def _count_active_tips(pool: ConnectionPool) -> int:
     with pool.connection() as conn, conn.cursor() as cur:
         cur.execute("SELECT COUNT(*) FROM tips WHERE retired_at IS NULL")
-        return cur.fetchone()[0]
+        row = cur.fetchone()
+        return row[0] if row is not None else 0
 
 
 def _find_eviction_candidates(
@@ -134,7 +137,7 @@ def _find_eviction_candidates(
 
     candidates: list[TipUtilitySnapshot] = []
     n_sufficient = len(rows)
-    for (tip_id, src_rule, tip_type, preview, n_out, avg_u, should_retire) in rows:
+    for tip_id, src_rule, tip_type, preview, n_out, avg_u, should_retire in rows:
         if should_retire:
             candidates.append(
                 TipUtilitySnapshot(
@@ -159,14 +162,15 @@ def _retire_tips(
     if not candidates:
         return 0
     reason_template = (
-        "history_based_deletion: avg_utility={util:.3f} < threshold={thr} "
-        "after {n} retrieval(s)"
+        "history_based_deletion: avg_utility={util:.3f} < threshold={thr} after {n} retrieval(s)"
     )
     updated = 0
     with pool.connection() as conn, conn.cursor() as cur:
         for c in candidates:
             reason = reason_template.format(
-                util=c.avg_utility, thr=threshold, n=c.n_outcomes,
+                util=c.avg_utility,
+                thr=threshold,
+                n=c.n_outcomes,
             )
             cur.execute(
                 """
@@ -198,7 +202,7 @@ def evict_low_utility_tips(
     skill: str = "stig",
     min_retrievals: int,
     threshold: float,
-    pool: Optional[ConnectionPool] = None,
+    pool: ConnectionPool | None = None,
     dry_run: bool = False,
 ) -> EvictionReport:
     """Run one eviction sweep. Returns a structured report.
@@ -217,14 +221,20 @@ def evict_low_utility_tips(
 
     total_active = _count_active_tips(pool)
     candidates, n_sufficient = _find_eviction_candidates(
-        pool, min_retrievals=min_retrievals, threshold=threshold,
+        pool,
+        min_retrievals=min_retrievals,
+        threshold=threshold,
     )
 
     logger.info(
         "eviction sweep: %d tips active, %d have ≥%d outcomes; "
         "%d would be retired (threshold=%.2f, dry_run=%s)",
-        total_active, n_sufficient, min_retrievals,
-        len(candidates), threshold, dry_run,
+        total_active,
+        n_sufficient,
+        min_retrievals,
+        len(candidates),
+        threshold,
+        dry_run,
     )
 
     retired_count = 0

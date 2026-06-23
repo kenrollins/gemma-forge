@@ -15,15 +15,16 @@ Each line is a JSON object with:
   - gpu_state (optional: VRAM/utilization snapshot for all 4 GPUs)
 """
 
+import contextlib
 import json
 import os
 import subprocess
 import threading
 import time
 import urllib.request
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, ClassVar
 
 
 # DEF-24 — rolling-window peak sampler for vLLM instantaneous gauges.
@@ -41,10 +42,13 @@ from typing import Any, Optional
 # gauge, so the tile reflects work that happened *recently* rather than
 # work happening *right now between two queries*.
 class _VllmGaugeSampler:
-    def __init__(self, metrics_url: str,
-                 interval_s: float = 1.0,
-                 window_s: float = 5.0,
-                 timeout_s: float = 1.0) -> None:
+    def __init__(
+        self,
+        metrics_url: str,
+        interval_s: float = 1.0,
+        window_s: float = 5.0,
+        timeout_s: float = 1.0,
+    ) -> None:
         self.metrics_url = metrics_url
         self.interval_s = interval_s
         self.window_s = window_s
@@ -71,17 +75,15 @@ class _VllmGaugeSampler:
                     prefixed, _, rest = line.partition("{")
                     if not rest:
                         continue
-                    name = prefixed[len("vllm:"):]
+                    name = prefixed[len("vllm:") :]
                     if name not in wanted:
                         continue
                     _, _, tail = rest.partition("}")
                     parts = tail.strip().split()
                     if not parts:
                         continue
-                    try:
+                    with contextlib.suppress(ValueError):
                         sample[name] = float(parts[0])
-                    except ValueError:
-                        pass
             except Exception:
                 pass  # network blip, skip this tick
             now = time.time()
@@ -111,27 +113,31 @@ class RunLogger:
     """Logs Ralph loop events to a JSON-lines file."""
 
     def __init__(self, output_dir: str = "runs"):
-        self.run_id = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        self.run_id = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.log_path = self.output_dir / f"run-{self.run_id}.jsonl"
         self.iteration = 0
         self.start_time = time.time()
-        self._file = open(self.log_path, "a")
+        self._file = open(self.log_path, "a")  # noqa: SIM115 - lifetime-bound handle, closed in close()
         # DEF-24 — start the background gauge sampler so kv_cache_pct
         # and running_requests reflect the in-flight peak from the last
         # few seconds, not the post-call instantaneous reading that
         # always shows 0 for single-stream Ralph.
-        self._gauge_sampler: Optional[_VllmGaugeSampler] = None
+        self._gauge_sampler: _VllmGaugeSampler | None = None
         try:
             self._gauge_sampler = _VllmGaugeSampler(self._VLLM_METRICS_URL)
         except Exception:
             self._gauge_sampler = None  # never fatal — fall back to instant gauges
 
-        self.log("run_start", "system", {
-            "run_id": self.run_id,
-            "start_time": datetime.now(timezone.utc).isoformat(),
-        })
+        self.log(
+            "run_start",
+            "system",
+            {
+                "run_id": self.run_id,
+                "start_time": datetime.now(UTC).isoformat(),
+            },
+        )
 
     def log(
         self,
@@ -142,7 +148,7 @@ class RunLogger:
     ) -> None:
         """Write a structured event to the log."""
         entry = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "elapsed_s": round(time.time() - self.start_time, 2),
             "event_type": event_type,
             "agent": agent,
@@ -169,28 +175,45 @@ class RunLogger:
         self.iteration = n
 
     def log_tool_call(self, agent: str, tool_name: str, args: dict) -> None:
-        self.log("tool_call", agent, {
-            "tool": tool_name,
-            "args": {k: v[:200] if isinstance(v, str) else v for k, v in args.items()},
-        })
+        self.log(
+            "tool_call",
+            agent,
+            {
+                "tool": tool_name,
+                "args": {k: v[:200] if isinstance(v, str) else v for k, v in args.items()},
+            },
+        )
 
     def log_tool_result(self, agent: str, tool_name: str, result: str) -> None:
-        self.log("tool_result", agent, {
-            "tool": tool_name,
-            "result": result[:500],
-        })
+        self.log(
+            "tool_result",
+            agent,
+            {
+                "tool": tool_name,
+                "result": result[:500],
+            },
+        )
 
-    def log_agent_response(self, agent: str, text: str, tokens: Optional[dict] = None) -> None:
-        self.log("agent_response", agent, {
-            "text": text[:1000],
-            "tokens": tokens,
-        })
+    def log_agent_response(self, agent: str, text: str, tokens: dict | None = None) -> None:
+        self.log(
+            "agent_response",
+            agent,
+            {
+                "text": text[:1000],
+                "tokens": tokens,
+            },
+        )
 
     def log_revert(self, agent: str, reason: str, result: str) -> None:
-        self.log("revert", agent, {
-            "reason": reason,
-            "result": result[:500],
-        }, include_gpu=True)
+        self.log(
+            "revert",
+            agent,
+            {
+                "reason": reason,
+                "result": result[:500],
+            },
+            include_gpu=True,
+        )
 
     def log_error(self, agent: str, error: str) -> None:
         self.log("error", agent, {"error": error[:500]})
@@ -210,7 +233,7 @@ class RunLogger:
     # in the /metrics output looks like:
     #   vllm:kv_cache_usage_perc{engine="0",model_name="..."} 0.23
     # so we extract the value after the closing brace.
-    _VLLM_GAUGE_NAMES = {
+    _VLLM_GAUGE_NAMES: ClassVar[dict[str, str]] = {
         "num_requests_running": "running",
         "num_requests_waiting": "waiting",
         "kv_cache_usage_perc": "kv_cache_pct",
@@ -221,7 +244,7 @@ class RunLogger:
     # speculative decoding is enabled (vLLM 0.21+ with the gemma4
     # MTP drafter — see ADR-0018). Pre-MTP runs have these series at
     # zero; the snap dict omits the mtp_* fields then.
-    _VLLM_CUM_NAMES = {
+    _VLLM_CUM_NAMES: ClassVar[dict[str, str]] = {
         "prefix_cache_queries_total": "prefix_queries",
         "prefix_cache_hits_total": "prefix_hits",
         "spec_decode_num_drafts_total": "mtp_drafts",
@@ -229,7 +252,7 @@ class RunLogger:
         "spec_decode_num_accepted_tokens_total": "mtp_accepted",
     }
 
-    def _capture_vllm_metrics(self) -> Optional[dict]:
+    def _capture_vllm_metrics(self) -> dict | None:
         """Snapshot of vLLM's /metrics endpoint.
 
         Returns ``None`` if vLLM isn't reachable — the caller treats
@@ -260,7 +283,7 @@ class RunLogger:
             prefixed, _, rest = line.partition("{")
             if not rest:
                 continue
-            name = prefixed[len("vllm:"):]
+            name = prefixed[len("vllm:") :]
             _, _, tail = rest.partition("}")
             parts = tail.strip().split()
             if not parts:
@@ -336,15 +359,17 @@ class RunLogger:
             for line in result.stdout.strip().split("\n"):
                 parts = [p.strip() for p in line.split(",")]
                 if len(parts) >= 7:
-                    gpus.append({
-                        "index": int(parts[0]),
-                        "name": parts[1],
-                        "memory_used_mib": int(parts[2]),
-                        "memory_total_mib": int(parts[3]),
-                        "utilization_pct": int(parts[4]),
-                        "temperature_c": int(parts[5]),
-                        "power_w": float(parts[6]),
-                    })
+                    gpus.append(
+                        {
+                            "index": int(parts[0]),
+                            "name": parts[1],
+                            "memory_used_mib": int(parts[2]),
+                            "memory_total_mib": int(parts[3]),
+                            "utilization_pct": int(parts[4]),
+                            "temperature_c": int(parts[5]),
+                            "power_w": float(parts[6]),
+                        }
+                    )
             return gpus
         except Exception:
             return []

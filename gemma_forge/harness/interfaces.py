@@ -22,10 +22,10 @@ Design notes:
     enables evaluation triage in the harness layer
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Callable, Literal, Optional, Protocol, runtime_checkable
-
+from typing import Literal, Protocol, runtime_checkable
 
 # Callback the harness hands to ``SkillRuntime.resolve_deferred`` so the
 # skill can stream structured progress events during a long-running
@@ -67,6 +67,7 @@ class OutcomeSignal:
     weight a tip accrues toward its running utility average; it generalizes
     cleanly across binary, graded, judgment, and behavioral signals.
     """
+
     value: float
     confidence: float
     metadata: dict = field(default_factory=dict)
@@ -85,6 +86,7 @@ class EvaluatorMetadata:
     can fire eviction after a few retrievals at a low threshold; a graded
     or judgment-based skill needs more samples and a higher floor.
     """
+
     signal_type: SignalType
     expected_confidence: ConfidenceTier
     cost_per_evaluation: EvaluationCost
@@ -103,7 +105,9 @@ class EvaluatorMetadata:
 
 
 def outcome_signal_from_eval_result(
-    result: "EvalResult", *, confidence: float = 1.0,
+    result: "EvalResult",
+    *,
+    confidence: float = 1.0,
 ) -> OutcomeSignal:
     """Default projection used by binary deterministic evaluators.
 
@@ -130,10 +134,11 @@ class FailureMode(Enum):
       FALSE_NEGATIVE → accept the change (override the noise)
       CLEAN_FAILURE  → normal revert + reflect cycle
     """
-    HEALTH_FAILURE = "health_failure"   # target is broken
-    EVALUATOR_GAP = "evaluator_gap"     # target healthy but evaluator says fail
-    FALSE_NEGATIVE = "false_negative"   # evaluator says pass but noise caused revert
-    CLEAN_FAILURE = "clean_failure"     # normal failure, safe to retry
+
+    HEALTH_FAILURE = "health_failure"  # target is broken
+    EVALUATOR_GAP = "evaluator_gap"  # target healthy but evaluator says fail
+    FALSE_NEGATIVE = "false_negative"  # evaluator says pass but noise caused revert
+    CLEAN_FAILURE = "clean_failure"  # normal failure, safe to retry
     # CVE-skill additions (entry 33). Harness routing:
     #   NEEDS_REBOOT      → partial success; defer via deferrable_reboot ordering
     #   RPM_CONFLICT      → clean failure with a specific diagnostic angle
@@ -151,6 +156,7 @@ class EvalResult:
     The skill populates `signals` with domain-specific detail that the
     harness logs but doesn't interpret.
     """
+
     passed: bool
     failure_mode: FailureMode = FailureMode.CLEAN_FAILURE
     summary: str = ""
@@ -164,6 +170,7 @@ class WorkItem:
     Skills produce these from their WorkQueue. The harness manages
     their lifecycle (queued → active → completed/escalated).
     """
+
     id: str
     title: str
     category: str = "uncategorized"
@@ -188,8 +195,9 @@ class WorkQueue(Protocol):
 class Executor(Protocol):
     """Applies changes to the target system."""
 
-    async def apply(self, item: WorkItem, fix_script: str,
-                    revert_script: str, description: str) -> str:
+    async def apply(
+        self, item: WorkItem, fix_script: str, revert_script: str, description: str
+    ) -> str:
         """Apply a fix. Returns the execution output."""
         ...
 
@@ -290,11 +298,27 @@ class SkillRuntime(Protocol):
         """Return the ADK tool function for the Architect's scan capability."""
         ...
 
+    async def check_sudo_healthy(self) -> tuple[bool, str]:
+        """Probe that the target is reachable with working privileges.
+
+        The harness calls this after a checkpoint restore to confirm the
+        target came back in a usable state. Returns ``(ok, detail)``.
+        """
+        ...
+
+    async def gather_diagnostics(self) -> dict:
+        """Collect environment forensics before a revert.
+
+        The harness calls this when an evaluation fails, before touching
+        the target, so the failure context is captured for the run log.
+        """
+        ...
+
     async def resolve_deferred(
         self,
         reason: str,
         items: list,
-        emit: Optional[EmitEvent] = None,
+        emit: EmitEvent | None = None,
     ) -> tuple[bool, str, list["DeferredItemOutcome"]]:
         """Resolve a deferred-verification condition for a batch of items.
 
@@ -329,7 +353,7 @@ class SkillRuntime(Protocol):
         """
         return (True, "no deferred items — skill has no resolve_deferred implementation", [])
 
-    def worker_context(self, item: WorkItem) -> Optional[dict]:
+    def worker_context(self, item: WorkItem) -> dict | None:
         """Optional per-item enrichment for the Worker's apply_fix prompt.
 
         DEF-28: a hook for skills to enrich the Worker's prompt with
@@ -384,6 +408,7 @@ class DeferredItemOutcome:
     Additional keys (``detail``, ``family``, ``wall_time_s``) go in
     ``metadata`` for observability without cluttering the contract.
     """
+
     rule_id: str
     passed: bool
     reason: str

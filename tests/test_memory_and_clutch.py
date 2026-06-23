@@ -26,22 +26,17 @@ from pathlib import Path
 import pytest
 from psycopg_pool import ConnectionPool
 
+from gemma_forge.harness.clutch import Clutch, ClutchConfig
 from gemma_forge.harness.db import _conninfo, _load_dotenv_once
+from gemma_forge.harness.interfaces import WorkItem
 from gemma_forge.harness.memory_store import (
     PostgresMemoryStore,
-    StoredLesson,
-    StoredAttempt,
-    CategoryStats,
 )
-from gemma_forge.harness.clutch import Clutch, ClutchConfig
 from gemma_forge.harness.task_graph import TaskGraph
-from gemma_forge.harness.interfaces import WorkItem
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MIGRATIONS_DIR = REPO_ROOT / "migrations" / "stig"
-MIGRATION_SQL = "\n".join(
-    p.read_text() for p in sorted(MIGRATIONS_DIR.glob("*.sql"))
-)
+MIGRATION_SQL = "\n".join(p.read_text() for p in sorted(MIGRATIONS_DIR.glob("*.sql")))
 
 
 def _adapt_for_test_schema(sql: str) -> str:
@@ -87,11 +82,10 @@ def mem_store(admin_pool):
     """
     schema = "mst_" + uuid.uuid4().hex[:10]
 
-    with admin_pool.connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(f'CREATE SCHEMA "{schema}"')
-            cur.execute(f'SET search_path TO "{schema}"')
-            cur.execute(_adapt_for_test_schema(MIGRATION_SQL))
+    with admin_pool.connection() as conn, conn.cursor() as cur:
+        cur.execute(f'CREATE SCHEMA "{schema}"')
+        cur.execute(f'SET search_path TO "{schema}"')
+        cur.execute(_adapt_for_test_schema(MIGRATION_SQL))
 
     def _configure(c):
         # SET search_path is a SQL statement that opens an implicit
@@ -116,9 +110,8 @@ def mem_store(admin_pool):
         yield store
     finally:
         test_pool.close()
-        with admin_pool.connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
+        with admin_pool.connection() as conn, conn.cursor() as cur:
+            cur.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
 
 
 def _populate_two_runs(store: PostgresMemoryStore):
@@ -127,15 +120,21 @@ def _populate_two_runs(store: PostgresMemoryStore):
     store.save_item_outcome(r1, "auth_1", "Auth Rule 1", "authentication", "completed", 1, 30.0)
     store.save_item_outcome(r1, "auth_2", "Auth Rule 2", "authentication", "completed", 1, 25.0)
     store.save_item_outcome(r1, "auth_3", "Auth Rule 3", "authentication", "completed", 2, 60.0)
-    store.save_item_outcome(r1, "aide_1", "AIDE Rule 1", "integrity-monitoring", "escalated", 15, 1200.0)
-    store.save_item_outcome(r1, "aide_2", "AIDE Rule 2", "integrity-monitoring", "escalated", 12, 1000.0)
+    store.save_item_outcome(
+        r1, "aide_1", "AIDE Rule 1", "integrity-monitoring", "escalated", 15, 1200.0
+    )
+    store.save_item_outcome(
+        r1, "aide_2", "AIDE Rule 2", "integrity-monitoring", "escalated", 12, 1000.0
+    )
     store.save_lesson("authentication", "PAM rules respond well to authselect", r1, "auth_1")
     store.save_lesson("integrity-monitoring", "AIDE database init fails on Rocky 9", r1, "aide_1")
     store.end_run(r1, {"remediated": 3, "escalated": 2})
 
     r2 = store.start_run("test-skill", {})
     store.save_item_outcome(r2, "auth_4", "Auth Rule 4", "authentication", "completed", 1, 20.0)
-    store.save_item_outcome(r2, "aide_3", "AIDE Rule 3", "integrity-monitoring", "escalated", 10, 900.0)
+    store.save_item_outcome(
+        r2, "aide_3", "AIDE Rule 3", "integrity-monitoring", "escalated", 10, 900.0
+    )
     store.save_lesson("authentication", "PAM rules respond well to authselect", r2, "auth_4")
     store.end_run(r2, {"remediated": 1, "escalated": 1})
 
@@ -165,7 +164,9 @@ class TestMemoryStoreCRUD:
     def test_property_attempt_trace_persists(self, mem_store):
         run_id = mem_store.start_run("test", {})
         mem_store.save_item_outcome(run_id, "rule_1", "Test", "kernel", "completed", 1, 30.0)
-        mem_store.save_attempt(run_id, "rule_1", 1, "sed -i config", True, "", "", "worked", "", 30.0)
+        mem_store.save_attempt(
+            run_id, "rule_1", 1, "sed -i config", True, "", "", "worked", "", 30.0
+        )
         attempts = mem_store.query_prior_attempts("rule_1")
         assert len(attempts) == 1
         assert attempts[0].approach == "sed -i config"
@@ -189,20 +190,30 @@ class TestCrossRunLearning:
         _populate_two_runs(mem_store)
         lessons = mem_store.load_lessons("authentication")
         assert len(lessons) >= 1
-        assert any("PAM" in l.lesson for l in lessons)
+        assert any("PAM" in lesson.lesson for lesson in lessons)
 
     def test_property_duplicate_lessons_gain_weight(self, mem_store):
         _populate_two_runs(mem_store)
         lessons = mem_store.load_lessons("authentication")
-        pam_lesson = [l for l in lessons if "PAM" in l.lesson][0]
+        pam_lesson = next(lesson for lesson in lessons if "PAM" in lesson.lesson)
         assert pam_lesson.weight > 0.5
         assert pam_lesson.success_count >= 1
 
     def test_property_global_bans_persist(self, mem_store):
         run_id = mem_store.start_run("test", {})
         mem_store.save_item_outcome(run_id, "r1", "T", "k", "completed", 1, 10.0)
-        mem_store.save_attempt(run_id, "r1", 1, "bad approach", False, "eval_gap",
-                               "failed", "", "systemctl stop sshd", 10.0)
+        mem_store.save_attempt(
+            run_id,
+            "r1",
+            1,
+            "bad approach",
+            False,
+            "eval_gap",
+            "failed",
+            "",
+            "systemctl stop sshd",
+            10.0,
+        )
         bans = mem_store.load_global_bans()
         assert "systemctl stop sshd" in bans
 
@@ -210,8 +221,18 @@ class TestCrossRunLearning:
         r1 = mem_store.start_run("test", {})
         mem_store.save_item_outcome(r1, "rule_x", "X", "kernel", "escalated", 3, 100.0)
         for i in range(3):
-            mem_store.save_attempt(r1, "rule_x", i + 1, f"approach_{i}", False,
-                                   "evaluator_gap", f"reflection_{i}", f"lesson_{i}", "", 30.0)
+            mem_store.save_attempt(
+                r1,
+                "rule_x",
+                i + 1,
+                f"approach_{i}",
+                False,
+                "evaluator_gap",
+                f"reflection_{i}",
+                f"lesson_{i}",
+                "",
+                30.0,
+            )
         attempts = mem_store.query_prior_attempts("rule_x")
         assert len(attempts) == 3
 
@@ -313,11 +334,13 @@ class TestClutchBatchSelection:
         clutch.initialize()
 
         graph = TaskGraph()
-        graph.add_items([
-            WorkItem(id="a1", title="A1", category="authentication"),
-            WorkItem(id="a2", title="A2", category="authentication"),
-            WorkItem(id="a3", title="A3", category="authentication"),
-        ])
+        graph.add_items(
+            [
+                WorkItem(id="a1", title="A1", category="authentication"),
+                WorkItem(id="a2", title="A2", category="authentication"),
+                WorkItem(id="a3", title="A3", category="authentication"),
+            ]
+        )
         batch = clutch.select_batch(graph)
         assert len(batch) == 3
 
@@ -327,10 +350,12 @@ class TestClutchBatchSelection:
         clutch.initialize()
 
         graph = TaskGraph()
-        graph.add_items([
-            WorkItem(id="i1", title="I1", category="integrity-monitoring"),
-            WorkItem(id="i2", title="I2", category="integrity-monitoring"),
-        ])
+        graph.add_items(
+            [
+                WorkItem(id="i1", title="I1", category="integrity-monitoring"),
+                WorkItem(id="i2", title="I2", category="integrity-monitoring"),
+            ]
+        )
         batch = clutch.select_batch(graph)
         assert len(batch) >= 1
 
@@ -340,14 +365,28 @@ class TestClutchBatchSelection:
         clutch.initialize()
 
         graph = TaskGraph()
-        graph.add_items([
-            WorkItem(id="a1", title="A1", category="authentication",
-                     resources=["/etc/pam.d/system-auth"]),
-            WorkItem(id="a2", title="A2", category="authentication",
-                     resources=["/etc/pam.d/system-auth"]),
-            WorkItem(id="a3", title="A3", category="authentication",
-                     resources=["/etc/ssh/sshd_config"]),
-        ])
+        graph.add_items(
+            [
+                WorkItem(
+                    id="a1",
+                    title="A1",
+                    category="authentication",
+                    resources=["/etc/pam.d/system-auth"],
+                ),
+                WorkItem(
+                    id="a2",
+                    title="A2",
+                    category="authentication",
+                    resources=["/etc/pam.d/system-auth"],
+                ),
+                WorkItem(
+                    id="a3",
+                    title="A3",
+                    category="authentication",
+                    resources=["/etc/ssh/sshd_config"],
+                ),
+            ]
+        )
         graph.mark_active("a1")
         active_res = graph.get_active_resources()
         batch = clutch.select_batch(graph, active_resources=active_res)

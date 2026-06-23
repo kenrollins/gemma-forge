@@ -18,18 +18,16 @@ Usage:
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 import yaml
 from openai import AsyncOpenAI
 
 from .tools.healthcheck import mission_healthcheck
-from .tools.openscap import stig_check_rule, stig_scan
+from .tools.openscap import stig_scan
 from .tools.ssh import SSHConfig, ssh_apply, ssh_revert
 
 logger = logging.getLogger(__name__)
@@ -61,11 +59,13 @@ class LoopConfig:
 
     max_iterations: int = 20
     max_rules_per_run: int = 5
-    vm: SSHConfig = field(default_factory=lambda: SSHConfig(
-        host="192.168.122.43",
-        user="adm-forge",
-        key_path="/data/vm/gemma-forge/keys/adm-forge",
-    ))
+    vm: SSHConfig = field(
+        default_factory=lambda: SSHConfig(
+            host="192.168.122.43",
+            user="adm-forge",
+            key_path="/data/vm/gemma-forge/keys/adm-forge",
+        )
+    )
     stig_profile: str = "xccdf_org.ssgproject.content_profile_stig"
     stig_datastream: str = "/usr/share/xml/scap/ssg/content/ssg-rl9-ds.xml"
 
@@ -192,9 +192,7 @@ async def run_ralph_loop(config: LoopConfig) -> list[RemediationRecord]:
     logger.info("RALPH LOOP — Starting STIG remediation")
     logger.info("=" * 60)
     logger.info("Running initial STIG scan...")
-    scan_results = await stig_scan(
-        config.vm, config.stig_profile, config.stig_datastream
-    )
+    scan_results = await stig_scan(config.vm, config.stig_profile, config.stig_datastream)
     failing_rules = _parse_scan_results(scan_results)
     logger.info("Found %d failing STIG rules", len(failing_rules))
 
@@ -227,9 +225,7 @@ async def run_ralph_loop(config: LoopConfig) -> list[RemediationRecord]:
         logger.info("-" * 60)
 
         # --- ARCHITECT: pick a rule and plan the fix ---
-        rule_context = "\n".join(
-            f"  - {rid}: {title}" for rid, title in failing_rules[:10]
-        )
+        rule_context = "\n".join(f"  - {rid}: {title}" for rid, title in failing_rules[:10])
         failed_ctx = ""
         if failed_approaches:
             failed_ctx = "\n\nPreviously failed approaches (DO NOT repeat these):\n"
@@ -265,7 +261,9 @@ async def run_ralph_loop(config: LoopConfig) -> list[RemediationRecord]:
         if not selected_rule:
             # Default to first rule if we can't parse the Architect's choice
             selected_rule, selected_title = failing_rules[0]
-            logger.warning("Could not parse Architect's rule selection, defaulting to: %s", selected_rule)
+            logger.warning(
+                "Could not parse Architect's rule selection, defaulting to: %s", selected_rule
+            )
 
         logger.info("Selected rule: %s (%s)", selected_rule, selected_title)
 
@@ -289,13 +287,16 @@ async def run_ralph_loop(config: LoopConfig) -> list[RemediationRecord]:
         logger.info("WORKER response:\n%s", worker_response[:300])
 
         fix_script, revert_script = _parse_scripts(worker_response)
-        logger.info("Parsed fix script (%d chars) and revert script (%d chars)",
-                     len(fix_script), len(revert_script))
+        logger.info(
+            "Parsed fix script (%d chars) and revert script (%d chars)",
+            len(fix_script),
+            len(revert_script),
+        )
 
         # --- Pre-fix snapshot (safety net for cascading damage) ---
         snapshot_name = f"pre-iter-{iteration}"
         logger.info("Taking pre-fix snapshot '%s'...", snapshot_name)
-        snap_stdout, snap_stderr, snap_rc = await _run_ssh_local(
+        _snap_stdout, snap_stderr, snap_rc = await _run_ssh_local(
             f"sudo virsh snapshot-create-as gemma-forge-mission-app {snapshot_name} "
             f"--description 'Ralph loop iteration {iteration} safety net' --atomic"
         )
@@ -307,9 +308,7 @@ async def run_ralph_loop(config: LoopConfig) -> list[RemediationRecord]:
 
         # --- APPLY the fix ---
         logger.info("APPLYING fix to VM...")
-        apply_result = await ssh_apply(
-            config.vm, fix_script, revert_script, selected_title
-        )
+        apply_result = await ssh_apply(config.vm, fix_script, revert_script, selected_title)
         logger.info("Apply result: %s", apply_result[:200])
 
         # --- AUDITOR: healthcheck ---
@@ -358,9 +357,7 @@ async def run_ralph_loop(config: LoopConfig) -> list[RemediationRecord]:
             if auditor_failed:
                 reason.append("auditor rejected")
 
-            logger.warning(
-                ">>> REVERTING FIX — %s <<<", " + ".join(reason)
-            )
+            logger.warning(">>> REVERTING FIX — %s <<<", " + ".join(reason))
 
             # Try script-based revert first (preferred — agent-driven)
             revert_result = await ssh_revert(config.vm)
@@ -393,17 +390,13 @@ async def run_ralph_loop(config: LoopConfig) -> list[RemediationRecord]:
             # Record this failed approach so Architect doesn't repeat it
             if selected_rule not in failed_approaches:
                 failed_approaches[selected_rule] = []
-            failed_approaches[selected_rule].append(
-                f"{selected_title}: {fix_script[:100]}..."
-            )
+            failed_approaches[selected_rule].append(f"{selected_title}: {fix_script[:100]}...")
 
         else:
             # Fix succeeded — remove this rule from the failing list
             logger.info(">>> FIX ACCEPTED — rule %s remediated <<<", selected_rule)
             success = True
-            failing_rules = [
-                (rid, t) for rid, t in failing_rules if rid != selected_rule
-            ]
+            failing_rules = [(rid, t) for rid, t in failing_rules if rid != selected_rule]
             rules_attempted += 1
 
         # Clean up the pre-iteration snapshot (don't accumulate)
@@ -413,17 +406,19 @@ async def run_ralph_loop(config: LoopConfig) -> list[RemediationRecord]:
             )
             logger.info("Cleaned up snapshot '%s'", snapshot_name)
 
-        records.append(RemediationRecord(
-            rule_id=selected_rule,
-            rule_title=selected_title,
-            iteration=iteration,
-            fix_script=fix_script,
-            revert_script=revert_script,
-            apply_result=apply_result,
-            healthcheck_result=health,
-            reverted=reverted,
-            success=success,
-        ))
+        records.append(
+            RemediationRecord(
+                rule_id=selected_rule,
+                rule_title=selected_title,
+                iteration=iteration,
+                fix_script=fix_script,
+                revert_script=revert_script,
+                apply_result=apply_result,
+                healthcheck_result=health,
+                reverted=reverted,
+                success=success,
+            )
+        )
 
     # --- Summary ---
     logger.info("")
@@ -492,7 +487,9 @@ def main() -> int:
             key_path=vm_cfg.get("ssh_key", "/data/vm/gemma-forge/keys/adm-forge"),
         ),
         stig_profile=stig_cfg.get("profile", "xccdf_org.ssgproject.content_profile_stig"),
-        stig_datastream=stig_cfg.get("datastream", "/usr/share/xml/scap/ssg/content/ssg-rl9-ds.xml"),
+        stig_datastream=stig_cfg.get(
+            "datastream", "/usr/share/xml/scap/ssg/content/ssg-rl9-ds.xml"
+        ),
         architect_url=models.get("architect", {}).get("endpoint", "http://localhost:8050/v1"),
         architect_model=models.get("architect", {}).get("model", "/weights/Gemma-4-31B-IT-NVFP4"),
         worker_url=models.get("worker", {}).get("endpoint", "http://localhost:8050/v1"),

@@ -46,13 +46,9 @@ def discover_skills(skills_dir: str = "skills") -> list[Skill]:
             manifest = SkillManifest(**raw)
             skill = Skill(manifest=manifest, skill_dir=skill_dir)
             skills.append(skill)
-            logger.info(
-                "Loaded skill: %s (%s)", skill.name, skill.description
-            )
+            logger.info("Loaded skill: %s (%s)", skill.name, skill.description)
         except Exception as e:
-            logger.error(
-                "Failed to load skill from %s: %s", skill_dir, e
-            )
+            logger.error("Failed to load skill from %s: %s", skill_dir, e)
 
     logger.info("Discovered %d skill(s)", len(skills))
     return skills
@@ -76,9 +72,7 @@ def load_skill(skill_name: str, skills_dir: str = "skills") -> Skill:
     manifest_path = skill_dir / "skill.yaml"
 
     if not manifest_path.exists():
-        raise FileNotFoundError(
-            f"Skill '{skill_name}' not found at {manifest_path}"
-        )
+        raise FileNotFoundError(f"Skill '{skill_name}' not found at {manifest_path}")
 
     with open(manifest_path) as f:
         raw = yaml.safe_load(f)
@@ -88,7 +82,8 @@ def load_skill(skill_name: str, skills_dir: str = "skills") -> Skill:
 
 
 def find_skill_dir_by_schema(
-    schema: str, skills_dir: str = "skills",
+    schema: str,
+    skills_dir: str = "skills",
 ) -> Path | None:
     """Find a skill directory whose manifest declares the given Postgres schema.
 

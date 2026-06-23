@@ -22,11 +22,11 @@ signal, but the structured predicate is the correct primary.
 See docs/drafts/v2-architecture-plan.md §2.3 and §11 refinement 1
 for the full rationale.
 """
+
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Optional
 
 from psycopg_pool import ConnectionPool
 
@@ -38,15 +38,16 @@ logger = logging.getLogger(__name__)
 @dataclass
 class RetrievedTip:
     """One tip selected for inclusion in the Worker prompt."""
+
     tip_id: int
     text: str
     tip_type: str
-    trigger_conditions: Optional[list[str]]
+    trigger_conditions: list[str] | None
     application_context: list[str]
-    source_rule_id: Optional[str]
-    source_run_id: Optional[str]
-    similarity_score: float       # [0, 1] — structured similarity to current rule
-    rank: int                     # 1-based within the assembled prompt
+    source_rule_id: str | None
+    source_run_id: str | None
+    similarity_score: float  # [0, 1] — structured similarity to current rule
+    rank: int  # 1-based within the assembled prompt
 
 
 # ---------------------------------------------------------------------
@@ -84,7 +85,7 @@ def rule_prefix_similarity(a: str, b: str) -> float:
     if not ta or not tb:
         return 0.0
     shared = 0
-    for x, y in zip(ta, tb):
+    for x, y in zip(ta, tb, strict=False):
         if x == y:
             shared += 1
         else:
@@ -97,8 +98,9 @@ def rule_prefix_similarity(a: str, b: str) -> float:
 # ---------------------------------------------------------------------
 
 
-def _fetch_hit_rates(pool: ConnectionPool, rule_id: str,
-                     min_retrievals: int = 1) -> dict[int, float]:
+def _fetch_hit_rates(
+    pool: ConnectionPool, rule_id: str, min_retrievals: int = 1
+) -> dict[int, float]:
     """Return per-tip_id hit rate on ``rule_id``.
 
     Hit rate is the per-retrieval contribution averaged across prior
@@ -160,27 +162,27 @@ def _fetch_hit_rates(pool: ConnectionPool, rule_id: str,
 # ---------------------------------------------------------------------
 
 
-_DEFAULT_CANDIDATE_POOL = 200   # pull top-N candidates from SQL; rank in Python
-_CATEGORY_BONUS = 0.30          # added to similarity when category matches
-_HIT_RATE_WEIGHT = 0.50         # weight of per-(tip, rule) hit rate in the composite
-_SOURCE_PRIOR_WEIGHT = 0.15     # weight of tip's own source-attempt outcome.
-                                # Coefficient intentionally lower than hit_rate:
-                                # source_prior is one data point; hit_rate is
-                                # aggregated evidence. Sample-size-weighted
-                                # priority: aggregate > single-sample.
+_DEFAULT_CANDIDATE_POOL = 200  # pull top-N candidates from SQL; rank in Python
+_CATEGORY_BONUS = 0.30  # added to similarity when category matches
+_HIT_RATE_WEIGHT = 0.50  # weight of per-(tip, rule) hit rate in the composite
+_SOURCE_PRIOR_WEIGHT = 0.15  # weight of tip's own source-attempt outcome.
+# Coefficient intentionally lower than hit_rate:
+# source_prior is one data point; hit_rate is
+# aggregated evidence. Sample-size-weighted
+# priority: aggregate > single-sample.
 
 
 def score_tip(
     rule_id: str,
     category: str,
     *,
-    tip_source_rule_id: Optional[str],
-    tip_source_run_id: Optional[str],
-    tip_application_context: Optional[list[str]],
-    tip_outcome_at_source_value: Optional[float],
-    tip_outcome_at_source_confidence: Optional[float],
+    tip_source_rule_id: str | None,
+    tip_source_run_id: str | None,
+    tip_application_context: list[str] | None,
+    tip_outcome_at_source_value: float | None,
+    tip_outcome_at_source_confidence: float | None,
     hit_rate: float = 0.0,
-    exclude_run_id: Optional[str] = None,
+    exclude_run_id: str | None = None,
     same_run_damping: float = 0.5,
 ) -> float:
     """Return composite score for a single tip. Pure function — no DB.
@@ -191,9 +193,7 @@ def score_tip(
     """
     base = rule_prefix_similarity(rule_id, tip_source_rule_id or "")
     cat_bonus = (
-        _CATEGORY_BONUS
-        if (category and category in (tip_application_context or []))
-        else 0.0
+        _CATEGORY_BONUS if (category and category in (tip_application_context or [])) else 0.0
     )
     hit = hit_rate * _HIT_RATE_WEIGHT
     src_prior = 0.0
@@ -215,8 +215,8 @@ def assemble_tips_for_rule(
     *,
     skill: str = "stig",
     k: int = 5,
-    pool: Optional[ConnectionPool] = None,
-    exclude_run_id: Optional[str] = None,
+    pool: ConnectionPool | None = None,
+    exclude_run_id: str | None = None,
     same_run_damping: float = 0.5,
 ) -> list[RetrievedTip]:
     """Return up to ``k`` tips most likely to help on ``rule_id``.
@@ -278,11 +278,11 @@ def assemble_tips_for_rule(
 
     scored: list[tuple[float, float, tuple]] = []  # (composite, base_sim, row)
     for row in rows:
-        tip_id, _text, _tip_type, _triggers, app_ctx, src_rule, src_run, \
-            src_val, src_conf = row
+        tip_id, _text, _tip_type, _triggers, app_ctx, src_rule, src_run, src_val, src_conf = row
         base = rule_prefix_similarity(rule_id, src_rule or "")
         composite = score_tip(
-            rule_id, category,
+            rule_id,
+            category,
             tip_source_rule_id=src_rule,
             tip_source_run_id=src_run,
             tip_application_context=app_ctx,
@@ -329,7 +329,7 @@ def log_retrievals(
     run_id: str,
     rule_id: str,
     skill: str = "stig",
-    pool: Optional[ConnectionPool] = None,
+    pool: ConnectionPool | None = None,
 ) -> list[int]:
     """Insert tip_retrievals rows for ``retrievals``. Returns the new ids
     in the same order, so the caller can update ``outcome_value`` /
@@ -351,7 +351,10 @@ def log_retrievals(
                 """,
                 (run_id, r.tip_id, rule_id, r.rank, r.similarity_score),
             )
-            new_ids.append(cur.fetchone()[0])
+            row = cur.fetchone()
+            if row is None:
+                raise RuntimeError("INSERT ... RETURNING id returned no row")
+            new_ids.append(row[0])
         conn.commit()
     return new_ids
 
@@ -361,7 +364,7 @@ def update_retrieval_attempt_ids(
     attempt_id: int,
     *,
     skill: str = "stig",
-    pool: Optional[ConnectionPool] = None,
+    pool: ConnectionPool | None = None,
 ) -> int:
     """Backfill tip_retrievals.attempt_id once the attempts row exists.
 
@@ -393,7 +396,7 @@ def update_retrieval_outcomes(
     outcome_confidence: float,
     *,
     skill: str = "stig",
-    pool: Optional[ConnectionPool] = None,
+    pool: ConnectionPool | None = None,
 ) -> int:
     """Set outcome_value / outcome_confidence on a batch of tip_retrievals
     rows once the attempt they belong to has been evaluated. Returns

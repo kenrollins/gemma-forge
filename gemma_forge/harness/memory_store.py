@@ -27,7 +27,7 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Optional, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 from psycopg_pool import ConnectionPool
 
@@ -42,6 +42,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class StoredLesson:
     """A strategic lesson learned from one or more runs."""
+
     id: int = 0
     category: str = ""
     lesson: str = ""
@@ -50,7 +51,7 @@ class StoredLesson:
     success_count: int = 0
     failure_count: int = 0
     weight: float = 0.5  # frequency-driven; the dream pass adds confidence separately
-    confidence: Optional[float] = None  # dream-pass output, in [-1, +1]; NULL pre-dream
+    confidence: float | None = None  # dream-pass output, in [-1, +1]; NULL pre-dream
 
     @property
     def composite_score(self) -> float:
@@ -70,6 +71,7 @@ class StoredLesson:
 @dataclass
 class StoredAttempt:
     """A single attempt trace from a prior run."""
+
     run_id: str = ""
     item_id: str = ""
     attempt_num: int = 0
@@ -85,6 +87,7 @@ class StoredAttempt:
 @dataclass
 class CategoryStats:
     """Aggregated performance stats for a category — feeds the clutch."""
+
     category: str = ""
     total_items: int = 0
     completed: int = 0
@@ -107,24 +110,39 @@ class MemoryStoreProtocol(Protocol):
     def start_run(self, skill_name: str, config: dict) -> str: ...
     def end_run(self, run_id: str, summary: dict) -> None: ...
 
-    def save_item_outcome(self, run_id: str, item_id: str, title: str,
-                          category: str, outcome: str, attempts: int,
-                          wall_time_s: float) -> None: ...
+    def save_item_outcome(
+        self,
+        run_id: str,
+        item_id: str,
+        title: str,
+        category: str,
+        outcome: str,
+        attempts: int,
+        wall_time_s: float,
+    ) -> None: ...
 
-    def save_attempt(self, run_id: str, item_id: str, attempt_num: int,
-                     approach: str, eval_passed: bool, failure_mode: str,
-                     reflection: str, lesson: str, banned_pattern: str,
-                     wall_time_s: float) -> Optional[int]: ...
+    def save_attempt(
+        self,
+        run_id: str,
+        item_id: str,
+        attempt_num: int,
+        approach: str,
+        eval_passed: bool,
+        failure_mode: str,
+        reflection: str,
+        lesson: str,
+        banned_pattern: str,
+        wall_time_s: float,
+    ) -> int | None: ...
 
-    def save_lesson(self, category: str, lesson: str, run_id: str,
-                    item_id: str) -> None: ...
+    def save_lesson(self, category: str, lesson: str, run_id: str, item_id: str) -> None: ...
     def update_lesson_weight(self, lesson_id: int, success: bool) -> None: ...
 
-    def load_lessons(self, category: str, min_weight: float = 0.0,
-                     limit: int = 10) -> list[StoredLesson]: ...
+    def load_lessons(
+        self, category: str, min_weight: float = 0.0, limit: int = 10
+    ) -> list[StoredLesson]: ...
     def load_global_bans(self) -> list[str]: ...
-    def query_prior_attempts(self, item_id: str,
-                             limit: int = 10) -> list[StoredAttempt]: ...
+    def query_prior_attempts(self, item_id: str, limit: int = 10) -> list[StoredAttempt]: ...
     def get_category_stats(self) -> list[CategoryStats]: ...
     def get_run_count(self) -> int: ...
 
@@ -140,10 +158,10 @@ class PostgresMemoryStore:
     bootstrap time so unqualified table names resolve into the skill schema.
     """
 
-    def __init__(self, skill: str = "stig", *, pool: Optional[ConnectionPool] = None):
+    def __init__(self, skill: str = "stig", *, pool: ConnectionPool | None = None):
         self.skill = skill
         self._role = f"forge_{skill}"
-        self._pool: Optional[ConnectionPool] = pool
+        self._pool: ConnectionPool | None = pool
 
     # -- Lifecycle -----------------------------------------------------------
 
@@ -152,13 +170,18 @@ class PostgresMemoryStore:
         by ``tools/apply_migrations.sh``; this method only proves we can talk."""
         if self._pool is None:
             self._pool = get_pool(self._role)
-        with self._pool.connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT current_user, current_database(), current_setting('search_path')")
-                user, db, path = cur.fetchone()
+        with self._pool.connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT current_user, current_database(), current_setting('search_path')")
+            row = cur.fetchone()
+            if row is None:
+                raise RuntimeError("memory store connectivity probe returned no row")
+            user, db, path = row
         logger.info(
             "Memory store ready: user=%s db=%s search_path=%s skill=%s",
-            user, db, path, self.skill,
+            user,
+            db,
+            path,
+            self.skill,
         )
 
     def close(self) -> None:
@@ -168,6 +191,7 @@ class PostgresMemoryStore:
     def _conn(self):
         if self._pool is None:
             self.initialize()
+        assert self._pool is not None  # initialize() sets it
         return self._pool.connection()
 
     # -- Run lifecycle -------------------------------------------------------
@@ -196,9 +220,16 @@ class PostgresMemoryStore:
 
     # -- Item outcomes -------------------------------------------------------
 
-    def save_item_outcome(self, run_id: str, item_id: str, title: str,
-                          category: str, outcome: str, attempts: int,
-                          wall_time_s: float) -> None:
+    def save_item_outcome(
+        self,
+        run_id: str,
+        item_id: str,
+        title: str,
+        category: str,
+        outcome: str,
+        attempts: int,
+        wall_time_s: float,
+    ) -> None:
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -226,10 +257,19 @@ class PostgresMemoryStore:
     # bans table instead. ralph.py keeps its single save_attempt call.
     _BAN_SENTINEL = "_global_ban"
 
-    def save_attempt(self, run_id: str, item_id: str, attempt_num: int,
-                     approach: str, eval_passed: bool, failure_mode: str,
-                     reflection: str, lesson: str, banned_pattern: str,
-                     wall_time_s: float) -> Optional[int]:
+    def save_attempt(
+        self,
+        run_id: str,
+        item_id: str,
+        attempt_num: int,
+        approach: str,
+        eval_passed: bool,
+        failure_mode: str,
+        reflection: str,
+        lesson: str,
+        banned_pattern: str,
+        wall_time_s: float,
+    ) -> int | None:
         """Persist an attempt trace. Returns the new attempts.id, or
         None for ban-sentinel writes (which go to the bans table instead).
 
@@ -253,9 +293,15 @@ class PostgresMemoryStore:
                     RETURNING id
                     """,
                     (
-                        run_id, item_id, attempt_num, approach[:500],
-                        bool(eval_passed), failure_mode,
-                        reflection[:500], lesson[:200], banned_pattern[:200],
+                        run_id,
+                        item_id,
+                        attempt_num,
+                        approach[:500],
+                        bool(eval_passed),
+                        failure_mode,
+                        reflection[:500],
+                        lesson[:200],
+                        banned_pattern[:200],
                         wall_time_s,
                     ),
                 )
@@ -281,8 +327,7 @@ class PostgresMemoryStore:
 
     # -- Lessons (cross-run meta-cognitions) ---------------------------------
 
-    def save_lesson(self, category: str, lesson: str, run_id: str,
-                    item_id: str) -> None:
+    def save_lesson(self, category: str, lesson: str, run_id: str, item_id: str) -> None:
         with self._conn() as conn:
             with conn.cursor() as cur:
                 # Deduplicate on (category, exact lesson text). Repeated lessons
@@ -337,17 +382,17 @@ class PostgresMemoryStore:
 
     # -- Read path -----------------------------------------------------------
 
-    def load_lessons(self, category: str, min_weight: float = 0.0,
-                     limit: int = 10) -> list[StoredLesson]:
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                # Composite ranking: weight × confidence_multiplier.
-                # confidence [-1,+1] maps to multiplier [0,1] via (conf+1)/2.
-                # NULL confidence (pre-dream-pass lessons) treated as neutral (0.5×).
-                # A lesson with weight=1.0 and confidence=-1.0 scores 0.0;
-                # a lesson with weight=0.5 and confidence=+1.0 scores 0.5.
-                cur.execute(
-                    """
+    def load_lessons(
+        self, category: str, min_weight: float = 0.0, limit: int = 10
+    ) -> list[StoredLesson]:
+        with self._conn() as conn, conn.cursor() as cur:
+            # Composite ranking: weight × confidence_multiplier.
+            # confidence [-1,+1] maps to multiplier [0,1] via (conf+1)/2.
+            # NULL confidence (pre-dream-pass lessons) treated as neutral (0.5×).
+            # A lesson with weight=1.0 and confidence=-1.0 scores 0.0;
+            # a lesson with weight=0.5 and confidence=+1.0 scores 0.5.
+            cur.execute(
+                """
                     SELECT id, category, lesson, source_run_id, source_item_id,
                            success_count, failure_count, weight, confidence
                     FROM lessons_current
@@ -355,26 +400,28 @@ class PostgresMemoryStore:
                     ORDER BY weight * COALESCE((confidence + 1.0) / 2.0, 0.5) DESC, id
                     LIMIT %s
                     """,
-                    (category, min_weight, limit),
-                )
-                rows = cur.fetchall()
+                (category, min_weight, limit),
+            )
+            rows = cur.fetchall()
         return [
             StoredLesson(
-                id=r[0], category=r[1], lesson=r[2],
-                source_run_id=r[3] or "", source_item_id=r[4] or "",
-                success_count=r[5] or 0, failure_count=r[6] or 0,
+                id=r[0],
+                category=r[1],
+                lesson=r[2],
+                source_run_id=r[3] or "",
+                source_item_id=r[4] or "",
+                success_count=r[5] or 0,
+                failure_count=r[6] or 0,
                 weight=float(r[7]) if r[7] is not None else 0.0,
                 confidence=float(r[8]) if r[8] is not None else None,
             )
             for r in rows
         ]
 
-    def load_all_lessons(self, min_weight: float = 0.2,
-                         limit: int = 30) -> list[StoredLesson]:
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
+    def load_all_lessons(self, min_weight: float = 0.2, limit: int = 30) -> list[StoredLesson]:
+        with self._conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
                     SELECT id, category, lesson, source_run_id, source_item_id,
                            success_count, failure_count, weight, confidence
                     FROM lessons_current
@@ -382,14 +429,18 @@ class PostgresMemoryStore:
                     ORDER BY weight * COALESCE((confidence + 1.0) / 2.0, 0.5) DESC, id
                     LIMIT %s
                     """,
-                    (min_weight, limit),
-                )
-                rows = cur.fetchall()
+                (min_weight, limit),
+            )
+            rows = cur.fetchall()
         return [
             StoredLesson(
-                id=r[0], category=r[1], lesson=r[2],
-                source_run_id=r[3] or "", source_item_id=r[4] or "",
-                success_count=r[5] or 0, failure_count=r[6] or 0,
+                id=r[0],
+                category=r[1],
+                lesson=r[2],
+                source_run_id=r[3] or "",
+                source_item_id=r[4] or "",
+                success_count=r[5] or 0,
+                failure_count=r[6] or 0,
                 weight=float(r[7]) if r[7] is not None else 0.0,
                 confidence=float(r[8]) if r[8] is not None else None,
             )
@@ -405,10 +456,9 @@ class PostgresMemoryStore:
         the harness no longer fills, but the migrated SQLite history
         had it on a few rows).
         """
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
+        with self._conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
                     SELECT pattern FROM (
                         SELECT pattern FROM bans
                         UNION
@@ -419,16 +469,14 @@ class PostgresMemoryStore:
                     ORDER BY pattern
                     LIMIT 200
                     """
-                )
-                rows = cur.fetchall()
+            )
+            rows = cur.fetchall()
         return [r[0] for r in rows]
 
-    def query_prior_attempts(self, item_id: str,
-                             limit: int = 10) -> list[StoredAttempt]:
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
+    def query_prior_attempts(self, item_id: str, limit: int = 10) -> list[StoredAttempt]:
+        with self._conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
                     SELECT run_id, item_id, attempt_num, approach, eval_passed,
                            failure_mode, reflection, lesson, banned_pattern, wall_time_s
                     FROM attempts
@@ -436,15 +484,20 @@ class PostgresMemoryStore:
                     ORDER BY created_at DESC
                     LIMIT %s
                     """,
-                    (item_id, limit),
-                )
-                rows = cur.fetchall()
+                (item_id, limit),
+            )
+            rows = cur.fetchall()
         return [
             StoredAttempt(
-                run_id=r[0], item_id=r[1], attempt_num=r[2],
-                approach=r[3] or "", eval_passed=bool(r[4]),
-                failure_mode=r[5] or "", reflection=r[6] or "",
-                lesson=r[7] or "", banned_pattern=r[8] or "",
+                run_id=r[0],
+                item_id=r[1],
+                attempt_num=r[2],
+                approach=r[3] or "",
+                eval_passed=bool(r[4]),
+                failure_mode=r[5] or "",
+                reflection=r[6] or "",
+                lesson=r[7] or "",
+                banned_pattern=r[8] or "",
                 wall_time_s=float(r[9]) if r[9] is not None else 0.0,
             )
             for r in rows
@@ -453,29 +506,30 @@ class PostgresMemoryStore:
     # -- Difficulty model (for the clutch) -----------------------------------
 
     def get_category_stats(self) -> list[CategoryStats]:
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT
-                        category,
-                        COUNT(*)::int                                                AS total,
-                        SUM(CASE WHEN outcome = 'completed' THEN 1 ELSE 0 END)::int  AS completed,
-                        SUM(CASE WHEN outcome = 'escalated' THEN 1 ELSE 0 END)::int  AS escalated,
-                        AVG(CASE WHEN outcome = 'completed' THEN 1.0 ELSE 0.0 END)   AS success_rate,
-                        AVG(attempts)                                                 AS avg_attempts,
-                        AVG(wall_time_s)                                              AS avg_time,
-                        COUNT(DISTINCT run_id)::int                                   AS runs_seen
-                    FROM work_items
-                    WHERE outcome IN ('completed', 'escalated')
-                    GROUP BY category
-                    ORDER BY success_rate DESC NULLS LAST
-                    """
-                )
-                rows = cur.fetchall()
+        with self._conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                    category,
+                    COUNT(*)::int                                                AS total,
+                    SUM(CASE WHEN outcome = 'completed' THEN 1 ELSE 0 END)::int  AS completed,
+                    SUM(CASE WHEN outcome = 'escalated' THEN 1 ELSE 0 END)::int  AS escalated,
+                    AVG(CASE WHEN outcome = 'completed' THEN 1.0 ELSE 0.0 END)   AS success_rate,
+                    AVG(attempts)                                                 AS avg_attempts,
+                    AVG(wall_time_s)                                              AS avg_time,
+                    COUNT(DISTINCT run_id)::int                                   AS runs_seen
+                FROM work_items
+                WHERE outcome IN ('completed', 'escalated')
+                GROUP BY category
+                ORDER BY success_rate DESC NULLS LAST
+                """
+            )
+            rows = cur.fetchall()
         return [
             CategoryStats(
-                category=r[0], total_items=r[1], completed=r[2],
+                category=r[0],
+                total_items=r[1],
+                completed=r[2],
                 escalated=r[3],
                 success_rate=float(r[4]) if r[4] is not None else 0.0,
                 avg_attempts=float(r[5]) if r[5] is not None else 0.0,
@@ -486,24 +540,24 @@ class PostgresMemoryStore:
         ]
 
     def get_run_count(self) -> int:
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT COUNT(*) FROM runs")
-                row = cur.fetchone()
+        with self._conn() as conn, conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM runs")
+            row = cur.fetchone()
         return int(row[0]) if row else 0
 
     # -- Summary -------------------------------------------------------------
 
     def summary(self) -> str:
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT COUNT(*) FROM runs")
-                runs = cur.fetchone()[0]
-                cur.execute("SELECT COUNT(*) FROM work_items")
-                items = cur.fetchone()[0]
-                cur.execute("SELECT COUNT(*) FROM attempts")
-                attempts = cur.fetchone()[0]
-                cur.execute("SELECT COUNT(*) FROM lessons_current")
-                lessons = cur.fetchone()[0]
-        return (f"Memory store (skill={self.skill}): "
-                f"{runs} runs, {items} items, {attempts} attempts, {lessons} lessons")
+        with self._conn() as conn, conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM runs")
+            runs = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM work_items")
+            items = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM attempts")
+            attempts = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM lessons_current")
+            lessons = cur.fetchone()[0]
+        return (
+            f"Memory store (skill={self.skill}): "
+            f"{runs} runs, {items} items, {attempts} attempts, {lessons} lessons"
+        )

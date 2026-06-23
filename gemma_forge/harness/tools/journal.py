@@ -28,7 +28,7 @@ async def read_recent_journal(
     script = f"""
 journalctl --since '{minutes} minutes ago' --priority={priority} --no-pager --lines=30 2>/dev/null || echo "NO_JOURNAL"
 """
-    stdout, stderr, rc = await _run_ssh(config, script)
+    stdout, _stderr, _rc = await _run_ssh(config, script)
 
     output = stdout.strip()
     if not output or output == "NO_JOURNAL" or "No entries" in output or "no entries" in output:

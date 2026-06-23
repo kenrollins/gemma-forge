@@ -18,9 +18,6 @@ disrupting the real VM or vLLM service.
 """
 
 # Note: do NOT add `from __future__ import annotations` — ADK tool parser breakage.
-import asyncio
-import os
-import shutil
 from pathlib import Path
 from unittest.mock import patch
 
@@ -28,9 +25,9 @@ import pytest
 
 from gemma_forge.harness.ralph import run_ralph
 from gemma_forge.harness.tools.ssh import (
+    SSHConfig,
     _run_snapshot_cmd,
     gather_environment_diagnostics,
-    SSHConfig,
     snapshot_exists,
     snapshot_restore_progress,
 )
@@ -56,6 +53,7 @@ class TestRunStartPreconditions:
         raise a clear RuntimeError without burning LLM tokens."""
         # Patch snapshot_exists at the tools level — the STIG runtime calls this
         from gemma_forge.harness.tools import ssh as ssh_mod
+
         original_snapshot_exists = ssh_mod.snapshot_exists
 
         async def fake_snapshot_exists(name: str) -> bool:
@@ -64,6 +62,7 @@ class TestRunStartPreconditions:
             return await original_snapshot_exists(name)
 
         import yaml
+
         base_cfg_path = Path("config/harness.yaml")
         test_cfg_path = tmp_path / "harness_preflight.yaml"
         with open(base_cfg_path) as f:
@@ -145,24 +144,17 @@ class TestVllmUnreachable:
     async def test_property_fails_cleanly_when_vllm_endpoint_wrong(self, tmp_path):
         """If vLLM is unreachable, the run should fail during the first LLM
         call with a clear error, not crash in an unexpected place."""
-        import yaml
 
         # Write a test models.yaml pointing at a dead port
         models_dir = tmp_path / "config"
         models_dir.mkdir()
 
-        models_cfg = {
-            "gemma": {
-                "endpoint": "http://localhost:9999",  # dead port
-                "model": "/weights/gemma-4-31B-it",
-                "max_tokens": 512,
-            }
-        }
         # The test run_ralph reads config/models.yaml from CWD — we need to
         # temporarily patch the working directory OR the model config loading.
         # Given the test infrastructure, just verify that if we construct a
         # VllmLlm pointing at a dead port, the first async call fails.
         from gemma_forge.models.vllm_llm import VllmLlm
+
         llm = VllmLlm(
             model="gemma-4-31B-it",
             base_url="http://localhost:9999/v1",

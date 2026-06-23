@@ -99,7 +99,9 @@ class TestToolCallCapIsGeneric:
         yield
         _fake_tool_calls.clear()
 
-    async def test_property_cap_fires_on_always_fail_tool_with_loose_prompt(self, llm, session_service):
+    async def test_property_cap_fires_on_always_fail_tool_with_loose_prompt(
+        self, llm, session_service
+    ):
         """The cap must catch retry behavior on any failing tool."""
         agent = Agent(
             name="cap_test_fail",
@@ -111,9 +113,11 @@ class TestToolCallCapIsGeneric:
             tools=[always_fail_tool],
         )
         response = await _run_agent_turn(
-            agent, session_service,
+            agent,
+            session_service,
             "Call always_fail_tool with message='first try'. If it fails, retry.",
-            run_log=None, max_tool_calls=1,
+            run_log=None,
+            max_tool_calls=1,
         )
         # The cap should have fired — synthetic response signals it
         assert "tool cap reached" in response, (
@@ -137,9 +141,11 @@ class TestToolCallCapIsGeneric:
             tools=[always_succeed_tool],
         )
         response = await _run_agent_turn(
-            agent, session_service,
+            agent,
+            session_service,
             "Call always_succeed_tool with message='hello' and summarize the result.",
-            run_log=None, max_tool_calls=1,
+            run_log=None,
+            max_tool_calls=1,
         )
         # Should have exactly one tool call, no cap firing
         assert "tool cap reached" not in response, (
@@ -156,15 +162,16 @@ class TestToolCallCapIsGeneric:
             name="cap_test_text",
             model=llm,
             instruction=(
-                "You are a test agent. Do NOT call any tools. "
-                "Respond only with a short greeting."
+                "You are a test agent. Do NOT call any tools. Respond only with a short greeting."
             ),
             tools=[always_succeed_tool],
         )
         response = await _run_agent_turn(
-            agent, session_service,
+            agent,
+            session_service,
             "Please say hello without calling any tools.",
-            run_log=None, max_tool_calls=1,
+            run_log=None,
+            max_tool_calls=1,
         )
         # Should not fire the cap
         assert "tool cap reached" not in response
@@ -194,9 +201,11 @@ class TestToolCallCapZero:
             tools=[always_succeed_tool],
         )
         response = await _run_agent_turn(
-            agent, session_service,
+            agent,
+            session_service,
             "Call always_succeed_tool with message='test' now.",
-            run_log=None, max_tool_calls=0,
+            run_log=None,
+            max_tool_calls=0,
         )
         # Cap should fire on the first attempt
         assert "tool cap reached" in response, (
@@ -216,7 +225,9 @@ class TestVoluntaryStop:
         yield
         _fake_tool_calls.clear()
 
-    async def test_property_strict_prompt_stops_voluntarily_after_failure(self, llm, session_service):
+    async def test_property_strict_prompt_stops_voluntarily_after_failure(
+        self, llm, session_service
+    ):
         """When the prompt explicitly says 'exactly once, do not retry',
         the LLM should voluntarily stop after one tool call even if it failed.
         The harness cap is defense in depth, not the primary mechanism."""
@@ -231,9 +242,11 @@ class TestVoluntaryStop:
             tools=[always_fail_tool],
         )
         response = await _run_agent_turn(
-            agent, session_service,
+            agent,
+            session_service,
             "Call always_fail_tool with message='strict test'. Expect it to fail.",
-            run_log=None, max_tool_calls=1,
+            run_log=None,
+            max_tool_calls=1,
         )
         # The cap should NOT have fired — the LLM voluntarily stopped
         assert "tool cap reached" not in response, (
@@ -295,7 +308,11 @@ DISTILLED: <one-sentence summary of this attempt and what was learned, <200 char
 """
 
         response = await _run_agent_turn(
-            reflector, session_service, message, run_log=None, max_tool_calls=1,
+            reflector,
+            session_service,
+            message,
+            run_log=None,
+            max_tool_calls=1,
         )
 
         # The Reflector should produce the DISTILLED field
@@ -309,11 +326,11 @@ DISTILLED: <one-sentence summary of this attempt and what was learned, <200 char
             if line.strip().upper().startswith("DISTILLED:"):
                 distilled = line.strip()[10:].strip()
                 break
-        assert len(distilled) > 10, (
-            f"DISTILLED field was empty or very short: {distilled!r}"
-        )
+        assert len(distilled) > 10, f"DISTILLED field was empty or very short: {distilled!r}"
 
-    async def test_property_reflector_also_produces_banned_and_preferred(self, llm, session_service):
+    async def test_property_reflector_also_produces_banned_and_preferred(
+        self, llm, session_service
+    ):
         """The other structured fields should also appear — distilled isn't the
         only one. If the Reflector consistently omits these, our learning
         propagation is weaker than designed."""
@@ -338,17 +355,22 @@ LESSON: <insight>
 DISTILLED: <summary>
 """
         response = await _run_agent_turn(
-            reflector, session_service, message, run_log=None, max_tool_calls=1,
+            reflector,
+            session_service,
+            message,
+            run_log=None,
+            max_tool_calls=1,
         )
         # At least two of the four should be present — the Reflector isn't
         # perfectly reliable but should produce most of them
-        present = sum([
-            "BANNED:" in response,
-            "PREFERRED:" in response,
-            "LESSON:" in response,
-            "DISTILLED:" in response,
-        ])
+        present = sum(
+            [
+                "BANNED:" in response,
+                "PREFERRED:" in response,
+                "LESSON:" in response,
+                "DISTILLED:" in response,
+            ]
+        )
         assert present >= 3, (
-            f"Reflector only produced {present} of 4 structured fields. "
-            f"Response: {response[:500]}"
+            f"Reflector only produced {present} of 4 structured fields. Response: {response[:500]}"
         )

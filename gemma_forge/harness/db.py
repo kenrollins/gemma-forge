@@ -17,13 +17,13 @@ container on the ``supabase_default`` Docker network — see
 ``ADR-0016`` amendment 1 and the migration tools for the rationale
 behind bypassing the Supavisor pooler.
 """
+
 from __future__ import annotations
 
 import logging
 import os
 import threading
 from pathlib import Path
-from typing import Optional
 
 from psycopg_pool import ConnectionPool
 
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-_pool: Optional[ConnectionPool] = None
+_pool: ConnectionPool | None = None
 _pool_lock = threading.Lock()
 
 

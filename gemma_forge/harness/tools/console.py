@@ -81,12 +81,17 @@ async def _console_exec(
 
     try:
         proc = await asyncio.create_subprocess_exec(
-            "sudo", "virsh", "console", domain, "--force",
+            "sudo",
+            "virsh",
+            "console",
+            domain,
+            "--force",
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
 
+        assert proc.stdin is not None  # stdin=PIPE above
         # Send a newline first to get a login prompt or shell prompt
         proc.stdin.write(b"\n")
         await proc.stdin.drain()
@@ -98,11 +103,11 @@ async def _console_exec(
 
         # Read output with timeout
         try:
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(
+            stdout_bytes, _stderr_bytes = await asyncio.wait_for(
                 _read_until_marker(proc, _END_MARKER + "_STDERR"),
                 timeout=timeout,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             proc.kill()
             return ("", f"CONSOLE_TIMEOUT: command exceeded {timeout}s", 124)
 
@@ -135,13 +140,14 @@ async def _read_until_marker(
 ) -> tuple[bytes, bytes]:
     """Read from the process until we see the end marker."""
     collected = b""
+    assert proc.stdout is not None  # stdout=PIPE on the caller
     while True:
         try:
             chunk = await asyncio.wait_for(
                 proc.stdout.read(4096),
                 timeout=5,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             # No data for 5s — check if we have the marker already
             if marker.encode() in collected:
                 break
@@ -161,7 +167,7 @@ def _extract_between(text: str, start: str, end: str) -> str:
     start_idx = text.find(start)
     end_idx = text.find(end, start_idx + len(start) if start_idx >= 0 else 0)
     if start_idx >= 0 and end_idx >= 0:
-        return text[start_idx + len(start):end_idx].strip()
+        return text[start_idx + len(start) : end_idx].strip()
     return ""
 
 

@@ -21,12 +21,13 @@ Parse is best-effort:
 This module has no Postgres dependency; it's pure parsing so tests
 can exercise every branch quickly.
 """
+
 from __future__ import annotations
 
 import json
 import logging
 import re
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,7 @@ _VALID_TIP_TYPES = frozenset({"strategy", "recovery", "optimization", "warning"}
 _TIPS_JSON_MARKER = re.compile(r"TIPS_JSON\s*:?", re.IGNORECASE)
 
 
-def extract_json_object(text: str, start_offset: int = 0) -> Optional[str]:
+def extract_json_object(text: str, start_offset: int = 0) -> str | None:
     """Return the first balanced ``{...}`` substring starting at or after
     ``start_offset``, or None if none found. Handles escaped quotes
     inside strings so a ``"}"`` literal inside a value doesn't close
@@ -82,7 +83,7 @@ def extract_json_object(text: str, start_offset: int = 0) -> Optional[str]:
     return None
 
 
-def _normalize_str_list(value: Any) -> Optional[list[str]]:
+def _normalize_str_list(value: Any) -> list[str] | None:
     """Accept list[str] or str; return a clean list or None."""
     if value is None:
         return None
@@ -94,7 +95,7 @@ def _normalize_str_list(value: Any) -> Optional[list[str]]:
     return None
 
 
-def _validate_tip(obj: dict) -> Optional[dict]:
+def _validate_tip(obj: dict) -> dict | None:
     """Return a clean tip dict, or None if invalid.
 
     Required: ``text`` (non-empty), ``tip_type`` (one of the four),
@@ -168,7 +169,7 @@ def parse_tips_json(ref_output: str) -> list[dict]:
         return []
 
     clean: list[dict] = []
-    for i, t in enumerate(raw_tips):
+    for _i, t in enumerate(raw_tips):
         if not isinstance(t, dict):
             continue
         v = _validate_tip(t)

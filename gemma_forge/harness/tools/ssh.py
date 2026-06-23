@@ -15,8 +15,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import shlex
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass
 
 import asyncssh
 
@@ -36,8 +35,8 @@ class SSHConfig:
 # Module-level state: stores the last applied revert script so
 # ssh_revert can undo the most recent fix without the caller needing
 # to track it.
-_last_revert_script: Optional[str] = None
-_last_fix_description: Optional[str] = None
+_last_revert_script: str | None = None
+_last_fix_description: str | None = None
 
 
 async def _run_ssh(config: SSHConfig, script: str) -> tuple[str, str, int]:
@@ -62,12 +61,14 @@ async def _run_ssh(config: SSHConfig, script: str) -> tuple[str, str, int]:
                 check=False,
                 timeout=300,
             )
+            out = result.stdout
+            err = result.stderr
             return (
-                result.stdout or "",
-                result.stderr or "",
+                out.decode() if isinstance(out, bytes) else (out or ""),
+                err.decode() if isinstance(err, bytes) else (err or ""),
                 result.returncode or 0,
             )
-    except (asyncssh.process.TimeoutError, asyncio.TimeoutError, TimeoutError) as e:
+    except (asyncssh.process.TimeoutError, TimeoutError) as e:
         logger.warning("SSH timeout — falling back to virsh console: %s", e)
     except (OSError, asyncssh.Error) as e:
         logger.warning("SSH failed — falling back to virsh console: %s", e)
@@ -75,6 +76,7 @@ async def _run_ssh(config: SSHConfig, script: str) -> tuple[str, str, int]:
     # Fallback: virsh console (out-of-band, survives SSH lockout)
     try:
         from .console import run_via_console
+
         logger.info("Using virsh console fallback for command execution")
         return await run_via_console(
             domain="gemma-forge-mission-app",
@@ -107,6 +109,7 @@ SNAPSHOT_SCRIPT = "/data/code/gemma-forge/infra/vm/scripts/vm-snapshot.sh"
 async def _run_snapshot_cmd(action: str, name: str = "", timeout: int = 60) -> tuple[bool, str]:
     """Invoke the vm-snapshot.sh helper and return (ok, output)."""
     import os
+
     if not os.path.exists(SNAPSHOT_SCRIPT):
         return False, f"snapshot script missing: {SNAPSHOT_SCRIPT}"
     args = [SNAPSHOT_SCRIPT, action]
@@ -121,9 +124,9 @@ async def _run_snapshot_cmd(action: str, name: str = "", timeout: int = 60) -> t
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         output = (stdout + stderr).decode("utf-8", errors="replace").strip()
         return proc.returncode == 0, output[-500:]
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return False, f"snapshot {action} timed out after {timeout}s"
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         return False, f"snapshot {action} error: {e}"
 
 
@@ -231,16 +234,16 @@ async def gather_environment_diagnostics(config: SSHConfig) -> dict:
     # If sudo is broken, the SSH path returns rc=1 with stderr mentioning sudo
     # and the diagnostic script never actually ran. Detect this and retry via
     # the console fallback so we still get useful forensics.
-    looks_like_sudo_failure = (
-        rc != 0 and (
-            "sudo:" in stderr.lower() or "password is required" in stderr.lower()
-            or "a terminal is required" in stderr.lower()
-        )
+    looks_like_sudo_failure = rc != 0 and (
+        "sudo:" in stderr.lower()
+        or "password is required" in stderr.lower()
+        or "a terminal is required" in stderr.lower()
     )
     diagnostic_didnt_run = "=== SUDO_PROBE ===" not in raw
     if looks_like_sudo_failure or diagnostic_didnt_run:
         try:
             from .console import run_via_console
+
             logger.warning("Diagnostic SSH/sudo failed (rc=%d) — falling back to virsh console", rc)
             console_stdout, console_stderr, console_rc = await run_via_console(
                 domain="gemma-forge-mission-app",
@@ -249,7 +252,7 @@ async def gather_environment_diagnostics(config: SSHConfig) -> dict:
             )
             raw = console_stdout + (("\n" + console_stderr) if console_stderr else "")
             rc = console_rc
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.error("Console fallback also failed: %s", e)
             # raw stays as the original SSH-attempt output, which at least
             # tells us "sudo broken" via the stderr
@@ -277,17 +280,16 @@ async def gather_environment_diagnostics(config: SSHConfig) -> dict:
     # text. This bug was caught by the Tier 3 broken-state tests; see
     # docs/whitepaper/journey/15-the-test-as-architecture-discovery.md.
     sudo_text = sections.get("sudo_probe", "")
-    sections["sudo_ok"] = ("rc=0" in sudo_text and "root" in sudo_text)
+    sections["sudo_ok"] = "rc=0" in sudo_text and "root" in sudo_text
 
     svc_text = sections.get("service_status", "")
     # A service is healthy iff its line says "active". The naive check
     # "nginx: active in svc_text" was correct here only because the
     # status word doesn't have a substring trap, but be explicit to
     # match the same pattern we use for mission_healthy.
-    sections["services_ok"] = (
-        any(line.startswith("nginx: active") for line in svc_text.splitlines())
-        and any(line.startswith("postgresql: active") for line in svc_text.splitlines())
-    )
+    sections["services_ok"] = any(
+        line.startswith("nginx: active") for line in svc_text.splitlines()
+    ) and any(line.startswith("postgresql: active") for line in svc_text.splitlines())
 
     hc_text = sections.get("mission_healthcheck", "")
     # Look for "HEALTHY:" at the start of a line AND no UNHEALTHY anywhere.
@@ -314,12 +316,13 @@ async def check_sudo_healthy(config: SSHConfig) -> tuple[bool, str]:
             connect_timeout=config.connect_timeout,
         ) as conn:
             result = await conn.run("sudo -n whoami 2>&1", check=False, timeout=15)
-            stdout = (result.stdout or "").strip()
+            raw_out = result.stdout
+            stdout = (raw_out.decode() if isinstance(raw_out, bytes) else (raw_out or "")).strip()
             rc = result.returncode or 0
             if rc == 0 and "root" in stdout:
                 return True, "sudo_ok"
             return False, f"rc={rc} out={stdout[:120]}"
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         return False, f"ssh_error: {e}"
 
 
@@ -368,12 +371,7 @@ async def ssh_apply(
         return f"APPLIED: {description}\nOutput: {out}"
     else:
         # Keep the revert script stored — the fix may have partially executed.
-        return (
-            f"APPLY_FAILED: {description}\n"
-            f"Exit code: {rc}\n"
-            f"Stdout: {out}\n"
-            f"Stderr: {err}"
-        )
+        return f"APPLY_FAILED: {description}\nExit code: {rc}\nStdout: {out}\nStderr: {err}"
 
 
 async def ssh_revert(config: SSHConfig) -> str:

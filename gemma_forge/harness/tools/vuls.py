@@ -26,6 +26,7 @@ Prereqs:
 - known_hosts at /data/vuls/config/known_hosts for the target
 - SSH key at the path referenced in config.toml
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -33,7 +34,6 @@ import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -46,27 +46,45 @@ logger = logging.getLogger(__name__)
 # ``needs-restarting -r`` on the VM post-apply gives the runtime
 # answer; this list is for pre-apply deferral decisions.
 _REBOOT_REQUIRED_PACKAGES = {
-    "kernel", "kernel-core", "kernel-modules", "kernel-modules-core",
-    "kernel-modules-extra", "kernel-tools", "kernel-tools-libs",
-    "kernel-headers", "kpatch", "kpatch-dnf",
-    "glibc", "glibc-common", "glibc-minimal-langpack",
-    "glibc-langpack-en", "glibc-gconv-extra",
-    "systemd", "systemd-libs", "systemd-pam", "systemd-udev",
-    "systemd-resolved", "systemd-networkd",
-    "dbus", "dbus-broker", "dbus-common", "dbus-libs",
+    "kernel",
+    "kernel-core",
+    "kernel-modules",
+    "kernel-modules-core",
+    "kernel-modules-extra",
+    "kernel-tools",
+    "kernel-tools-libs",
+    "kernel-headers",
+    "kpatch",
+    "kpatch-dnf",
+    "glibc",
+    "glibc-common",
+    "glibc-minimal-langpack",
+    "glibc-langpack-en",
+    "glibc-gconv-extra",
+    "systemd",
+    "systemd-libs",
+    "systemd-pam",
+    "systemd-udev",
+    "systemd-resolved",
+    "systemd-networkd",
+    "dbus",
+    "dbus-broker",
+    "dbus-common",
+    "dbus-libs",
 }
 
 
 @dataclass
 class VulsAdvisory:
     """One advisory (RHSA or RLSA) extracted from Vuls JSON."""
-    advisory_id: str                 # e.g., "RLSA-2026:6266"
-    severity: str                    # Critical | Important | Moderate | Low
-    cve_ids: list[str]               # ["CVE-2023-40403", ...]
-    affected_packages: list[str]     # package names
-    title: str                       # short description
-    description: str                 # longer description
-    requires_reboot: bool            # inferred from package names
+
+    advisory_id: str  # e.g., "RLSA-2026:6266"
+    severity: str  # Critical | Important | Moderate | Low
+    cve_ids: list[str]  # ["CVE-2023-40403", ...]
+    affected_packages: list[str]  # package names
+    title: str  # short description
+    description: str  # longer description
+    requires_reboot: bool  # inferred from package names
 
 
 def is_reboot_required_advisory(affected_packages: list[str]) -> bool:
@@ -83,7 +101,9 @@ def is_reboot_required_advisory(affected_packages: list[str]) -> bool:
     return False
 
 
-def parse_vuls_json(result_json: dict, severity_filter: Optional[list[str]] = None) -> list[VulsAdvisory]:
+def parse_vuls_json(
+    result_json: dict, severity_filter: list[str] | None = None
+) -> list[VulsAdvisory]:
     """Parse Vuls scan-report JSON into a deduplicated advisory list.
 
     Vuls JSON structure (relevant subset):
@@ -149,8 +169,10 @@ def parse_vuls_json(result_json: dict, severity_filter: Optional[list[str]] = No
     # Sort: severity ranked (Critical > Important > Moderate > Low > Unknown),
     # then advisory_id descending (newer first).
     severity_rank = {"critical": 0, "important": 1, "moderate": 2, "low": 3}
+
     def sort_key(a: VulsAdvisory) -> tuple:
         return (severity_rank.get(a.severity.lower(), 4), -_numeric_advisory(a.advisory_id))
+
     return sorted(by_advisory.values(), key=sort_key)
 
 
@@ -197,43 +219,71 @@ async def run_vuls_scan_report(
     """
     # Phase 1: scan
     scan_cmd = [
-        "docker", "run", "--rm", "--network", "host",
-        "-v", f"{vuls_data_dir}:/vuls",
-        "-v", f"{ssh_key_path}:/root/.ssh/id_rsa:ro",
-        "-v", f"{known_hosts_path}:/root/.ssh/known_hosts:ro",
-        image, "scan", f"-config={vuls_config_path.replace(vuls_data_dir, '/vuls')}",
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "host",
+        "-v",
+        f"{vuls_data_dir}:/vuls",
+        "-v",
+        f"{ssh_key_path}:/root/.ssh/id_rsa:ro",
+        "-v",
+        f"{known_hosts_path}:/root/.ssh/known_hosts:ro",
+        image,
+        "scan",
+        f"-config={vuls_config_path.replace(vuls_data_dir, '/vuls')}",
     ]
     logger.info("vuls: scan starting")
     proc = await asyncio.create_subprocess_exec(
-        *scan_cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+        *scan_cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
     )
     stdout, _ = await proc.communicate()
     if proc.returncode != 0:
-        raise RuntimeError(f"vuls scan failed (rc={proc.returncode}): {stdout.decode('utf-8', errors='replace')[:500]}")
+        raise RuntimeError(
+            f"vuls scan failed (rc={proc.returncode}): {stdout.decode('utf-8', errors='replace')[:500]}"
+        )
     logger.info("vuls: scan completed")
 
     # Phase 2: report
     report_cmd = [
-        "docker", "run", "--rm", "--network", "host",
-        "-v", f"{vuls_data_dir}:/vuls",
-        image, "report",
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "host",
+        "-v",
+        f"{vuls_data_dir}:/vuls",
+        image,
+        "report",
         f"-config={vuls_config_path.replace(vuls_data_dir, '/vuls')}",
         "-format-json",
     ]
     proc = await asyncio.create_subprocess_exec(
-        *report_cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+        *report_cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
     )
     stdout, _ = await proc.communicate()
     if proc.returncode != 0:
-        raise RuntimeError(f"vuls report failed (rc={proc.returncode}): {stdout.decode('utf-8', errors='replace')[:500]}")
+        raise RuntimeError(
+            f"vuls report failed (rc={proc.returncode}): {stdout.decode('utf-8', errors='replace')[:500]}"
+        )
     logger.info("vuls: report completed")
 
     # The Docker containers write output as root; chmod so the harness
     # can read it back. Passwordless sudo is expected on the host (same
     # pattern bin/forge uses for libvirt snapshots).
     chmod_proc = await asyncio.create_subprocess_exec(
-        "sudo", "chmod", "-R", "a+rX", f"{vuls_data_dir}/results",
-        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+        "sudo",
+        "chmod",
+        "-R",
+        "a+rX",
+        f"{vuls_data_dir}/results",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
     )
     await chmod_proc.communicate()
 
@@ -257,9 +307,9 @@ async def run_vuls_scan_report(
     # If multiple hosts, pick the mission-app one by convention
     result_file = json_files[0]
     if len(json_files) > 1:
-        for f in json_files:
-            if "mission" in f.name:
-                result_file = f
+        for candidate in json_files:
+            if "mission" in candidate.name:
+                result_file = candidate
                 break
 
     with open(result_file) as f:

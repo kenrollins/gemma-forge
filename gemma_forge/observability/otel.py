@@ -60,7 +60,8 @@ def init_telemetry(
     except Exception as e:
         logger.warning(
             "OTel export failed to connect to %s: %s (traces will be local only)",
-            endpoint, e,
+            endpoint,
+            e,
         )
 
     trace.set_tracer_provider(provider)
@@ -102,6 +103,4 @@ def record_token_usage(
     """Record token usage on a span using GenAI semantic conventions."""
     span.set_attribute("gen_ai.usage.input_tokens", prompt_tokens)
     span.set_attribute("gen_ai.usage.output_tokens", completion_tokens)
-    span.set_attribute(
-        "gen_ai.usage.total_tokens", prompt_tokens + completion_tokens
-    )
+    span.set_attribute("gen_ai.usage.total_tokens", prompt_tokens + completion_tokens)

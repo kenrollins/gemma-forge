@@ -4,11 +4,11 @@ Parsing is the failure-tolerant boundary between Reflector LLM output
 and the V2 tips table. Every "drop silently" branch has a test — a
 malformed block must never break the loop.
 """
+
 from gemma_forge.memory.reflector_parser import (
     extract_json_object,
     parse_tips_json,
 )
-
 
 # -- extract_json_object ------------------------------------------------
 
@@ -114,23 +114,23 @@ def test_parse_tips_json_missing_tips_to_save_key():
 
 
 def test_parse_tips_json_skips_invalid_tip_type():
-    src = '''TIPS_JSON: {"tips_to_save": [
+    src = """TIPS_JSON: {"tips_to_save": [
         {"text": "good one", "tip_type": "strategy", "mechanism": "because X"},
         {"text": "bad type", "tip_type": "totally-made-up", "mechanism": "because Y"},
         {"text": "also good", "tip_type": "warning", "mechanism": "because Z"}
-    ]}'''
+    ]}"""
     tips = parse_tips_json(src)
     assert len(tips) == 2
     assert [t["tip_type"] for t in tips] == ["strategy", "warning"]
 
 
 def test_parse_tips_json_skips_missing_text():
-    src = '''TIPS_JSON: {"tips_to_save": [
+    src = """TIPS_JSON: {"tips_to_save": [
         {"tip_type": "strategy", "mechanism": "m"},
         {"text": "", "tip_type": "strategy", "mechanism": "m"},
         {"text": "   ", "tip_type": "strategy", "mechanism": "m"},
         {"text": "real one", "tip_type": "recovery", "mechanism": "because valid"}
-    ]}'''
+    ]}"""
     tips = parse_tips_json(src)
     assert len(tips) == 1
     assert tips[0]["text"] == "real one"
@@ -138,13 +138,13 @@ def test_parse_tips_json_skips_missing_text():
 
 def test_parse_tips_json_skips_missing_mechanism():
     """Run 6 adds required mechanism field — tips missing it are dropped."""
-    src = '''TIPS_JSON: {"tips_to_save": [
+    src = """TIPS_JSON: {"tips_to_save": [
         {"text": "no mechanism", "tip_type": "strategy"},
         {"text": "empty mechanism", "tip_type": "strategy", "mechanism": ""},
         {"text": "whitespace mechanism", "tip_type": "strategy", "mechanism": "   "},
         {"text": "null mechanism", "tip_type": "strategy", "mechanism": null},
         {"text": "has mechanism", "tip_type": "strategy", "mechanism": "because valid"}
-    ]}'''
+    ]}"""
     tips = parse_tips_json(src)
     assert len(tips) == 1
     assert tips[0]["text"] == "has mechanism"
@@ -153,19 +153,19 @@ def test_parse_tips_json_skips_missing_mechanism():
 
 def test_parse_tips_json_normalizes_string_list_fields():
     # Model sometimes emits a single string instead of a list
-    src = '''TIPS_JSON: {"tips_to_save": [
+    src = """TIPS_JSON: {"tips_to_save": [
         {"text": "x", "tip_type": "strategy", "mechanism": "m",
          "trigger_conditions": "audit modification", "application_context": "audit"}
-    ]}'''
+    ]}"""
     tips = parse_tips_json(src)
     assert tips[0]["trigger_conditions"] == ["audit modification"]
     assert tips[0]["application_context"] == ["audit"]
 
 
 def test_parse_tips_json_handles_null_trigger_conditions():
-    src = '''TIPS_JSON: {"tips_to_save": [
+    src = """TIPS_JSON: {"tips_to_save": [
         {"text": "x", "tip_type": "strategy", "mechanism": "m", "trigger_conditions": null}
-    ]}'''
+    ]}"""
     tips = parse_tips_json(src)
     assert tips[0]["trigger_conditions"] is None
 

@@ -19,7 +19,6 @@ MemoryStore and WorkItem metadata from the TaskGraph.
 
 import logging
 from dataclasses import dataclass, field
-from typing import Optional
 
 from gemma_forge.harness.memory_store import CategoryStats, MemoryStoreProtocol
 from gemma_forge.harness.task_graph import TaskGraph
@@ -30,11 +29,12 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ClutchConfig:
     """Configuration for the adaptive concurrency controller."""
-    max_workers: int = 3           # hard ceiling
-    min_workers: int = 1           # always at least one
+
+    max_workers: int = 3  # hard ceiling
+    min_workers: int = 1  # always at least one
     # Category thresholds for concurrency decisions
-    easy_threshold: float = 0.85   # success_rate above this → full parallel
-    hard_threshold: float = 0.50   # success_rate below this → serial only
+    easy_threshold: float = 0.85  # success_rate above this → full parallel
+    hard_threshold: float = 0.50  # success_rate below this → serial only
     # First run (no data) defaults to serial
     default_workers_no_data: int = 1
 
@@ -42,6 +42,7 @@ class ClutchConfig:
 @dataclass
 class ClutchState:
     """Current clutch state — readable by the dashboard."""
+
     recommended_workers: int = 1
     reason: str = "no prior data"
     category_decisions: dict = field(default_factory=dict)
@@ -63,8 +64,11 @@ class Clutch:
         items = clutch.select_batch(task_graph)
     """
 
-    def __init__(self, config: ClutchConfig = None,
-                 mem_store: MemoryStoreProtocol = None):
+    def __init__(
+        self,
+        config: ClutchConfig | None = None,
+        mem_store: MemoryStoreProtocol | None = None,
+    ):
         self.config = config or ClutchConfig()
         self.mem_store = mem_store
         self.state = ClutchState()
@@ -116,12 +120,16 @@ class Clutch:
                 "total_items": cs.total_items,
             }
 
-        logger.info("Clutch initialized: %d categories from prior runs",
-                     len(self._category_stats))
+        logger.info("Clutch initialized: %d categories from prior runs", len(self._category_stats))
         for cat, dec in self.state.category_decisions.items():
-            logger.info("  %s: %s (%.0f%% success, %.1f avg attempts) → %d workers",
-                        cat, dec["label"], dec["success_rate"] * 100,
-                        dec["avg_attempts"], dec["workers"])
+            logger.info(
+                "  %s: %s (%.0f%% success, %.1f avg attempts) → %d workers",
+                cat,
+                dec["label"],
+                dec["success_rate"] * 100,
+                dec["avg_attempts"],
+                dec["workers"],
+            )
 
     def recommend_workers(self, category: str) -> int:
         """How many parallel workers for items in this category?"""
@@ -139,8 +147,7 @@ class Clutch:
         else:
             return 1
 
-    def select_batch(self, graph: TaskGraph,
-                     active_resources: set[str] = None) -> list:
+    def select_batch(self, graph: TaskGraph, active_resources: set[str] | None = None) -> list:
         """Select the next batch of items to process in parallel.
 
         Returns up to N ready items where N is determined by the
@@ -165,9 +172,12 @@ class Clutch:
 
         # Select items, preferring easy categories first
         if self.state.has_prior_data:
-            ready.sort(key=lambda item: (
-                self._category_stats.get(item.category, CategoryStats()).success_rate
-            ), reverse=True)  # highest success rate first
+            ready.sort(
+                key=lambda item: (
+                    self._category_stats.get(item.category, CategoryStats()).success_rate
+                ),
+                reverse=True,
+            )  # highest success rate first
 
         return ready[:max_batch]
 

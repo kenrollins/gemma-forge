@@ -10,17 +10,23 @@ These tests verify the graph's properties without any skill-specific logic:
   - Graph snapshot is always structurally valid
 """
 
-import pytest
-
 from gemma_forge.harness.interfaces import WorkItem
-from gemma_forge.harness.task_graph import TaskGraph, NodeState
+from gemma_forge.harness.task_graph import NodeState, TaskGraph
 
 
-def _item(id: str, title: str = "", category: str = "test",
-          depends_on: list = None, resources: list = None) -> WorkItem:
+def _item(
+    id: str,
+    title: str = "",
+    category: str = "test",
+    depends_on: list | None = None,
+    resources: list | None = None,
+) -> WorkItem:
     return WorkItem(
-        id=id, title=title or id, category=category,
-        depends_on=depends_on or [], resources=resources or [],
+        id=id,
+        title=title or id,
+        category=category,
+        depends_on=depends_on or [],
+        resources=resources or [],
     )
 
 
@@ -69,11 +75,13 @@ class TestDependencyResolution:
 
     def test_chain_dependency_a_b_c(self):
         g = TaskGraph()
-        g.add_items([
-            _item("a"),
-            _item("b", depends_on=["a"]),
-            _item("c", depends_on=["b"]),
-        ])
+        g.add_items(
+            [
+                _item("a"),
+                _item("b", depends_on=["a"]),
+                _item("c", depends_on=["b"]),
+            ]
+        )
         # Only a is ready
         assert [i.id for i in g.get_ready_items()] == ["a"]
         g.mark_active("a")
@@ -108,11 +116,13 @@ class TestEscalationCascade:
 
     def test_escalation_cascades_through_chain(self):
         g = TaskGraph()
-        g.add_items([
-            _item("a"),
-            _item("b", depends_on=["a"]),
-            _item("c", depends_on=["b"]),
-        ])
+        g.add_items(
+            [
+                _item("a"),
+                _item("b", depends_on=["a"]),
+                _item("c", depends_on=["b"]),
+            ]
+        )
         g.mark_active("a")
         g.mark_escalated("a", reason="time_budget")
         assert g.nodes["b"].state == NodeState.ESCALATED
@@ -122,10 +132,13 @@ class TestEscalationCascade:
         """If child depends on both a and b, escalating a doesn't cascade
         if b hasn't been attempted yet."""
         g = TaskGraph()
-        g.add_items([
-            _item("a"), _item("b"),
-            _item("child", depends_on=["a", "b"]),
-        ])
+        g.add_items(
+            [
+                _item("a"),
+                _item("b"),
+                _item("child", depends_on=["a", "b"]),
+            ]
+        )
         g.mark_active("a")
         g.mark_escalated("a")
         # child is still blocked (b hasn't resolved), not cascaded
@@ -156,24 +169,28 @@ class TestResourceConflicts:
 
     def test_conflicting_resources_serialized(self):
         g = TaskGraph()
-        g.add_items([
-            _item("a", resources=["/etc/ssh/sshd_config"]),
-            _item("b", resources=["/etc/ssh/sshd_config"]),
-            _item("c", resources=["/etc/pam.d/system-auth"]),
-        ])
+        g.add_items(
+            [
+                _item("a", resources=["/etc/ssh/sshd_config"]),
+                _item("b", resources=["/etc/ssh/sshd_config"]),
+                _item("c", resources=["/etc/pam.d/system-auth"]),
+            ]
+        )
         g.mark_active("a")
         active_res = g.get_active_resources()
         ready = g.get_ready_items(active_resources=active_res)
         ready_ids = {i.id for i in ready}
         assert "b" not in ready_ids  # conflicts with a
-        assert "c" in ready_ids      # no conflict
+        assert "c" in ready_ids  # no conflict
 
     def test_no_conflict_when_nothing_active(self):
         g = TaskGraph()
-        g.add_items([
-            _item("a", resources=["/etc/ssh/sshd_config"]),
-            _item("b", resources=["/etc/ssh/sshd_config"]),
-        ])
+        g.add_items(
+            [
+                _item("a", resources=["/etc/ssh/sshd_config"]),
+                _item("b", resources=["/etc/ssh/sshd_config"]),
+            ]
+        )
         ready = g.get_ready_items(active_resources=set())
         assert len(ready) == 2
 

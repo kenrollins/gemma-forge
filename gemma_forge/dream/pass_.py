@@ -27,6 +27,7 @@ outcome signal that conversational memory systems do not have. Credit
 assignment on lesson confidence is a solved problem when you have
 ground-truth outcomes; it is an inference problem when you don't.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -37,7 +38,6 @@ import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 import httpx
 import psycopg
@@ -49,6 +49,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class CategoryCredit:
     """Per-category outcome summary for one run."""
+
     category: str
     remediated: int = 0
     escalated: int = 0
@@ -58,8 +59,8 @@ class CategoryCredit:
     # over the legacy success_rate — it captures whether wins were
     # earned through followed advice (lessons working as intended) or
     # were lucky-neighbor outcomes (lessons present but ignored).
-    follow_aware_signal: Optional[float] = None  # in [-1, +1] when computed
-    follow_sample_size: int = 0                  # n retrievals contributing
+    follow_aware_signal: float | None = None  # in [-1, +1] when computed
+    follow_sample_size: int = 0  # n retrievals contributing
 
     @property
     def total(self) -> int:
@@ -89,6 +90,7 @@ class CategoryCredit:
 @dataclass
 class DreamResult:
     """Summary of one dream pass execution."""
+
     run_id: str
     timestamp: str
     categories_analyzed: int
@@ -236,7 +238,8 @@ async def update_neo4j_confidence(
                     env_tag=environment_tag,
                 )
                 record = await result.single()
-                total_updated += record["n"]
+                if record is not None:
+                    total_updated += record["n"]
     finally:
         await driver.close()
 
@@ -305,35 +308,41 @@ def write_dream_report(result: DreamResult, repo_root: Path) -> Path:
         "|---|---|---|---|---|",
     ]
     for cc in sorted(result.category_credits, key=lambda c: c.success_rate, reverse=True):
-        signal = f"+{cc.confidence_signal:.2f}" if cc.confidence_signal >= 0 else f"{cc.confidence_signal:.2f}"
+        signal = (
+            f"+{cc.confidence_signal:.2f}"
+            if cc.confidence_signal >= 0
+            else f"{cc.confidence_signal:.2f}"
+        )
         lines.append(
             f"| {cc.category} | {cc.remediated} | {cc.escalated} "
             f"| {cc.success_rate:.0%} | {signal} |"
         )
-    lines.extend([
-        "",
-        "## What this pass does",
-        "",
-        "V1 of the dream pass performs outcome-driven credit assignment at the",
-        "category level: lessons in categories with high remediation rates get",
-        "positive confidence boosts; lessons in categories with high escalation",
-        "rates get negative adjustments. Confidence is separate from weight",
-        "(frequency): weight tracks how often a lesson appears when its category",
-        "succeeds; confidence tracks whether the category succeeded in the most",
-        "recent run where the lesson was available.",
-        "",
-        "The `confidence` column in `stig.lessons_current` and on Neo4j",
-        "`Lesson` nodes is updated by this pass. The next run's prompt",
-        "assembly can factor both weight and confidence into lesson selection.",
-        "",
-        "## Deferred to V2",
-        "",
-        "- Supersession detection (Reflector text analysis)",
-        "- Abstraction-loss recovery (re-hydration from source attempt traces)",
-        "- Semantic linking (A-MEM-style, needs embeddings)",
-        "- Per-rule lesson attribution (needs prompt event logging enhancement)",
-        "",
-    ])
+    lines.extend(
+        [
+            "",
+            "## What this pass does",
+            "",
+            "V1 of the dream pass performs outcome-driven credit assignment at the",
+            "category level: lessons in categories with high remediation rates get",
+            "positive confidence boosts; lessons in categories with high escalation",
+            "rates get negative adjustments. Confidence is separate from weight",
+            "(frequency): weight tracks how often a lesson appears when its category",
+            "succeeds; confidence tracks whether the category succeeded in the most",
+            "recent run where the lesson was available.",
+            "",
+            "The `confidence` column in `stig.lessons_current` and on Neo4j",
+            "`Lesson` nodes is updated by this pass. The next run's prompt",
+            "assembly can factor both weight and confidence into lesson selection.",
+            "",
+            "## Deferred to V2",
+            "",
+            "- Supersession detection (Reflector text analysis)",
+            "- Abstraction-loss recovery (re-hydration from source attempt traces)",
+            "- Semantic linking (A-MEM-style, needs embeddings)",
+            "- Per-rule lesson attribution (needs prompt event logging enhancement)",
+            "",
+        ]
+    )
 
     path.write_text("\n".join(lines))
     return path
@@ -368,7 +377,7 @@ _JUDGE_TEMPERATURE = 0.0
 _EMBED_MODEL_NAME = "all-MiniLM-L6-v2"
 
 
-def _load_judge_prompt(repo_root: Path, skill: str) -> Optional[tuple[str, str]]:
+def _load_judge_prompt(repo_root: Path, skill: str) -> tuple[str, str] | None:
     """Load (system_prompt, user_template) from skills/<skill>/prompts/tip_follow_judge.md.
 
     The prompt file has a `## System` section and a `## User template`
@@ -382,9 +391,11 @@ def _load_judge_prompt(repo_root: Path, skill: str) -> Optional[tuple[str, str]]
         return None
     text = path.read_text(encoding="utf-8")
 
-    def _section(header: str) -> Optional[str]:
+    def _section(header: str) -> str | None:
         # Match `## {header}` and capture until the next `## ` or end of file.
-        m = re.search(rf"^## {re.escape(header)}\s*$\n(.*?)(?=\n## |\Z)", text, re.MULTILINE | re.DOTALL)
+        m = re.search(
+            rf"^## {re.escape(header)}\s*$\n(.*?)(?=\n## |\Z)", text, re.MULTILINE | re.DOTALL
+        )
         return m.group(1).strip() if m else None
 
     system = _section("System")
@@ -394,7 +405,9 @@ def _load_judge_prompt(repo_root: Path, skill: str) -> Optional[tuple[str, str]]
     # The "User template" section in the markdown is an explanation of the
     # format with a code block showing the literal template. Extract the
     # ```...``` block that contains {tip_text} and {worker_approach}.
-    m = re.search(r"```(?:[^\n]*)\n(.*?\{tip_text\}.*?\{worker_approach\}.*?)\n```", user_template, re.DOTALL)
+    m = re.search(
+        r"```(?:[^\n]*)\n(.*?\{tip_text\}.*?\{worker_approach\}.*?)\n```", user_template, re.DOTALL
+    )
     if m:
         user_template = m.group(1).strip()
     return system, user_template
@@ -407,7 +420,7 @@ async def _judge_one(
     tip_text: str,
     worker_approach: str,
     model: str,
-) -> Optional[bool]:
+) -> bool | None:
     """One LLM-judge call. Returns True/False or None on failure."""
     user = user_template.format(tip_text=tip_text, worker_approach=worker_approach)
     try:
@@ -437,7 +450,7 @@ async def _judge_one(
     return m.group(1).lower() == "true"
 
 
-def _resolve_jsonl_path(run_id: str, repo_root: Path) -> Optional[Path]:
+def _resolve_jsonl_path(run_id: str, repo_root: Path) -> Path | None:
     """Locate the JSONL run log for ``run_id``.
 
     Postgres ``runs`` has the started_at; ``runs/`` on disk holds files
@@ -451,7 +464,8 @@ def _resolve_jsonl_path(run_id: str, repo_root: Path) -> Optional[Path]:
     with psycopg.connect(_pg_conninfo("forge_admin")) as conn:
         conn.execute("SET search_path TO stig")
         row = conn.execute(
-            "SELECT started_at FROM runs WHERE id = %s", (run_id,),
+            "SELECT started_at FROM runs WHERE id = %s",
+            (run_id,),
         ).fetchone()
     if not row or not row[0]:
         return None
@@ -463,7 +477,7 @@ def _resolve_jsonl_path(run_id: str, repo_root: Path) -> Optional[Path]:
             stem = p.stem  # run-20260520-212629
             parts = stem.split("-")
             ts = dt.datetime.strptime(parts[1] + parts[2], "%Y%m%d%H%M%S")
-            ts = ts.replace(tzinfo=dt.timezone.utc)
+            ts = ts.replace(tzinfo=dt.UTC)
         except Exception:
             continue
         delta_s = abs((ts - started_at).total_seconds())
@@ -487,10 +501,9 @@ def _parse_run_for_tip_followscoring(jsonl_path: Path) -> dict[tuple[str, int, i
     be scored against the script that ran in the same attempt.
     """
     by_key: dict[tuple[str, int, int], str] = {}
-    current_rule: Optional[str] = None
+    current_rule: str | None = None
     current_attempt: int = 0
     current_tip_ids: list[int] = []
-    pending_script: Optional[str] = None
 
     with open(jsonl_path) as f:
         for line in f:
@@ -507,16 +520,18 @@ def _parse_run_for_tip_followscoring(jsonl_path: Path) -> dict[tuple[str, int, i
             elif et == "attempt_start":
                 current_attempt = d.get("attempt") or (current_attempt + 1)
                 current_tip_ids = []
-                pending_script = None
             elif et == "prompt_assembled" and d.get("phase") == "apply_fix":
                 v2 = d.get("v2_tips_loaded") or []
                 if isinstance(v2, list):
-                    current_tip_ids = [t.get("tip_id") for t in v2 if isinstance(t, dict) and t.get("tip_id") is not None]
+                    current_tip_ids = [
+                        tip_id
+                        for t in v2
+                        if isinstance(t, dict) and (tip_id := t.get("tip_id")) is not None
+                    ]
             elif et == "tool_call":
                 args = d.get("args") or {}
                 fix = args.get("fix_script")
                 if fix and current_rule and current_attempt:
-                    pending_script = fix
                     for tid in current_tip_ids:
                         by_key[(current_rule, current_attempt, tid)] = fix
     return by_key
@@ -582,7 +597,7 @@ def _attach_fix_scripts(
 
 def _write_followed_back(
     skill: str,
-    updates: list[tuple[int, Optional[bool], Optional[float]]],
+    updates: list[tuple[int, bool | None, float | None]],
 ) -> int:
     """Write tip_followed_llm/emb/computed_at back to tip_retrievals.
 
@@ -613,8 +628,8 @@ async def score_tip_follow_for_run(
     run_id: str,
     skill: str,
     repo_root: Path,
-    jsonl_path: Optional[Path] = None,
-    model: Optional[str] = None,
+    jsonl_path: Path | None = None,
+    model: str | None = None,
 ) -> dict:
     """Compute tip_followed_llm + tip_followed_emb for every unscored
     retrieval in this run. Returns summary stats.
@@ -639,7 +654,9 @@ async def score_tip_follow_for_run(
 
     script_map = _parse_run_for_tip_followscoring(jsonl_path)
     if not script_map:
-        logger.warning("tip-follow scoring: JSONL parsed but no (rule, attempt, tip) -> script entries built")
+        logger.warning(
+            "tip-follow scoring: JSONL parsed but no (rule, attempt, tip) -> script entries built"
+        )
         return {"rows": 0, "embedded": 0, "judged": 0, "skipped": "empty_jsonl"}
 
     raw_rows = _fetch_unscored_retrievals(skill, run_id)
@@ -648,23 +665,26 @@ async def score_tip_follow_for_run(
     rows = [r for r in _attach_fix_scripts(raw_rows, script_map) if r.get("fix_script")]
     logger.info(
         "tip-follow scoring: %d retrievals total, %d matched to a fix_script (others skip)",
-        len(raw_rows), len(rows),
+        len(raw_rows),
+        len(rows),
     )
     if not rows:
         return {"rows": 0, "embedded": 0, "judged": 0, "skipped": "no_matches"}
 
     # --- Embedding leg (CPU; the GPUs are pinned by vLLM) ---
     import os as _os
+
     _prev_cvd = _os.environ.get("CUDA_VISIBLE_DEVICES")
     _os.environ["CUDA_VISIBLE_DEVICES"] = ""
     try:
-        from sentence_transformers import SentenceTransformer  # type: ignore
-        import numpy as np  # type: ignore
+        import numpy as np
+        from sentence_transformers import SentenceTransformer
+
         encoder = SentenceTransformer(_EMBED_MODEL_NAME, device="cpu")
         tip_embs = encoder.encode([r["tip_text"] for r in rows], show_progress_bar=False)
         scr_embs = encoder.encode([r["fix_script"] for r in rows], show_progress_bar=False)
-        emb_scores: list[Optional[float]] = []
-        for t, a in zip(tip_embs, scr_embs):
+        emb_scores: list[float | None] = []
+        for t, a in zip(tip_embs, scr_embs, strict=False):
             denom = float(np.linalg.norm(t)) * float(np.linalg.norm(a))
             emb_scores.append(float(np.dot(t, a) / denom) if denom > 0 else None)
         embedded_count = sum(1 for s in emb_scores if s is not None)
@@ -682,18 +702,22 @@ async def score_tip_follow_for_run(
     judge = _load_judge_prompt(repo_root, skill)
     if not judge:
         logger.info("tip-follow scoring: no judge prompt for skill=%s; skipping LLM leg", skill)
-        llm_scores: list[Optional[bool]] = [None] * len(rows)
+        llm_scores: list[bool | None] = [None] * len(rows)
         judged_count = 0
     else:
         system_prompt, user_template = judge
         judge_model = model or os.environ.get("FORGE_MODEL", "/weights/gemma-4-31B-it")
         sem = asyncio.Semaphore(_JUDGE_CONCURRENCY)
 
-        async def _gated(client: httpx.AsyncClient, row: dict) -> Optional[bool]:
+        async def _gated(client: httpx.AsyncClient, row: dict) -> bool | None:
             async with sem:
                 return await _judge_one(
-                    client, system_prompt, user_template,
-                    row["tip_text"], row["fix_script"], judge_model,
+                    client,
+                    system_prompt,
+                    user_template,
+                    row["tip_text"],
+                    row["fix_script"],
+                    judge_model,
                 )
 
         async with httpx.AsyncClient(timeout=httpx.Timeout(120.0)) as client:
@@ -701,13 +725,15 @@ async def score_tip_follow_for_run(
         judged_count = sum(1 for s in llm_scores if s is not None)
 
     updates = [
-        (row["id"], llm, emb)
-        for row, llm, emb in zip(rows, llm_scores, emb_scores)
+        (row["id"], llm, emb) for row, llm, emb in zip(rows, llm_scores, emb_scores, strict=False)
     ]
     written = _write_followed_back(skill, updates)
     logger.info(
         "tip-follow scoring: %d rows scored (%d via embedding, %d via LLM judge), %d updated",
-        len(rows), embedded_count, judged_count, written,
+        len(rows),
+        embedded_count,
+        judged_count,
+        written,
     )
     return {
         "rows": len(rows),
@@ -720,12 +746,12 @@ async def score_tip_follow_for_run(
 
 async def run_dream_pass(
     run_id: str,
-    repo_root: Optional[Path] = None,
+    repo_root: Path | None = None,
     skill: str = "stig",
-    environment_tag: Optional[str] = None,
+    environment_tag: str | None = None,
     force: bool = False,
-    jsonl_path: Optional[Path] = None,
-) -> Optional[DreamResult]:
+    jsonl_path: Path | None = None,
+) -> DreamResult | None:
     """Execute the dream pass for a completed run.
 
     Idempotency: the dream pass updates confidences non-reversibly
@@ -751,7 +777,7 @@ async def run_dream_pass(
     _load_env(repo_root)
 
     if environment_tag is None:
-        environment_tag = f"baseline-{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%d')}"
+        environment_tag = f"baseline-{dt.datetime.now(dt.UTC).strftime('%Y%m%d')}"
 
     # Idempotency guard (migration 0005). Skip if already dreamed
     # unless explicitly forced. Returns None so the caller can log
@@ -759,16 +785,20 @@ async def run_dream_pass(
     with psycopg.connect(_pg_conninfo("forge_admin")) as conn:
         conn.execute("SET search_path TO stig")
         row = conn.execute(
-            "SELECT dreamed_at FROM runs WHERE id = %s", (run_id,),
+            "SELECT dreamed_at FROM runs WHERE id = %s",
+            (run_id,),
         ).fetchone()
     if row and row[0] is not None and not force:
         logger.info(
             "dream pass: run_id=%s already dreamed at %s — skipping (pass force=True to override)",
-            run_id, row[0],
+            run_id,
+            row[0],
         )
         return None
 
-    logger.info("dream pass: starting for run_id=%s skill=%s env=%s", run_id, skill, environment_tag)
+    logger.info(
+        "dream pass: starting for run_id=%s skill=%s env=%s", run_id, skill, environment_tag
+    )
 
     # Step 1: compute per-category credit from run outcomes
     credits = compute_category_credits(run_id)
@@ -776,7 +806,9 @@ async def run_dream_pass(
     logger.info("dream pass: %d categories with outcomes", len(credits))
 
     if not credits:
-        logger.warning("dream pass: no work_items found for run_id=%s — was this run migrated?", run_id)
+        logger.warning(
+            "dream pass: no work_items found for run_id=%s — was this run migrated?", run_id
+        )
         # Fall back: try the most recent run with outcomes
         with psycopg.connect(_pg_conninfo("forge_admin")) as conn:
             conn.execute("SET search_path TO stig")
@@ -796,7 +828,10 @@ async def run_dream_pass(
     for cc in credits:
         logger.info(
             "  %s: %d remed / %d esc → signal=%.2f",
-            cc.category, cc.remediated, cc.escalated, cc.confidence_signal,
+            cc.category,
+            cc.remediated,
+            cc.escalated,
+            cc.confidence_signal,
         )
 
     # Step 2: update Neo4j Lesson nodes
@@ -814,10 +849,13 @@ async def run_dream_pass(
     # ranker falls back to outcome-only.
     try:
         follow_stats = await score_tip_follow_for_run(
-            run_id, skill, repo_root, jsonl_path=jsonl_path,
+            run_id,
+            skill,
+            repo_root,
+            jsonl_path=jsonl_path,
         )
         logger.info("dream pass: tip-follow scoring complete — %s", follow_stats)
-    except Exception as exc:  # noqa: BLE001 — must not break credit assignment
+    except Exception as exc:
         logger.warning("dream pass: tip-follow scoring failed: %s", exc)
         follow_stats = {"rows": 0, "embedded": 0, "judged": 0}
 
@@ -830,7 +868,7 @@ async def run_dream_pass(
 
     result = DreamResult(
         run_id=run_id,
-        timestamp=dt.datetime.now(dt.timezone.utc).isoformat(),
+        timestamp=dt.datetime.now(dt.UTC).isoformat(),
         categories_analyzed=len(credits),
         lessons_updated=lessons_updated,
         lessons_with_positive_credit=positive,
@@ -850,7 +888,8 @@ async def run_dream_pass(
     with psycopg.connect(_pg_conninfo("forge_admin")) as conn:
         conn.execute("SET search_path TO stig")
         conn.execute(
-            "UPDATE runs SET dreamed_at = now() WHERE id = %s", (run_id,),
+            "UPDATE runs SET dreamed_at = now() WHERE id = %s",
+            (run_id,),
         )
         conn.commit()
     logger.info("dream pass: marked run %s as dreamed_at=now()", run_id)

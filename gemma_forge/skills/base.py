@@ -14,11 +14,9 @@ See ADR-0011 (planned) and docs/adding-a-skill.md.
 """
 
 import logging
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
-import yaml
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -107,7 +105,7 @@ class RuntimeConfig(BaseModel):
 
     module: str = "runtime.py"
     builder: str = "build_runtime"
-    memory_schema: Optional[str] = Field(default=None, alias="schema")
+    memory_schema: str | None = Field(default=None, alias="schema")
 
     model_config = {"populate_by_name": True}
 
@@ -148,10 +146,10 @@ class SkillManifest(BaseModel):
     validators: list[ValidatorConfig] = []
 
     # Optional STIG-specific config
-    stig: Optional[StigConfig] = None
+    stig: StigConfig | None = None
 
     # Optional plugin module (relative to skill directory)
-    plugin: Optional[str] = None
+    plugin: str | None = None
 
     # UI display config — skill-specific labels for the frontend
     ui: UIConfig = UIConfig()
@@ -177,15 +175,15 @@ class Skill:
     def get_prompt(self, role: str) -> str:
         """Load and cache a role's system prompt from the skill directory."""
         if role not in self._prompts:
-            prompt_path = self.skill_dir / self.manifest.prompts.get(
-                role, f"prompts/{role}.md"
-            )
+            prompt_path = self.skill_dir / self.manifest.prompts.get(role, f"prompts/{role}.md")
             if prompt_path.exists():
                 self._prompts[role] = prompt_path.read_text().strip()
             else:
                 logger.warning(
                     "Skill %s: no prompt file for role '%s' at %s",
-                    self.name, role, prompt_path,
+                    self.name,
+                    role,
+                    prompt_path,
                 )
                 self._prompts[role] = f"You are the {role} in a remediation team."
         return self._prompts[role]

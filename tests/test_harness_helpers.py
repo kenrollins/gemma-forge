@@ -20,12 +20,9 @@ for the abstract failure modes these helpers address.
 
 from __future__ import annotations
 
-import pytest
-
 from gemma_forge.harness.ralph import (
     EpisodicMemory,
     RunState,
-    SemanticMemory,
     _keyword_set,
     assemble_prompt,
     categorize_rule,
@@ -35,11 +32,11 @@ from gemma_forge.harness.ralph import (
     reflection_first_sentence,
 )
 
-
 # =============================================================================
 # Property: assemble_prompt output never exceeds the token budget
 # Failure mode addressed: #1 (tool-call explosion → context overflow)
 # =============================================================================
+
 
 class TestAssemblePromptBoundedOutput:
     """assemble_prompt's central invariant is that est_tokens(output) <= budget."""
@@ -80,11 +77,11 @@ class TestAssemblePromptBoundedOutput:
 
     def test_property_lowest_priority_dropped_first_when_tight(self):
         sections = [
-            (0, "header", "h" * 200),       # ~50 tokens
-            (1, "middle", "m" * 200),       # ~50 tokens
-            (2, "footer", "f" * 4000),      # ~1000 tokens — won't fit
+            (0, "header", "h" * 200),  # ~50 tokens
+            (1, "middle", "m" * 200),  # ~50 tokens
+            (2, "footer", "f" * 4000),  # ~1000 tokens — won't fit
         ]
-        body, meta = assemble_prompt(sections, budget_tokens=120)
+        _body, meta = assemble_prompt(sections, budget_tokens=120)
         assert "header" in meta["sections_included"]
         assert "footer" not in meta["sections_included"]
         # footer should be either dropped or truncated, but not silently included whole
@@ -93,12 +90,9 @@ class TestAssemblePromptBoundedOutput:
     def test_property_output_token_estimate_never_exceeds_budget(self):
         """The central invariant. Holds for arbitrary inputs."""
         # Stress with many sections of varying sizes and a tight budget
-        sections = [
-            (i, f"section_{i}", "abcd" * (50 + i * 20))
-            for i in range(20)
-        ]
+        sections = [(i, f"section_{i}", "abcd" * (50 + i * 20)) for i in range(20)]
         for budget in [50, 200, 500, 1000, 5000]:
-            body, meta = assemble_prompt(sections, budget_tokens=budget)
+            body, _meta = assemble_prompt(sections, budget_tokens=budget)
             # Allow a small grace for the truncation marker (~12 tokens)
             assert est_tokens(body) <= budget + 15, (
                 f"Budget {budget} exceeded: got {est_tokens(body)} tokens"
@@ -125,7 +119,7 @@ class TestAssemblePromptBoundedOutput:
             (1, "huge", "x" * 8000),  # gets truncated
             (2, "lower", "lower content"),
         ]
-        body, meta = assemble_prompt(sections, budget_tokens=300)
+        _body, meta = assemble_prompt(sections, budget_tokens=300)
         assert "huge" in meta["sections_truncated"]
         assert "lower" in meta["sections_dropped"]
 
@@ -133,6 +127,7 @@ class TestAssemblePromptBoundedOutput:
 # =============================================================================
 # Property: est_tokens is monotonic and non-negative
 # =============================================================================
+
 
 class TestEstTokens:
     def test_property_empty_string_is_zero_tokens(self):
@@ -159,11 +154,14 @@ class TestEstTokens:
 # Failure mode addressed: #4 (cosmetic novelty masking semantic sameness)
 # =============================================================================
 
+
 class TestDetectPlateau:
     """detect_plateau must catch semantically identical reflections regardless
     of word choice, length, or sentence structure variations."""
 
-    def test_property_three_cosmetically_different_but_semantically_identical_reflections_plateau(self):
+    def test_property_three_cosmetically_different_but_semantically_identical_reflections_plateau(
+        self,
+    ):
         # Real-world variations from the overnight run, partition rule
         reflections = [
             "Pattern identified: Attempting to remediate a hardware/disk partitioning requirement via runtime scripts on a live system.",
@@ -237,6 +235,7 @@ class TestDetectPlateau:
 # Property: _keyword_set is robust to formatting variations
 # =============================================================================
 
+
 class TestKeywordSet:
     def test_property_lowercase_normalizes(self):
         a = _keyword_set("STRUCTURAL DISK PARTITIONING")
@@ -283,10 +282,14 @@ class TestKeywordSet:
 # Property: is_similar is symmetric
 # =============================================================================
 
+
 class TestIsSimilar:
     def test_property_symmetric(self):
         pairs = [
-            ("structural disk partitioning requirement", "disk partitioning requirements via scripts"),
+            (
+                "structural disk partitioning requirement",
+                "disk partitioning requirements via scripts",
+            ),
             ("totally different content here", "another unrelated string"),
             ("identical text", "identical text"),
             ("", ""),
@@ -310,6 +313,7 @@ class TestIsSimilar:
 # Property: EpisodicMemory.summary() output is bounded
 # =============================================================================
 
+
 class TestEpisodicMemorySummary:
     def test_property_empty_attempts_returns_short_marker(self):
         em = EpisodicMemory(rule_id="test_rule")
@@ -319,12 +323,14 @@ class TestEpisodicMemorySummary:
     def test_property_summary_capped_at_last_n_attempts(self):
         em = EpisodicMemory(rule_id="test_rule")
         for i in range(50):
-            em.attempts.append({
-                "approach": f"approach {i}",
-                "result": f"result {i}",
-                "reflection": f"reflection {i}" * 20,
-                "lesson": f"distilled lesson {i}",
-            })
+            em.attempts.append(
+                {
+                    "approach": f"approach {i}",
+                    "result": f"result {i}",
+                    "reflection": f"reflection {i}" * 20,
+                    "lesson": f"distilled lesson {i}",
+                }
+            )
         # Default cap is 5
         s = em.summary(max_attempts=5)
         # Should reference "50 total" but only show 5
@@ -356,7 +362,9 @@ class TestEpisodicMemorySummary:
 
     def test_property_falls_back_to_approach_when_lesson_missing(self):
         em = EpisodicMemory(rule_id="r")
-        em.attempts.append({"approach": "tried sed -i something", "result": "exit 1", "reflection": "ref"})
+        em.attempts.append(
+            {"approach": "tried sed -i something", "result": "exit 1", "reflection": "ref"}
+        )
         s = em.summary()
         # Should include approach fragment since lesson is absent
         assert "tried sed" in s
@@ -365,6 +373,7 @@ class TestEpisodicMemorySummary:
 # =============================================================================
 # Property: RunState.summary_for_architect() respects token budget
 # =============================================================================
+
 
 class TestRunStateSummary:
     def test_property_returns_tuple_of_text_and_meta(self):
@@ -379,7 +388,7 @@ class TestRunStateSummary:
     def test_property_under_budget_includes_all_sections(self):
         state = RunState()
         state.failing_rules = [{"rule_id": f"r{i}", "title": f"t{i}"} for i in range(3)]
-        body, meta = state.summary_for_architect(budget_tokens=2000)
+        _body, meta = state.summary_for_architect(budget_tokens=2000)
         assert meta["sections_dropped"] == [] or meta["sections_dropped"] is not None
         assert "header" in meta["sections_included"]
 
@@ -387,8 +396,13 @@ class TestRunStateSummary:
         # Even with thousands of failing rules and a tiny budget,
         # the header (highest priority) must survive
         state = RunState()
-        state.failing_rules = [{"rule_id": f"r{i}", "title": f"long title {i}"} for i in range(1000)]
-        state.escalated = [{"rule_id": f"esc{i}", "title": f"esc title {i}", "reason": "time_budget"} for i in range(100)]
+        state.failing_rules = [
+            {"rule_id": f"r{i}", "title": f"long title {i}"} for i in range(1000)
+        ]
+        state.escalated = [
+            {"rule_id": f"esc{i}", "title": f"esc title {i}", "reason": "time_budget"}
+            for i in range(100)
+        ]
         state.remediated = [{"rule_id": f"rem{i}", "title": f"rem title {i}"} for i in range(50)]
         state.current_iteration = 25
         body, meta = state.summary_for_architect(budget_tokens=200)
@@ -398,13 +412,20 @@ class TestRunStateSummary:
         assert est_tokens(body) <= 215  # +15 grace
 
     def test_property_output_within_budget_for_arbitrary_state_sizes(self):
-        for n_failing, n_escalated, n_remediated in [(0,0,0), (5,2,1), (100,30,10), (1000,200,80)]:
+        for n_failing, n_escalated, n_remediated in [
+            (0, 0, 0),
+            (5, 2, 1),
+            (100, 30, 10),
+            (1000, 200, 80),
+        ]:
             state = RunState()
             state.failing_rules = [{"rule_id": f"r{i}", "title": "t"} for i in range(n_failing)]
-            state.escalated = [{"rule_id": f"e{i}", "title": "t", "reason": "x"} for i in range(n_escalated)]
+            state.escalated = [
+                {"rule_id": f"e{i}", "title": "t", "reason": "x"} for i in range(n_escalated)
+            ]
             state.remediated = [{"rule_id": f"m{i}", "title": "t"} for i in range(n_remediated)]
             for budget in [200, 1000, 3000]:
-                body, meta = state.summary_for_architect(budget_tokens=budget)
+                body, _meta = state.summary_for_architect(budget_tokens=budget)
                 assert est_tokens(body) <= budget + 15, (
                     f"State {n_failing}/{n_escalated}/{n_remediated} budget {budget}: "
                     f"got {est_tokens(body)} tokens"
@@ -415,18 +436,36 @@ class TestRunStateSummary:
 # Property: categorize_rule covers known categories
 # =============================================================================
 
+
 class TestCategorizeRule:
     def test_property_aide_rules_are_integrity_monitoring(self):
-        assert categorize_rule("xccdf_org.ssgproject.content_rule_aide_build_database") == "integrity-monitoring"
-        assert categorize_rule("xccdf_org.ssgproject.content_rule_package_aide_installed") == "integrity-monitoring"
-        assert categorize_rule("xccdf_org.ssgproject.content_rule_aide_check_audit_tools") == "integrity-monitoring"
+        assert (
+            categorize_rule("xccdf_org.ssgproject.content_rule_aide_build_database")
+            == "integrity-monitoring"
+        )
+        assert (
+            categorize_rule("xccdf_org.ssgproject.content_rule_package_aide_installed")
+            == "integrity-monitoring"
+        )
+        assert (
+            categorize_rule("xccdf_org.ssgproject.content_rule_aide_check_audit_tools")
+            == "integrity-monitoring"
+        )
 
     def test_property_sudo_rules_are_privileged_access(self):
-        assert categorize_rule("xccdf_org.ssgproject.content_rule_sudo_remove_nopasswd") == "privileged-access"
-        assert categorize_rule("xccdf_org.ssgproject.content_rule_sudoers_validate_passwd") == "privileged-access"
+        assert (
+            categorize_rule("xccdf_org.ssgproject.content_rule_sudo_remove_nopasswd")
+            == "privileged-access"
+        )
+        assert (
+            categorize_rule("xccdf_org.ssgproject.content_rule_sudoers_validate_passwd")
+            == "privileged-access"
+        )
 
     def test_property_unknown_rules_classify_as_other(self):
-        assert categorize_rule("xccdf_org.ssgproject.content_rule_completely_made_up_xyz") == "other"
+        assert (
+            categorize_rule("xccdf_org.ssgproject.content_rule_completely_made_up_xyz") == "other"
+        )
         assert categorize_rule("") == "other"
 
     def test_property_categorization_is_deterministic(self):
@@ -435,13 +474,25 @@ class TestCategorizeRule:
         assert len(set(results)) == 1
 
     def test_property_partition_rules_classify_as_filesystem(self):
-        assert categorize_rule("xccdf_org.ssgproject.content_rule_partition_for_var_log_audit") == "filesystem"
-        assert categorize_rule("xccdf_org.ssgproject.content_rule_mount_option_home_nodev") == "filesystem"
+        assert (
+            categorize_rule("xccdf_org.ssgproject.content_rule_partition_for_var_log_audit")
+            == "filesystem"
+        )
+        assert (
+            categorize_rule("xccdf_org.ssgproject.content_rule_mount_option_home_nodev")
+            == "filesystem"
+        )
 
     def test_property_fips_rules_classify_as_cryptography(self):
-        assert categorize_rule("xccdf_org.ssgproject.content_rule_enable_fips_mode") == "cryptography"
-        assert categorize_rule("xccdf_org.ssgproject.content_rule_aide_use_fips_hashes") == "cryptography" or \
-               categorize_rule("xccdf_org.ssgproject.content_rule_aide_use_fips_hashes") == "integrity-monitoring"
+        assert (
+            categorize_rule("xccdf_org.ssgproject.content_rule_enable_fips_mode") == "cryptography"
+        )
+        assert (
+            categorize_rule("xccdf_org.ssgproject.content_rule_aide_use_fips_hashes")
+            == "cryptography"
+            or categorize_rule("xccdf_org.ssgproject.content_rule_aide_use_fips_hashes")
+            == "integrity-monitoring"
+        )
         # Note: "aide" appears first in the check order, so aide_use_fips_hashes
         # gets "integrity-monitoring". This is documented behavior — order matters.
 
@@ -449,6 +500,7 @@ class TestCategorizeRule:
 # =============================================================================
 # Property: reflection_first_sentence extracts the pattern claim
 # =============================================================================
+
 
 class TestReflectionFirstSentence:
     def test_property_extracts_pattern_identified_clause(self):

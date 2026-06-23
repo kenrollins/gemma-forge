@@ -24,7 +24,6 @@ import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
 
 from gemma_forge.harness.interfaces import WorkItem
 
@@ -43,6 +42,7 @@ class NodeState(Enum):
 @dataclass
 class GraphNode:
     """A node in the task graph — wraps a WorkItem with lifecycle state."""
+
     item: WorkItem
     state: NodeState = NodeState.QUEUED
     # Dependencies: node IDs that must complete before this one starts
@@ -54,7 +54,7 @@ class GraphNode:
     # Metadata
     attempts: int = 0
     wall_time_s: float = 0.0
-    escalation_reason: Optional[str] = None
+    escalation_reason: str | None = None
 
 
 class TaskGraph:
@@ -88,7 +88,7 @@ class TaskGraph:
 
     def _update_blocked_states(self) -> None:
         """Recompute BLOCKED state for all QUEUED nodes."""
-        for node_id, node in self.nodes.items():
+        for _node_id, node in self.nodes.items():
             if node.state not in (NodeState.QUEUED, NodeState.BLOCKED):
                 continue
             # Check if all dependencies are resolved
@@ -122,7 +122,7 @@ class TaskGraph:
         self._update_blocked_states()
         return True
 
-    def _has_path(self, start: str, end: str, visited: set = None) -> bool:
+    def _has_path(self, start: str, end: str, visited: set | None = None) -> bool:
         """Check if there's a dependency path from start to end (DFS)."""
         if visited is None:
             visited = set()
@@ -133,12 +133,9 @@ class TaskGraph:
         visited.add(start)
         if start not in self.nodes:
             return False
-        for dep in self.nodes[start].depends_on:
-            if self._has_path(dep, end, visited):
-                return True
-        return False
+        return any(self._has_path(dep, end, visited) for dep in self.nodes[start].depends_on)
 
-    def get_ready_items(self, active_resources: set[str] = None) -> list[WorkItem]:
+    def get_ready_items(self, active_resources: set[str] | None = None) -> list[WorkItem]:
         """Get work items that are ready to process (QUEUED, no unresolved deps).
 
         If active_resources is provided, also excludes items that would
@@ -163,8 +160,7 @@ class TaskGraph:
         if item_id in self.nodes:
             self.nodes[item_id].state = NodeState.ACTIVE
 
-    def mark_completed(self, item_id: str, attempts: int = 0,
-                       wall_time_s: float = 0.0) -> None:
+    def mark_completed(self, item_id: str, attempts: int = 0, wall_time_s: float = 0.0) -> None:
         """Mark an item as successfully completed. Unblocks dependents."""
         if item_id in self.nodes:
             node = self.nodes[item_id]
@@ -173,8 +169,9 @@ class TaskGraph:
             node.wall_time_s = wall_time_s
             self._update_blocked_states()
 
-    def mark_escalated(self, item_id: str, reason: str = "",
-                       attempts: int = 0, wall_time_s: float = 0.0) -> None:
+    def mark_escalated(
+        self, item_id: str, reason: str = "", attempts: int = 0, wall_time_s: float = 0.0
+    ) -> None:
         """Mark an item as escalated (failed). Does NOT unblock dependents."""
         if item_id in self.nodes:
             node = self.nodes[item_id]
@@ -211,8 +208,9 @@ class TaskGraph:
                     if has_failed_dep:
                         node.state = NodeState.ESCALATED
                         node.escalation_reason = f"dependency_failed:{failed_id}"
-                        logger.info("Cascade-escalated %s (dependency %s failed)",
-                                    node_id, failed_id)
+                        logger.info(
+                            "Cascade-escalated %s (dependency %s failed)", node_id, failed_id
+                        )
                         self._cascade_escalation(node_id)
 
     def record_failure_cause(self, item_id: str, cause_key: str) -> None:
@@ -235,11 +233,13 @@ class TaskGraph:
             if len(item_ids) >= min_cluster_size:
                 # The item with the most fundamental-looking ID is the likely prerequisite
                 # (e.g., "aide_build_database" before "aide_verify_acls")
-                suggestions.append({
-                    "cause": cause,
-                    "items": list(set(item_ids)),
-                    "cluster_size": len(set(item_ids)),
-                })
+                suggestions.append(
+                    {
+                        "cause": cause,
+                        "items": list(set(item_ids)),
+                        "cluster_size": len(set(item_ids)),
+                    }
+                )
         return suggestions
 
     def get_active_resources(self) -> set[str]:
@@ -257,15 +257,17 @@ class TaskGraph:
         nodes = []
         edges = []
         for node_id, node in self.nodes.items():
-            nodes.append({
-                "id": node_id,
-                "title": node.item.title,
-                "category": node.item.category,
-                "state": node.state.value,
-                "attempts": node.attempts,
-                "wall_time_s": round(node.wall_time_s, 1),
-                "escalation_reason": node.escalation_reason,
-            })
+            nodes.append(
+                {
+                    "id": node_id,
+                    "title": node.item.title,
+                    "category": node.item.category,
+                    "state": node.state.value,
+                    "attempts": node.attempts,
+                    "wall_time_s": round(node.wall_time_s, 1),
+                    "escalation_reason": node.escalation_reason,
+                }
+            )
             for dep_id in node.depends_on:
                 edges.append({"from": dep_id, "to": node_id})
         return {

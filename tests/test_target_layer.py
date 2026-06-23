@@ -87,18 +87,33 @@ async def _ssh_run_as_root(config: SSHConfig, script: str) -> tuple[str, int]:
 # Property: gather_environment_diagnostics correctly identifies HEALTHY state
 # =============================================================================
 
+
 class TestDiagnosticsOnHealthyTarget:
     async def test_property_baseline_reports_all_systems_healthy(self, vm_config):
         diag = await gather_environment_diagnostics(vm_config)
-        assert diag["sudo_ok"] is True, f"Expected sudo_ok on baseline, got {diag.get('sudo_probe')}"
-        assert diag["services_ok"] is True, f"Expected services_ok on baseline, got {diag.get('service_status')}"
-        assert diag["mission_healthy"] is True, f"Expected mission_healthy on baseline, got {diag.get('mission_healthcheck')}"
+        assert diag["sudo_ok"] is True, (
+            f"Expected sudo_ok on baseline, got {diag.get('sudo_probe')}"
+        )
+        assert diag["services_ok"] is True, (
+            f"Expected services_ok on baseline, got {diag.get('service_status')}"
+        )
+        assert diag["mission_healthy"] is True, (
+            f"Expected mission_healthy on baseline, got {diag.get('mission_healthcheck')}"
+        )
 
     async def test_property_diagnostics_returns_all_expected_sections(self, vm_config):
         diag = await gather_environment_diagnostics(vm_config)
-        for section in ["sudo_probe", "service_status", "mission_healthcheck",
-                        "recent_auth_failures", "sudoers_state", "pam_state",
-                        "fs_state", "network_state", "recent_journal_errors"]:
+        for section in [
+            "sudo_probe",
+            "service_status",
+            "mission_healthcheck",
+            "recent_auth_failures",
+            "sudoers_state",
+            "pam_state",
+            "fs_state",
+            "network_state",
+            "recent_journal_errors",
+        ]:
             assert section in diag, f"Missing section: {section}"
 
     async def test_property_diagnostic_call_does_not_modify_target(self, vm_config):
@@ -117,13 +132,16 @@ class TestDiagnosticsOnHealthyTarget:
 # detection of what's broken.
 # =============================================================================
 
+
 class TestDiagnosticsOnBrokenTarget:
     async def test_property_stopped_nginx_reported_as_services_unhealthy(self, vm_config):
         await _ssh_run_as_root(vm_config, "systemctl stop nginx")
         diag = await gather_environment_diagnostics(vm_config)
         assert diag["services_ok"] is False, "Expected services_ok=False after stopping nginx"
         assert "nginx" in diag.get("service_status", "")
-        assert "inactive" in diag.get("service_status", "") or "failed" in diag.get("service_status", "")
+        assert "inactive" in diag.get("service_status", "") or "failed" in diag.get(
+            "service_status", ""
+        )
 
     async def test_property_stopped_postgres_reported_as_services_unhealthy(self, vm_config):
         await _ssh_run_as_root(vm_config, "systemctl stop postgresql")
@@ -131,7 +149,9 @@ class TestDiagnosticsOnBrokenTarget:
         assert diag["services_ok"] is False
         assert "postgresql" in diag.get("service_status", "")
         # Either inactive or failed counts as broken
-        assert "inactive" in diag.get("service_status", "") or "failed" in diag.get("service_status", "")
+        assert "inactive" in diag.get("service_status", "") or "failed" in diag.get(
+            "service_status", ""
+        )
 
     async def test_property_broken_sudo_reported_as_sudo_unhealthy(self, vm_config):
         # Add a passwd-required line to a sudoers.d file to break passwordless sudo
@@ -139,14 +159,16 @@ class TestDiagnosticsOnBrokenTarget:
         # Remove NOPASSWD from the cloud-init sudoers file. This actually
         # breaks passwordless sudo (the Defaults:targetpw approach doesn't
         # override per-user NOPASSWD).
-        await _ssh_run_as_root(vm_config, """
+        await _ssh_run_as_root(
+            vm_config,
+            """
             sed -i 's/NOPASSWD://g' /etc/sudoers.d/90-cloud-init-users
             visudo -c >/dev/null 2>&1 || true
-        """)
+        """,
+        )
         diag = await gather_environment_diagnostics(vm_config)
         assert diag["sudo_ok"] is False, (
-            f"Expected sudo_ok=False after breaking sudo. "
-            f"sudo_probe={diag.get('sudo_probe')!r}"
+            f"Expected sudo_ok=False after breaking sudo. sudo_probe={diag.get('sudo_probe')!r}"
         )
 
     async def test_property_failed_mission_healthcheck_reported(self, vm_config):
@@ -185,10 +207,13 @@ class TestDiagnosticsOnBrokenTarget:
         await asyncio.sleep(2)
 
         # Break B: remove NOPASSWD from sudoers.d
-        await _ssh_run_as_root(vm_config, """
+        await _ssh_run_as_root(
+            vm_config,
+            """
             sed -i 's/NOPASSWD://g' /etc/sudoers.d/90-cloud-init-users
             visudo -c >/dev/null 2>&1 || true
-        """)
+        """,
+        )
         diag_b = await gather_environment_diagnostics(vm_config)
 
         # PROPERTY: Each break is distinguishable from a healthy state by at
@@ -209,6 +234,7 @@ class TestDiagnosticsOnBrokenTarget:
 # =============================================================================
 # Property: snapshot save/restore lifecycle is authoritative
 # =============================================================================
+
 
 class TestSnapshotLifecycle:
     async def test_property_progress_can_be_saved_and_listed(self, vm_config):
@@ -243,8 +269,12 @@ class TestSnapshotLifecycle:
         ok, _ = await snapshot_restore_progress()
         assert ok
         await asyncio.sleep(2)
-        check_a, _ = await _ssh_run_as_root(vm_config, "test -e /etc/forge_test_marker_a && echo present || echo absent")
-        check_b, _ = await _ssh_run_as_root(vm_config, "test -e /etc/forge_test_marker_b && echo present || echo absent")
+        check_a, _ = await _ssh_run_as_root(
+            vm_config, "test -e /etc/forge_test_marker_a && echo present || echo absent"
+        )
+        check_b, _ = await _ssh_run_as_root(
+            vm_config, "test -e /etc/forge_test_marker_b && echo present || echo absent"
+        )
         assert "present" in check_a, f"Marker A was lost: {check_a}"
         assert "absent" in check_b, f"Marker B persisted incorrectly: {check_b}"
 
@@ -254,6 +284,7 @@ class TestSnapshotLifecycle:
 # This is the central authority claim — the harness can recover from
 # anything the executor might do to the target.
 # =============================================================================
+
 
 class TestSnapshotRecoversFromBreakage:
     async def test_property_recovers_from_stopped_services(self, vm_config):
@@ -278,10 +309,13 @@ class TestSnapshotRecoversFromBreakage:
         # Remove NOPASSWD from the cloud-init sudoers file. This actually
         # breaks passwordless sudo (the Defaults:targetpw approach doesn't
         # override per-user NOPASSWD).
-        await _ssh_run_as_root(vm_config, """
+        await _ssh_run_as_root(
+            vm_config,
+            """
             sed -i 's/NOPASSWD://g' /etc/sudoers.d/90-cloud-init-users
             visudo -c >/dev/null 2>&1 || true
-        """)
+        """,
+        )
         # Verify broken
         ok_sudo, _ = await check_sudo_healthy(vm_config)
         assert ok_sudo is False
@@ -320,10 +354,13 @@ class TestSnapshotRecoversFromBreakage:
         assert diag_initial["mission_healthy"]
 
         # Break in two ways simultaneously: stop nginx + remove NOPASSWD
-        await _ssh_run_as_root(vm_config, """
+        await _ssh_run_as_root(
+            vm_config,
+            """
             systemctl stop nginx
             sed -i 's/NOPASSWD://g' /etc/sudoers.d/90-cloud-init-users
-        """)
+        """,
+        )
         diag_broken = await gather_environment_diagnostics(vm_config)
         assert not diag_broken["services_ok"]
         assert not diag_broken["sudo_ok"]
@@ -335,6 +372,8 @@ class TestSnapshotRecoversFromBreakage:
 
         # Verify fully healed
         diag_healed = await gather_environment_diagnostics(vm_config)
-        assert diag_healed["services_ok"], f"Services not healed: {diag_healed.get('service_status')}"
+        assert diag_healed["services_ok"], (
+            f"Services not healed: {diag_healed.get('service_status')}"
+        )
         assert diag_healed["sudo_ok"], f"Sudo not healed: {diag_healed.get('sudo_probe')}"
-        assert diag_healed["mission_healthy"], f"Mission not healed"
+        assert diag_healed["mission_healthy"], "Mission not healed"

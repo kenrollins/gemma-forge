@@ -16,6 +16,7 @@ Design:
 All SSH runs use the shared ``_run_ssh`` helper so SSH config, timeouts,
 and error handling stay consistent with the STIG skill.
 """
+
 from __future__ import annotations
 
 import logging
@@ -30,6 +31,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class AdvisoryApplyResult:
     """Structured result of a single advisory apply."""
+
     advisory_id: str
     exit_code: int
     stdout: str
@@ -69,7 +71,7 @@ async def apply_advisory(
         f"echo '---DNF_EXIT---'; "
         f"echo $EC"
     )
-    stdout, stderr, _rc = await _run_ssh(config, script)
+    stdout, _stderr, _rc = await _run_ssh(config, script)
     raw = stdout
     exit_code = _parse_exit_marker(raw)
     stdout = raw.split("---DNF_EXIT---")[0]
@@ -121,8 +123,11 @@ def _parse_upgraded_packages(stdout: str) -> list[str]:
 
 
 _REBOOT_KEYWORDS = (
-    "reboot required", "reboot is needed", "reboot your system",
-    "please reboot", "need to reboot",
+    "reboot required",
+    "reboot is needed",
+    "reboot your system",
+    "please reboot",
+    "need to reboot",
 )
 
 
@@ -157,7 +162,7 @@ async def list_pending_advisories(
     if severity:
         filter_arg = f" --sec-severity={severity}"
     script = f"sudo dnf updateinfo list --security{filter_arg} 2>&1 || true"
-    stdout, stderr, _rc = await _run_ssh(config, script)
+    stdout, _stderr, _rc = await _run_ssh(config, script)
     raw = stdout
 
     # Each line looks like:
@@ -194,7 +199,7 @@ async def check_needs_reboot(
     on ambiguous signals.
     """
     script = "sudo needs-restarting -r > /dev/null 2>&1; echo EXIT:$?"
-    stdout, stderr, _rc = await _run_ssh(config, script)
+    stdout, _stderr, _rc = await _run_ssh(config, script)
     raw = stdout
     m = re.search(r"EXIT:(\d+)", raw)
     if not m:
@@ -217,7 +222,7 @@ async def installed_package_diff(
     ``openssl-3.0.7-4.el9_5.1.x86_64``).
     """
     script = "rpm -qa --queryformat '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}\\n' | sort"
-    stdout, stderr, _rc = await _run_ssh(config, script)
+    stdout, _stderr, _rc = await _run_ssh(config, script)
     raw = stdout
     current = {line.strip() for line in raw.splitlines() if line.strip()}
     before = set(before_nvras)

@@ -27,12 +27,13 @@ constraint is currently *active* (rule should be deferred). Register it
 in ``_PREDICATES``. The schema is open for extension; current predicates
 cover the known cases (one, ``category_nearly_complete``, as of Run 6).
 """
+
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Optional
 
 import yaml
 
@@ -48,6 +49,7 @@ class OrderingConstraint:
     state returns True. ``reason`` is the human-readable explanation
     logged when the constraint fires.
     """
+
     rule_id: str
     predicate: str
     params: dict
@@ -65,9 +67,7 @@ def _category_nearly_complete(params: dict, failing_rules: list[dict]) -> bool:
     """
     category = params["category"]
     remaining_lte = params["remaining_lte"]
-    same_category_count = sum(
-        1 for r in failing_rules if r.get("category") == category
-    )
+    same_category_count = sum(1 for r in failing_rules if r.get("category") == category)
     # Constraint is ACTIVE (defer) whenever the count is ABOVE threshold.
     # At count == threshold the constraint releases — exactly the moment
     # where the protected rule is one of the last ``remaining_lte + 1``
@@ -97,8 +97,7 @@ def _deferrable_reboot(params: dict, failing_rules: list[dict]) -> bool:
     # So "non-reboot rules still pending" = any rule whose
     # requires_reboot metadata is falsy.
     non_reboot_pending = sum(
-        1 for r in failing_rules
-        if not (r.get("metadata") or {}).get("requires_reboot")
+        1 for r in failing_rules if not (r.get("metadata") or {}).get("requires_reboot")
     )
     return non_reboot_pending > 0
 
@@ -123,7 +122,7 @@ def load_constraints_from_manifest(skill_dir: Path) -> list[OrderingConstraint]:
     try:
         with open(manifest_path) as f:
             raw = yaml.safe_load(f) or {}
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning("ordering: skill.yaml parse error at %s: %s", manifest_path, exc)
         return []
 
@@ -139,15 +138,18 @@ def load_constraints_from_manifest(skill_dir: Path) -> list[OrderingConstraint]:
             if predicate not in _PREDICATES:
                 logger.warning(
                     "ordering: unknown predicate '%s' in constraint %d; skipping",
-                    predicate, i,
+                    predicate,
+                    i,
                 )
                 continue
-            constraints.append(OrderingConstraint(
-                rule_id=rule_id,
-                predicate=predicate,
-                params=params,
-                reason=reason,
-            ))
+            constraints.append(
+                OrderingConstraint(
+                    rule_id=rule_id,
+                    predicate=predicate,
+                    params=params,
+                    reason=reason,
+                )
+            )
         except (KeyError, TypeError) as exc:
             logger.warning("ordering: malformed constraint %d: %s", i, exc)
             continue
@@ -171,10 +173,12 @@ def is_deferred(
         return False
     try:
         return predicate_fn(constraint.params, failing_rules)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning(
             "ordering: predicate %s raised on %s: %s; allowing rule",
-            constraint.predicate, constraint.rule_id, exc,
+            constraint.predicate,
+            constraint.rule_id,
+            exc,
         )
         return False
 
@@ -212,9 +216,7 @@ def filter_deferred(
 
     # Split constraints by scope: exact rule_id (fast path) vs wildcard
     # (broadcast path, evaluated per-rule).
-    exact: dict[str, OrderingConstraint] = {
-        c.rule_id: c for c in constraints if c.rule_id != "*"
-    }
+    exact: dict[str, OrderingConstraint] = {c.rule_id: c for c in constraints if c.rule_id != "*"}
     wildcard: list[OrderingConstraint] = [c for c in constraints if c.rule_id == "*"]
 
     visible: list[dict] = []

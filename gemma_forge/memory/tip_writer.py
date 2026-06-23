@@ -23,11 +23,11 @@ Those are additive later. Getting the Postgres write path right now
 means the Reflector prompt change in F-next can flip over without any
 schema churn.
 """
+
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Optional
 
 from psycopg_pool import ConnectionPool
 
@@ -51,17 +51,18 @@ class Tip:
     lands. ``mechanism`` is optional at the dataclass level to tolerate
     backfilled tips; the Reflector parser enforces it for new writes.
     """
+
     text: str
-    tip_type: str = "recovery"                  # strategy | recovery | optimization | warning
-    mechanism: Optional[str] = None             # REQUIRED for new tips (Reflector parser enforces)
-    trigger_conditions: Optional[list[str]] = None
+    tip_type: str = "recovery"  # strategy | recovery | optimization | warning
+    mechanism: str | None = None  # REQUIRED for new tips (Reflector parser enforces)
+    trigger_conditions: list[str] | None = None
     application_context: list[str] = field(default_factory=list)
-    source_attempt_id: Optional[int] = None
-    source_run_id: Optional[str] = None
-    source_rule_id: Optional[str] = None
-    outcome_at_source_value: Optional[float] = None
-    outcome_at_source_confidence: Optional[float] = None
-    environment_tag: Optional[str] = None
+    source_attempt_id: int | None = None
+    source_run_id: str | None = None
+    source_rule_id: str | None = None
+    outcome_at_source_value: float | None = None
+    outcome_at_source_confidence: float | None = None
+    environment_tag: str | None = None
     # embedding deliberately absent — added by the Phase G backfill/
     # writer once an embedder is wired in.
 
@@ -73,10 +74,10 @@ class TipWriter:
     the harness and the backfill job share connection state.
     """
 
-    def __init__(self, skill: str = "stig", *, pool: Optional[ConnectionPool] = None):
+    def __init__(self, skill: str = "stig", *, pool: ConnectionPool | None = None):
         self.skill = skill
         self._role = f"forge_{skill}"
-        self._pool: Optional[ConnectionPool] = pool
+        self._pool: ConnectionPool | None = pool
 
     def _conn(self):
         if self._pool is None:
@@ -115,7 +116,7 @@ class TipWriter:
                         tip.text,
                         tip.tip_type,
                         tip.mechanism,
-                        tip.trigger_conditions,        # psycopg maps list→text[]
+                        tip.trigger_conditions,  # psycopg maps list→text[]
                         tip.application_context,
                         tip.source_attempt_id,
                         tip.source_run_id,
@@ -127,8 +128,12 @@ class TipWriter:
                 )
                 new_id = cur.fetchone()[0]
             conn.commit()
-        logger.debug("tip_writer: inserted tip id=%d src_rule=%s type=%s",
-                     new_id, tip.source_rule_id, tip.tip_type)
+        logger.debug(
+            "tip_writer: inserted tip id=%d src_rule=%s type=%s",
+            new_id,
+            tip.source_rule_id,
+            tip.tip_type,
+        )
         return new_id
 
     def write_many(self, tips: list[Tip]) -> list[int]:
@@ -141,9 +146,7 @@ class TipWriter:
             return []
         for tip in tips:
             if tip.tip_type not in _VALID_TIP_TYPES:
-                raise ValueError(
-                    f"TipWriter.write_many: invalid tip_type {tip.tip_type!r}"
-                )
+                raise ValueError(f"TipWriter.write_many: invalid tip_type {tip.tip_type!r}")
             if not tip.text or not tip.text.strip():
                 raise ValueError("TipWriter.write_many: tip.text must be non-empty")
 

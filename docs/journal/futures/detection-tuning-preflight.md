@@ -166,12 +166,12 @@ again, see precision improve.
 The build mirrors the STIG/CVE skill structure. Read those for the
 pattern before writing new code:
 
-- [`skills/stig-rhel9/`](../../../skills/stig-rhel9/) — the most
+- [`skills/stig-rhel9/`](https://github.com/kenrollins/gemma-forge/tree/main/) — the most
   fleshed-out skill; canonical reference
-- [`skills/cve-response/`](../../../skills/cve-response/) — the
+- [`skills/cve-response/`](https://github.com/kenrollins/gemma-forge/tree/main/) — the
   second skill; shows how reuse the harness pattern with
   domain-specific extensions
-- [`gemma_forge/harness/interfaces.py`](../../../gemma_forge/harness/interfaces.py) —
+- [`gemma_forge/harness/interfaces.py`](https://github.com/kenrollins/gemma-forge/blob/main/gemma_forge/harness/interfaces.py) —
   the SkillRuntime / Evaluator / WorkQueue / Executor / Checkpoint
   Protocol contracts
 
@@ -267,9 +267,9 @@ automation" without the cross-corpus claim.
 4. [`adr/0019-context-graph-outcome-attribution.md`](../../adr/0019-context-graph-outcome-attribution.md) —
    the graded outcome + DEF-27 tip-follow scoring this skill will
    inherit automatically
-5. [`skills/stig-rhel9/runtime.py`](../../../skills/stig-rhel9/runtime.py) —
+5. [`skills/stig-rhel9/runtime.py`](https://github.com/kenrollins/gemma-forge/blob/main/skills/stig-rhel9/runtime.py) —
    the most complete skill implementation; mirror its structure
-6. [`gemma_forge/harness/interfaces.py`](../../../gemma_forge/harness/interfaces.py) —
+6. [`gemma_forge/harness/interfaces.py`](https://github.com/kenrollins/gemma-forge/blob/main/gemma_forge/harness/interfaces.py) —
    the Protocol contracts the skill needs to satisfy
 7. [`journey/38.7-runs-8-and-9-what-the-data-said.md`](../journey/38.7-runs-8-and-9-what-the-data-said.md)
    and

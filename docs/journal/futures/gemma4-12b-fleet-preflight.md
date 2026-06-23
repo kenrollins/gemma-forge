@@ -183,9 +183,9 @@ clean:
    the memory stack this experiment puts a number on
 4. [`adr/0015`](../../adr/0015-gemma-4-model-lineup.md) — the
    measured-not-assumed precedent; the Architect quality bar
-5. [`infra/vllm/scripts/bakeoff/README.md`](../../../infra/vllm/scripts/bakeoff/README.md)
+5. [`infra/vllm/scripts/bakeoff/README.md`](https://github.com/kenrollins/gemma-forge/blob/main/infra/vllm/scripts/bakeoff/README.md)
    — serve + stop/restore mechanics (shared, boot-enabled 31B)
-6. [`gemma_forge/harness/loop.py`](../../../gemma_forge/harness/loop.py) —
+6. [`gemma_forge/harness/loop.py`](https://github.com/kenrollins/gemma-forge/blob/main/gemma_forge/harness/loop.py) —
    the loop that runs each condition
 7. [`journey/09-the-nemotron-experiment`](../journey/09-the-nemotron-experiment.md)
    — measured-outcomes-only discipline for model/role changes

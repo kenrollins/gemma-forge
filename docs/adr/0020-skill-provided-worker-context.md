@@ -136,5 +136,5 @@ If Run 10 lands in those ranges, DEF-28's projected lift is empirically validate
 - [`journey/38.7`](../journal/journey/38.7-runs-8-and-9-what-the-data-said.md) — the four-run analysis that surfaced both findings.
 - [`architecture/02`](../journal/architecture/02-context-graphs-decision-provenance.md) — the per-retrieval causal pattern this builds on.
 - [`adr/0019`](0019-context-graph-outcome-attribution.md) — the prior DEF-26/27 decisions this ADR amends with coefficient tuning + DEF-03 consumer-side completion.
-- [`deferred.md`](../deferred.md) DEF-28, DEF-29 (reboot adoption — next change), DEF-03.
+- `deferred.md` DEF-28, DEF-29 (reboot adoption — next change), DEF-03.
 - OpenSCAP / SCAP datastream: `/usr/share/xml/scap/ssg/content/ssg-rl9-ds.xml` on the target VM.

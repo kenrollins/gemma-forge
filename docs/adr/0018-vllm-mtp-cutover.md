@@ -222,4 +222,4 @@ that wouldn't be rebuilt at startup from `/data/triton/weights/`.
 - [vLLM MTP feature docs](https://docs.vllm.ai/en/latest/features/speculative_decoding/mtp/)
 - [`journey/38`](../journal/journey/38-mtp-in-practice.md) — the production datapoint with the fix-rate regression named
 - [`gotchas/mtp-streaming-usage.md`](../journal/gotchas/mtp-streaming-usage.md) — the streaming + usage.completion_tokens caveat
-- [`deferred.md`](../deferred.md) DEF-23, DEF-24, DEF-25 — the observability work that pairs with this ADR but ships in Run 8's pre-flight
+- `deferred.md` DEF-23, DEF-24, DEF-25 — the observability work that pairs with this ADR but ships in Run 8's pre-flight

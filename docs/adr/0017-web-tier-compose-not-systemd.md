@@ -27,7 +27,7 @@ for the UI and API.
 
 The web tier runs as two Docker Compose services — `forge-api` and
 `forge-ui` — under the existing `app` profile in
-[docker-compose.yml](../../docker-compose.yml). Bring-up is
+[docker-compose.yml](https://github.com/kenrollins/gemma-forge/blob/main/docker-compose.yml). Bring-up is
 `make app-up` (alias for `docker compose --profile app up -d`).
 Reboot recovery is handled by Docker's `restart: unless-stopped`.
 No systemd units on the host.

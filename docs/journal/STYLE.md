@@ -159,7 +159,7 @@ callouts earn their admonitions. Drift usually starts there.
 
 ## Related
 
-- [`deferred.md`](../deferred.md) — the debt/opportunity registry. Style
+- `deferred.md` — the debt/opportunity registry. Style
   guide follows the same discipline: curate, keep small, pain signal per entry.
 - [`drafts/journal-editorial-review.md`](https://github.com/kenrollins/gemma-forge/blob/main/docs/drafts/journal-editorial-review.md)
   — the 2026-04-12 editorial findings that drove the voice pass. Longer

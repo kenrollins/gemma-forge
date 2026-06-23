@@ -77,7 +77,7 @@ That's an uncomfortable result to hold. The V2 plumbing works: 612 `tip_added` e
 Three possibilities, in order of how much evidence I have for each:
 1. **Wrong problem**: The cascade costs 18 rules outright. No memory system closes those. They need a harness-level ordering fix. (Strongest evidence; Run 6 tests this.)
 2. **Right problem, wrong priors**: Recovery tips are noisy (entry 32 traces three cases). If a tip is "attempt X failed" without "because Y," the Worker dutifully avoids X — including the cases where X would have worked. Eviction should filter these out; it hasn't because eviction has never run. (Medium evidence; Run 6's pre-run consolidation tests this.)
-3. **Wrong architecture**: V2's prefix-similarity + hit-rate composite is too crude. A-MEM-style semantic linking and AgeMem-style learned policy would do better. (Weak evidence — deferred to V3 in [`deferred.md`](../../deferred.md) DEF-06 and DEF-07.)
+3. **Wrong architecture**: V2's prefix-similarity + hit-rate composite is too crude. A-MEM-style semantic linking and AgeMem-style learned policy would do better. (Weak evidence — deferred to V3 in `deferred.md` DEF-06 and DEF-07.)
 
 Run 6 tests (1) directly via the ordering constraint and (2) indirectly via eviction-before-launch. Entry 32 covers the design.
 
@@ -92,5 +92,5 @@ I took seven bets on a run that was supposed to validate V2's aggregate claim. I
   post-mortem that V2 was supposed to close.
 - [`journey/25`](25-run-3-learning-plateaus.md) — where "prompt guidance
   is not enforcement" first got flagged.
-- [`deferred.md`](../../deferred.md) — the registry where DEF-02 now
+- `deferred.md` — the registry where DEF-02 now
   tracks the general prompt-vs-enforcement pattern.

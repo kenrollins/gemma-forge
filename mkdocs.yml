@@ -89,6 +89,7 @@ plugins:
 exclude_docs: |
   drafts/
   host-setup.md
+  deferred.md
 
 validation:
   nav:
@@ -152,9 +153,32 @@ nav:
       - 35 - Building the CVE Skill in a Day: journal/journey/35-building-cve-in-a-day.md
       - 36 - Per-Family Reboot Batching: journal/journey/36-per-family-reboot-batching.md
       - 37 - Per-Family Reboot Batching Lands: journal/journey/37-per-family-reboot-batching-landed.md
+      - 38 - MTP Bought 6.9 Hours and Cost 8 Rules: journal/journey/38-mtp-in-practice.md
+      - 38.5 - The Cryptography Regression Was Misleading Tips, Not Drafter Randomness: journal/journey/38.5-the-cryptography-regression-postmortem.md
+      - 38.6 - Context Graphs Are Not a Future Feature — They're What Run 7's Cryptography Failure Demanded: journal/journey/38.6-context-graphs-and-the-tip-causal-signal.md
+      - 38.7 - Run 8 Recovered, Run 9 Regressed — and the OpenSCAP Scanner Gap Has Always Been the Real Story: journal/journey/38.7-runs-8-and-9-what-the-data-said.md
+      - 38.8 - How We Missed the Descriptions Across Seven Runs — A Retrospective: journal/journey/38.8-how-we-missed-the-descriptions.md
+      - "38.9 - DEF-28 in Production: Run 10 Finished in 5.95 Hours at 89.6% Fix Rate": journal/journey/38.9-def-28-in-production.md
+      - "38.10 - Bets for Run 11: Under Ten Escalations, or the Theory Has a Hole": journal/journey/38.10-bets-for-run-11.md
+      - "38.11 - Run 11 — Grading the Bets: Three Hits, Three Misses, One That Cost Us the Headline": journal/journey/38.11-run-11-grading-the-bets.md
+      - "38.12 - The Wrong Diagnosis and the RSA Key: A 90-Minute Production-Grade Pivot": journal/journey/38.12-the-wrong-diagnosis-and-the-rsa-key.md
+      - "38.13 - Run 14 — The Arc Closes at 90.3%: DEF-29 Verified End-to-End, the Ceiling Named": journal/journey/38.13-run-14-the-arc-closes.md
+      - 39 - The Third Skill Ships, and the Harness Isn't STIG-Shaped: journal/journey/39-detection-tuning-third-skill-ships.md
+      - 40 - Back to the Drawing Board — the Fourth Skill Becomes Autonomous Pen-Testing: journal/journey/40-fourth-skill-pentest-pivot.md
+      - 40.5 - Phase 1 Lands Clean — The Intel Corpus Pipeline: journal/journey/40.5-phase-1-intel-corpus-lands.md
+      - 40.6 - Phase 2 Ends With a Real Architectural Finding: journal/journey/40.6-phase-2-the-vendor-fallback-discovery.md
+      - 40.7 - Phase 3 — The Skill Stands Up Without an Agent in the Loop: journal/journey/40.7-phase-3-skill-stands-up.md
+      - "41 - The Honest Run 1 vs Run 2: +0pp, and What the Failures Surface": journal/journey/41-pentest-first-run-and-measurement.md
+      - "42 - Straight-Up: the 12B Sees the Same Memory and Still Can't Crack the Hard Rule": journal/journey/42-12b-vs-31b-straight-up.md
+      - "43 - Memory Isn't Reasoning: Where the 12B Hits Its Ceiling": journal/journey/43-memory-isnt-reasoning.md
   - Futures:
       - Overview: journal/futures/index.md
       - The Harness Is a Training Data Factory: journal/futures/harness-as-training-data-factory.md
+      - Detection Engineering as a Third Skill — Sigma Rule Tuning Against Labeled Corpora: journal/futures/detection-tuning-skill.md
+      - Detection-Tuning Skill — Pre-Flight Checklist + Build Sequence: journal/futures/detection-tuning-preflight.md
+      - Autonomous Network Penetration Testing — Fourth Skill: journal/futures/pentest-skill.md
+      - Pen-test Skill — Pre-Flight Findings + Build Sequence: journal/futures/pentest-skill-preflight.md
+      - Gemma 4 12B vs 31B — Capability-vs-System Experiment Protocol: journal/futures/gemma4-12b-fleet-preflight.md
   - Improvements:
       - 01 - Architect Re-engagement: journal/improvements/01-architect-reengagement.md
       - 02 - Worker Single-Action: journal/improvements/02-worker-single-action-enforcement.md
@@ -178,6 +202,11 @@ nav:
       - Transformers + Gemma 4: journal/gotchas/transformers-gemma4.md
       - Triton vLLM Version Gap: journal/gotchas/triton-vllm-version.md
       - vLLM Tool Call Parser: journal/gotchas/vllm-tool-call-parser.md
+      - Adaptive concurrency clutch is built and deliberately deferred: journal/gotchas/clutch-not-wired.md
+      - Running a clean model A/B against production memory without scarring it: journal/gotchas/model-ab-on-live-harness.md
+      - MTP speculative decoding silently breaks naive SSE token counters: journal/gotchas/mtp-streaming-usage.md
+      - Five things smokes caught in Phase 3 of the pen-test skill: journal/gotchas/pentest-phase-3-architectural-surprises.md
+      - Shared memory DB leaks lessons across skills: journal/gotchas/shared-memory-db.md
   - Reference:
       - Adding a Skill: adding-a-skill.md
       - ADRs:
@@ -193,6 +222,14 @@ nav:
           - 0014 - Triton + vLLM Director as Shared Host Service: adr/0014-triton-vllm-director-shared-host-service.md
           - 0015 - Gemma 4 Model Lineup: adr/0015-gemma-4-model-lineup.md
           - 0016 - Graphiti + Neo4j + Postgres Memory Stack: adr/0016-graphiti-neo4j-postgres-memory-stack.md
+          - 0017 - Web tier runs under docker compose, not systemd: adr/0017-web-tier-compose-not-systemd.md
+          - 0018 - vLLM 0.21.0 + Gemma 4 MTP speculative decoding for production inference: adr/0018-vllm-mtp-cutover.md
+          - 0019 - Context-graph outcome attribution — graded outcome + per-retrieval causal signal: adr/0019-context-graph-outcome-attribution.md
+          - 0020 - Skill-provided Worker context (DEF-28) + follow-aware credit (DEF-03): adr/0020-skill-provided-worker-context.md
+          - 0021 - STIG adopts the per-family reboot pattern + OVAL criteria enrichment: adr/0021-stig-reboot-adoption-and-oval-enrichment.md
+          - "0022 - Detection-tuning as the third skill — graded outcomes, corpus-as-input, manifest dispatch": adr/0022-detection-tuning-skill-architecture.md
+          - 0023 - Network pen-test skill — dynamic-lookup intel corpus + containerized lab: adr/0023-network-pentest-skill-architecture.md
+          - "0024 - Evaluate Gemma 4 12B vs 31B (bf16) — does the system close the model-size gap?": adr/0024-gemma4-12b-data-parallel-fleet-evaluation.md
           - Template: adr/template.md
   - About: about.md
 

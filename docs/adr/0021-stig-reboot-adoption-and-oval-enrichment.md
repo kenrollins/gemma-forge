@@ -158,5 +158,5 @@ This ADR's decisions (DEF-29 + DEF-28-deeper) are accepted, deployed, and verifi
 - [`journey/36`](../journal/journey/36-per-family-reboot-batching.md) — CVE's per-family reboot design.
 - [`journey/37`](../journal/journey/37-per-family-reboot-batching-landed.md) — CVE's per-family reboot implementation that DEF-29 mirrors.
 - [`journey/38.9`](../journal/journey/38.9-def-28-in-production.md) — R10 result that motivated DEF-29 + DEF-28-deeper.
-- [`deferred.md`](../deferred.md) DEF-29, DEF-28-deeper (now both shipping; promotion-to-journey when Run 11 lands).
+- `deferred.md` DEF-29, DEF-28-deeper (now both shipping; promotion-to-journey when Run 11 lands).
 - SCAP datastream on the target VM: `/usr/share/xml/scap/ssg/content/ssg-rl9-ds.xml` (XCCDF descriptions + embedded OVAL definitions).

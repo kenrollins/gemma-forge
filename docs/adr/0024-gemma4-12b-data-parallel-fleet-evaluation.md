@@ -11,7 +11,7 @@ On 2026-06-03 Google released **Gemma 4 12B** — an 11.95B dense,
 decoder-only, multimodal model (48 layers, 256K context). Published
 benchmarks put it neck-and-neck with the 26B MoE and a notch under the
 31B Dense (~77% MMLU-Pro, ~79% GPQA-Diamond). The live inference plane
-([`config/models.yaml`](../../config/models.yaml),
+([`config/models.yaml`](https://github.com/kenrollins/gemma-forge/blob/main/config/models.yaml),
 [`journey/12-bf16-tp4-full-precision`](../journal/journey/12-bf16-tp4-full-precision.md))
 is a single **31B bf16 TP=4** engine shared sequentially by all LLM roles.
 
@@ -47,7 +47,7 @@ point: deploy the cheaper, parallelizable, hardware-portable model and let
 the system carry the difference. That generalizes off this box to any
 architecture. If it fails — if raw reasoning is irreplaceable for the
 Architect and the system cannot close the gap — that is an equally
-valuable result: "[non-determinism has a cost](../../README.md)" with a
+valuable result: "[non-determinism has a cost](https://github.com/kenrollins/gemma-forge/blob/main/README.md)" with a
 number attached, and a measured floor on how small the model can go.
 
 The standing hazard from

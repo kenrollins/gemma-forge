@@ -158,7 +158,7 @@ What Run 6 gave CVE is the confidence that mechanism-field, ordering-constraints
   the baseline against which Run 6 is measured.
 - [`docs/research/cve-agent-landscape-2026-04.md`](../../research/cve-agent-landscape-2026-04.md)
   — landscape research captured today. Nothing in it changes based on Run 6.
-- [`deferred.md`](../../deferred.md) — Track A tunings for runtime
+- `deferred.md` — Track A tunings for runtime
   (per-rule budget adaptation, tip decay, scanner-gap threshold)
   are the natural follow-on. Not landed as a DEF yet because
   their design needs the CVE-run data before it's meaningful.

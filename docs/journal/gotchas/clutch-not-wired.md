@@ -15,7 +15,7 @@ one_line: "The clutch reads category difficulty from the memory store and recomm
 
 ## Status
 
-**Deliberately deferred, DEF-01 in [`docs/deferred.md`](../../deferred.md).**
+**Deliberately deferred, DEF-01 in `docs/deferred.md`.**
 The clutch was never accidentally left unwired. We built it in V5
 with the intent to wire it after cross-run memory had Run 1+Run 2
 data to reason about. Every run since has kept it serial because the

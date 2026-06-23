@@ -85,7 +85,7 @@ run_log.log("clutch_initialized", "system", clutch.snapshot())
 
 And that's it. `recommend_workers()` is never called. `select_batch()` is never called.
 
-This entry is where that deferral finally gets promoted from "we'll get to it next run" to a real registry entry. [`deferred.md`](../../deferred.md) captures it as DEF-01, with the UI gate recorded alongside the wiring work: an **active-queue band** — a single "now processing" region that expands from 1 card into N cards as clutch recommendations change, with a clutch meter above the band. The UI narrows and widens as difficulty changes. Adaptive concurrency becomes the visible subject rather than a hidden optimization. That bundle — concurrency + UI overhaul — waits for a weekend that isn't this one either.
+This entry is where that deferral finally gets promoted from "we'll get to it next run" to a real registry entry. `deferred.md` captures it as DEF-01, with the UI gate recorded alongside the wiring work: an **active-queue band** — a single "now processing" region that expands from 1 card into N cards as clutch recommendations change, with a clutch meter above the band. The UI narrows and widens as difficulty changes. Adaptive concurrency becomes the visible subject rather than a hidden optimization. That bundle — concurrency + UI overhaul — waits for a weekend that isn't this one either.
 
 ## Eviction has never run
 
@@ -102,7 +102,7 @@ Both problems close together. Run 6 ships three changes:
 
 Three distinct problems surfaced from this post-mortem — tip quality, clutch wiring, consolidation scheduling — and a fourth from entry 31 (prompt-level ordering guidance). Tip quality and consolidation scheduling were architectural drift: real regressions that wouldn't show up in a JSONL query and only surface when someone steps back and asks "what else has this same shape?" The clutch isn't drift — it's a deliberate deferral we kept renewing without writing down the terms. Either way, the failure mode is the same: things get mentioned in passing, nobody writes them down, three weeks later one of them shows up as a symptom and an hour gets spent rediscovering or relitigating it.
 
-The registry fixes the social problem that enables the drift: things get mentioned in passing, nobody writes them down, three weeks later one of them shows up as a symptom and an hour gets spent rediscovering it. [`docs/deferred.md`](../../deferred.md) now tracks seven architectural items — three debt, four opportunity — each with a *pain signal*: the specific symptom that tells us "this one is ready to be promoted out of this file." The pain signal is the thing that stops this from being a graveyard.
+The registry fixes the social problem that enables the drift: things get mentioned in passing, nobody writes them down, three weeks later one of them shows up as a symptom and an hour gets spent rediscovering it. `docs/deferred.md` now tracks seven architectural items — three debt, four opportunity — each with a *pain signal*: the specific symptom that tells us "this one is ready to be promoted out of this file." The pain signal is the thing that stops this from being a graveyard.
 
 And `docs/journal/STYLE.md` does the same work for the journal itself. Thirty entries of earned voice had drifted into conversation-only guidance. Now it lives on disk. Entry 31 and this entry are the first two written against the explicit style guide — Luu observational restraint as the spine, Weir predicament-first openings, Levine permission to name the absurd when an entire adaptive-concurrency subsystem is fully tested and never called.
 
@@ -124,7 +124,7 @@ The plumbing worked in Run 5. The policies around the plumbing — what gets int
   supposed to prove.
 - [`journey/28`](28-run-4-and-the-coarseness-problem.md) — the V1
   coarseness problem that motivated V2.
-- [`deferred.md`](../../deferred.md) — the registry DEF-01 (clutch),
+- `deferred.md` — the registry DEF-01 (clutch),
   DEF-02 (prompt-vs-enforcement), DEF-03 (dream pass granularity) all
   land from the discoveries in this entry.
 - [`journal/STYLE.md`](../STYLE.md) — the voice guide, first applied

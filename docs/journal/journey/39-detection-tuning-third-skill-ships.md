@@ -193,9 +193,9 @@ The architecture worked. Every load-bearing claim from ADR-0022 held:
 - Cross-run learning transferred tips across corpora measurably ✓
 - 90 tips persisted, dream pass ran, eviction worked ✓
 
-But the demo headline was **0 fixed / 5 escalated** in both runs.
-"We escalated less catastrophically the second time" is not a
-customer pitch.
+But the headline result was **0 fixed / 5 escalated** in both runs.
+"We escalated less catastrophically the second time" is not a result
+that stands on its own.
 
 Two compounding root causes:
 
@@ -217,14 +217,14 @@ Two compounding root causes:
 
 Both problems are downstream of "I picked detection-tuning to exercise
 the harness on a new problem shape" without enough rigor about whether
-the *customer-relevant version* of that shape was actually demoable on
+the *tractable version* of that shape was actually achievable on
 publicly available datasets. Detection engineering at production scale
 IS solved daily; doing it autonomously against fuzzy-labeled academic
 corpora with a strict generic-ML PASS bar is not the same problem.
 
 **Lesson for the project**: a skill that proves out the architecture
-is not automatically a skill that lands as a customer demo. Both
-properties matter.
+is not automatically a skill that produces a clean, standalone result.
+Both properties matter.
 
 ## Final disposition
 
@@ -233,8 +233,8 @@ Detection-tuning shipped as a working third skill on the harness
 The architecture is captured in ADR-0022. The runs and their
 honest verdict are captured here.
 
-The skill is **set aside as a customer demo**. It remains valuable
-as internal validation of the harness's handling of graded outcomes
+The skill is **set aside** — it didn't land as a standalone result. It
+remains valuable as internal validation of the harness's handling of graded outcomes
 and corpus-as-input shapes — both unproven before this skill, both
 empirically supported after it. The cross-corpus tip-transfer
 claim landed.
@@ -243,5 +243,5 @@ The architectural pattern (graded skill + dynamic per-run input +
 multi-corpus support + cross-run measurement) carries forward. The
 NEXT skill, captured in [40](40-fourth-skill-pentest-pivot.md), pivots
 to a domain where the construct's properties — patient grinding,
-cross-run memory, sovereignty, token-as-input — converge on a real
-customer pull instead of an architectural exercise.
+cross-run memory, sovereignty, token-as-input — converge on a result
+that stands on its own merits, not just an architectural exercise.

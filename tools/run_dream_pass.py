@@ -11,6 +11,7 @@ Usage:
     # Specify environment tag:
     ./tools/run_dream_pass.py --env-tag baseline-20260414
 """
+
 from __future__ import annotations
 
 import argparse
@@ -23,14 +24,16 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
 
-async def main_async(run_id: str | None, env_tag: str | None, skill: str, force: bool = False) -> int:
+async def main_async(
+    run_id: str | None, env_tag: str | None, skill: str, force: bool = False
+) -> int:
     from gemma_forge.dream.pass_ import run_dream_pass
 
     if run_id is None:
         # Auto-detect the most recent run
-        import os
-        from gemma_forge.dream.pass_ import _load_env, _pg_conninfo
         import psycopg
+
+        from gemma_forge.dream.pass_ import _load_env, _pg_conninfo
 
         _load_env(REPO_ROOT)
         with psycopg.connect(_pg_conninfo("forge_admin")) as conn:
@@ -73,12 +76,17 @@ async def main_async(run_id: str | None, env_tag: str | None, skill: str, force:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--run-id", default=None, help="Run ID to analyze (default: most recent)")
     ap.add_argument("--env-tag", default=None, help="Environment baseline tag (default: auto)")
     ap.add_argument("--skill", default="stig", help="Skill / group_id (default: stig)")
-    ap.add_argument("--force", action="store_true",
-                    help="Re-run even if run has already been dreamed (overrides idempotency guard).")
+    ap.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-run even if run has already been dreamed (overrides idempotency guard).",
+    )
     args = ap.parse_args()
 
     logging.basicConfig(

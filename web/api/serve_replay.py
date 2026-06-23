@@ -108,7 +108,11 @@ def _load_dashboard_config() -> dict:
 
 
 @app.get("/api/runs")
-def list_runs(skill: str | None = Query(default=None, description="Filter by skill_id (skill directory name, e.g. 'stig-rhel9')")):
+def list_runs(
+    skill: str | None = Query(
+        default=None, description="Filter by skill_id (skill directory name, e.g. 'stig-rhel9')"
+    ),
+):
     """List available run logs, optionally filtered by skill.
 
     Each run carries `skill_name` (display name from the manifest) and
@@ -122,15 +126,17 @@ def list_runs(skill: str | None = Query(default=None, description="Filter by ski
         skill_name, skill_id = _extract_skill_from_jsonl(f)
         if skill and skill_id != skill:
             continue
-        runs.append({
-            "filename": f.name,
-            "events": len(events),
-            "start": first.get("timestamp", ""),
-            "elapsed_s": last.get("elapsed_s", 0),
-            "summary": last.get("data", {}) if last.get("event_type") == "run_complete" else {},
-            "skill_name": skill_name,
-            "skill_id": skill_id,
-        })
+        runs.append(
+            {
+                "filename": f.name,
+                "events": len(events),
+                "start": first.get("timestamp", ""),
+                "elapsed_s": last.get("elapsed_s", 0),
+                "summary": last.get("data", {}) if last.get("event_type") == "run_complete" else {},
+                "skill_name": skill_name,
+                "skill_id": skill_id,
+            }
+        )
     return runs
 
 
@@ -174,8 +180,13 @@ def get_run_events(filename: str):
 async def stream_run(
     filename: str,
     speed: float = Query(default=5.0),
-    start_from: float = Query(default=0.0, description="Skip to this elapsed_s mark before streaming"),
-    resync: bool = Query(default=False, description="If true, emit skipped events instantly (no delay) up to start_from so the frontend can fast-forward its state"),
+    start_from: float = Query(
+        default=0.0, description="Skip to this elapsed_s mark before streaming"
+    ),
+    resync: bool = Query(
+        default=False,
+        description="If true, emit skipped events instantly (no delay) up to start_from so the frontend can fast-forward its state",
+    ),
 ):
     """Stream run events as SSE at accelerated speed.
 
@@ -330,26 +341,33 @@ def get_dashboard_state():
 def get_gpu_state():
     """Get current GPU state via nvidia-smi."""
     import subprocess
+
     try:
         result = subprocess.run(
-            ["nvidia-smi",
-             "--query-gpu=index,name,memory.used,memory.total,utilization.gpu,temperature.gpu,power.draw",
-             "--format=csv,noheader,nounits"],
-            capture_output=True, text=True, timeout=5,
+            [
+                "nvidia-smi",
+                "--query-gpu=index,name,memory.used,memory.total,utilization.gpu,temperature.gpu,power.draw",
+                "--format=csv,noheader,nounits",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         gpus = []
         for line in result.stdout.strip().split("\n"):
             parts = [p.strip() for p in line.split(",")]
             if len(parts) >= 7:
-                gpus.append({
-                    "index": int(parts[0]),
-                    "name": parts[1],
-                    "memory_used_mib": int(parts[2]),
-                    "memory_total_mib": int(parts[3]),
-                    "utilization_pct": int(parts[4]),
-                    "temperature_c": int(parts[5]),
-                    "power_w": float(parts[6]),
-                })
+                gpus.append(
+                    {
+                        "index": int(parts[0]),
+                        "name": parts[1],
+                        "memory_used_mib": int(parts[2]),
+                        "memory_total_mib": int(parts[3]),
+                        "utilization_pct": int(parts[4]),
+                        "temperature_c": int(parts[5]),
+                        "power_w": float(parts[6]),
+                    }
+                )
         return gpus
     except Exception as e:
         return {"error": str(e)}

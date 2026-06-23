@@ -21,6 +21,7 @@ This script:
 
 Run: ``./tools/graphiti_init.py --skill stig``
 """
+
 from __future__ import annotations
 
 import argparse
@@ -61,7 +62,7 @@ async def main(skill: str) -> None:
     os.environ.setdefault("OPENAI_API_KEY", "init-only-no-llm-calls")
     os.environ.setdefault("OPENAI_BASE_URL", "http://localhost:9999/init-only")
 
-    from graphiti_core import Graphiti  # noqa: E402
+    from graphiti_core import Graphiti
 
     bolt_port = os.environ.get("NEO4J_BOLT_HOST_PORT", "7687")
     uri = f"bolt://127.0.0.1:{bolt_port}"

@@ -48,6 +48,7 @@ preserved via the bi-temporal column.
 Usage:
   ./tools/backfill_tips_from_lessons.py --skill stig [--reset] [--dry-run]
 """
+
 from __future__ import annotations
 
 import argparse
@@ -122,8 +123,17 @@ def retire_prior_backfill(role: str) -> int:
 
 def lesson_to_tip(row: tuple) -> Tip:
     """Map one ``lessons_current`` row to a ``Tip`` dataclass."""
-    (_id, category, lesson, source_run_id, source_item_id,
-     _weight, _confidence, environment_tag, _created_at) = row
+    (
+        _id,
+        category,
+        lesson,
+        source_run_id,
+        source_item_id,
+        _weight,
+        _confidence,
+        environment_tag,
+        _created_at,
+    ) = row
     return Tip(
         text=lesson,
         tip_type="recovery",
@@ -141,11 +151,15 @@ def lesson_to_tip(row: tuple) -> Tip:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--skill", default="stig", help="Skill name (default: stig)")
-    parser.add_argument("--reset", action="store_true",
-                        help="Retire prior-backfill tips before re-inserting. "
-                             "Safe — retired tips are preserved in the table with retired_at set.")
-    parser.add_argument("--dry-run", action="store_true",
-                        help="Count and sample without inserting.")
+    parser.add_argument(
+        "--reset",
+        action="store_true",
+        help="Retire prior-backfill tips before re-inserting. "
+        "Safe — retired tips are preserved in the table with retired_at set.",
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Count and sample without inserting."
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 
@@ -169,7 +183,8 @@ def main() -> int:
     if existing > 0 and not args.reset:
         logger.warning(
             "Backfilled tips already exist; re-run with --reset to replace them, "
-            "or delete this check manually if you want to append. Exiting.")
+            "or delete this check manually if you want to append. Exiting."
+        )
         return 1
 
     if args.reset and existing > 0:
@@ -183,9 +198,13 @@ def main() -> int:
         logger.info("[dry-run] sample of what would be inserted:")
         for row in rows[:3]:
             tip = lesson_to_tip(row)
-            logger.info("  type=%-12s category=%s src_rule=%s text=%r",
-                        tip.tip_type, tip.application_context,
-                        tip.source_rule_id, tip.text[:100])
+            logger.info(
+                "  type=%-12s category=%s src_rule=%s text=%r",
+                tip.tip_type,
+                tip.application_context,
+                tip.source_rule_id,
+                tip.text[:100],
+            )
         logger.info("[dry-run] total to insert: %d", len(rows))
         return 0
 
@@ -194,19 +213,17 @@ def main() -> int:
     chunk_size = 200
     total_inserted = 0
     for chunk_start in range(0, len(rows), chunk_size):
-        chunk = rows[chunk_start:chunk_start + chunk_size]
+        chunk = rows[chunk_start : chunk_start + chunk_size]
         tips = [lesson_to_tip(r) for r in chunk]
         try:
             ids = writer.write_many(tips)
             total_inserted += len(ids)
             logger.info("  inserted %d/%d", total_inserted, len(rows))
-        except Exception as exc:  # noqa: BLE001
-            logger.error("chunk %d-%d failed: %s",
-                         chunk_start, chunk_start + len(chunk), exc)
+        except Exception as exc:
+            logger.error("chunk %d-%d failed: %s", chunk_start, chunk_start + len(chunk), exc)
             raise
 
-    logger.info("Backfill complete: %d tips inserted (all tip_type=recovery).",
-                total_inserted)
+    logger.info("Backfill complete: %d tips inserted (all tip_type=recovery).", total_inserted)
     return 0
 
 

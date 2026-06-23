@@ -30,20 +30,19 @@ Usage:
 The script reads the same Postgres credentials that the harness uses
 (from the project .env file). It is strictly read-only — no writes.
 """
+
 from __future__ import annotations
 
 import argparse
 import os
 import sys
 from pathlib import Path
-from typing import Any, Optional
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 import psycopg  # noqa: E402
-
 
 # ---------------------------------------------------------------------
 # Config + connection
@@ -111,7 +110,7 @@ def _flag(text: str, color: bool, level: str = "warn") -> str:
 # ---------------------------------------------------------------------
 
 
-def _resolve_run_id(conn: psycopg.Connection, schema: str, run_id: Optional[str]) -> str:
+def _resolve_run_id(conn: psycopg.Connection, schema: str, run_id: str | None) -> str:
     """If run_id is None, return the most recent run's id."""
     if run_id:
         return run_id
@@ -135,7 +134,7 @@ def section_tip_pool(conn: psycopg.Connection, schema: str, color: bool) -> None
         FROM tips
     """).fetchone()
     print(f"  active:        {row[0]:>6d}")
-    print(f"  retired:       {row[1]:>6d}  ({100 * row[1] / max(row[2],1):.1f}% of all-time)")
+    print(f"  retired:       {row[1]:>6d}  ({100 * row[1] / max(row[2], 1):.1f}% of all-time)")
     print(f"  total:         {row[2]:>6d}")
     print(f"  new last  7d:  {row[3]:>6d}")
     print(f"  new last 30d:  {row[4]:>6d}")
@@ -144,7 +143,8 @@ def section_tip_pool(conn: psycopg.Connection, schema: str, color: bool) -> None
 def section_run_retrievals(conn: psycopg.Connection, schema: str, run_id: str, color: bool) -> None:
     _section(f"2. Retrieval activity in run {run_id}", color)
     conn.execute(f"SET search_path TO {schema}")
-    row = conn.execute("""
+    row = conn.execute(
+        """
         SELECT
             count(*)                                                       AS total,
             count(*) FILTER (WHERE outcome_value IS NOT NULL)              AS scored,
@@ -156,29 +156,38 @@ def section_run_retrievals(conn: psycopg.Connection, schema: str, run_id: str, c
             count(*) FILTER (WHERE tip_followed_llm IS TRUE)               AS followed_llm,
             count(*) FILTER (WHERE tip_followed_emb IS NOT NULL)           AS embedded
         FROM tip_retrievals WHERE run_id = %s
-    """, (run_id,)).fetchone()
+    """,
+        (run_id,),
+    ).fetchone()
     total, scored, helpful, harmful, neutral, avg_outcome, judged, followed_llm, embedded = row
     print(f"  retrievals:           {total:>6d}")
     print(f"  with outcome scored:  {scored:>6d}")
     if scored:
         helpful_rate = 100 * helpful / scored
         flag = "ok" if helpful_rate > 40 else "warn" if helpful_rate > 25 else "bad"
-        print(f"  helpful (>0):         {helpful:>6d}  ({_flag(f'{helpful_rate:5.1f}%', color, flag)})")
+        print(
+            f"  helpful (>0):         {helpful:>6d}  ({_flag(f'{helpful_rate:5.1f}%', color, flag)})"
+        )
         print(f"  harmful (<0):         {harmful:>6d}")
         print(f"  neutral (=0):         {neutral:>6d}")
         print(f"  avg outcome:          {avg_outcome:>6.3f}")
     else:
         print(f"  {_flag('(no scored retrievals in this run)', color, 'dim')}")
-    print(f"  judged (LLM):         {judged:>6d}  {_flag('(DEF-27 active)' if judged else '(DEF-27 NOT yet scored — dream pass run yet?)', color, 'ok' if judged else 'warn')}")
+    print(
+        f"  judged (LLM):         {judged:>6d}  {_flag('(DEF-27 active)' if judged else '(DEF-27 NOT yet scored — dream pass run yet?)', color, 'ok' if judged else 'warn')}"
+    )
     print(f"  embedded:             {embedded:>6d}")
     if judged:
         print(f"  follow rate (LLM):    {100 * followed_llm / judged:>5.1f}%")
 
 
-def section_per_cohort_outcomes(conn: psycopg.Connection, schema: str, run_id: str, color: bool) -> None:
+def section_per_cohort_outcomes(
+    conn: psycopg.Connection, schema: str, run_id: str, color: bool
+) -> None:
     _section(f"3. Per-cohort retrieval helpfulness in run {run_id}", color)
     conn.execute(f"SET search_path TO {schema}")
-    rows = conn.execute("""
+    rows = conn.execute(
+        """
         SELECT
             date_trunc('day', t.created_at)::date AS cohort,
             count(t.id)                  AS tips_in_cohort,
@@ -194,18 +203,22 @@ def section_per_cohort_outcomes(conn: psycopg.Connection, schema: str, run_id: s
         HAVING count(r.tip_id) > 0
         ORDER BY 1 DESC
         LIMIT 30
-    """, (run_id,)).fetchall()
+    """,
+        (run_id,),
+    ).fetchall()
     if not rows:
         print(f"  {_flag('(no cohort data — no retrievals matched in this run)', color, 'dim')}")
         return
     print(f"  {'cohort':<12s} {'tips':>6s} {'retrievals':>11s} {'helpful%':>9s} {'foll%':>7s}")
-    for cohort, tips_count, retrievals, avg_o, llm_f, llm_i, llm_n in rows:
+    for cohort, tips_count, retrievals, avg_o, llm_f, llm_i, _llm_n in rows:
         helpful_pct = (100 * avg_o) if avg_o is not None else 0.0
         flag = "ok" if helpful_pct > 40 else "warn" if helpful_pct > 25 else "bad"
         judged_ct = (llm_f or 0) + (llm_i or 0)
         foll_pct = (100 * llm_f / judged_ct) if judged_ct else None
         foll_str = f"{foll_pct:5.1f}%" if foll_pct is not None else "  —  "
-        print(f"  {str(cohort):<12s} {tips_count:>6d} {retrievals:>11d} {_flag(f'{helpful_pct:7.1f}%', color, flag):>9s} {foll_str:>7s}")
+        print(
+            f"  {cohort!s:<12s} {tips_count:>6d} {retrievals:>11d} {_flag(f'{helpful_pct:7.1f}%', color, flag):>9s} {foll_str:>7s}"
+        )
 
 
 def section_misleading_tips(conn: psycopg.Connection, schema: str, color: bool) -> None:
@@ -237,14 +250,22 @@ def section_misleading_tips(conn: psycopg.Connection, schema: str, color: bool) 
         LIMIT 15
     """).fetchall()
     if not rows:
-        print(f"  {_flag('(no DEF-27-scored retrievals yet — run the dream pass on at least one run with the new scoring)', color, 'dim')}")
+        print(
+            f"  {_flag('(no DEF-27-scored retrievals yet — run the dream pass on at least one run with the new scoring)', color, 'dim')}"
+        )
         return
     print(f"  {'tip_id':>7s} {'n_ret':>5s} {'avg_out':>7s} {'fol':>4s} {'ign':>4s}  preview")
     for tip_id, preview, n, avg_o, followed, ignored in rows:
-        print(f"  {tip_id:>7d} {n:>5d} {avg_o:>7.3f} {followed:>4d} {ignored:>4d}  {_flag(preview, color, 'warn')}")
+        print(
+            f"  {tip_id:>7d} {n:>5d} {avg_o:>7.3f} {followed:>4d} {ignored:>4d}  {_flag(preview, color, 'warn')}"
+        )
     print()
-    print(f"  {_flag('These tips look helpful by outcome but their advice is rarely followed.', color, 'warn')}")
-    print(f"  {_flag('Candidates for retirement once retrieval ranker has more DEF-27 data.', color, 'warn')}")
+    print(
+        f"  {_flag('These tips look helpful by outcome but their advice is rarely followed.', color, 'warn')}"
+    )
+    print(
+        f"  {_flag('Candidates for retirement once retrieval ranker has more DEF-27 data.', color, 'warn')}"
+    )
 
 
 def section_outcome_distribution(conn: psycopg.Connection, schema: str, color: bool) -> None:
@@ -270,12 +291,20 @@ def section_outcome_distribution(conn: psycopg.Connection, schema: str, color: b
     print(f"  min/max:                 {mn} / {mx}")
     if harmful == 0:
         print()
-        print(f"  {_flag('FLAG: harmful column is zero across the entire history.', color, 'warn')}")
-        print(f"  {_flag('Binary outcome_value collapses 6 retrieval shapes onto {0,1}.', color, 'warn')}")
-        print(f"  {_flag('DEF-26 graded scoring should populate negative values once active.', color, 'warn')}")
+        print(
+            f"  {_flag('FLAG: harmful column is zero across the entire history.', color, 'warn')}"
+        )
+        print(
+            f"  {_flag('Binary outcome_value collapses 6 retrieval shapes onto {0,1}.', color, 'warn')}"
+        )
+        print(
+            f"  {_flag('DEF-26 graded scoring should populate negative values once active.', color, 'warn')}"
+        )
     if weak == 0 and strong > 0:
         print()
-        print(f"  {_flag('FLAG: outcomes are bimodal {0, 1.0}. DEF-26 graded scoring missing.', color, 'warn')}")
+        print(
+            f"  {_flag('FLAG: outcomes are bimodal {0, 1.0}. DEF-26 graded scoring missing.', color, 'warn')}"
+        )
 
 
 def section_def03_pain(conn: psycopg.Connection, schema: str, color: bool) -> None:
@@ -299,15 +328,25 @@ def section_def03_pain(conn: psycopg.Connection, schema: str, color: bool) -> No
         LIMIT 15
     """).fetchall()
     if not rows:
-        print(f"  {_flag('(no tips matching the DEF-03 pain signal — corpus looks clean here)', color, 'ok')}")
+        print(
+            f"  {_flag('(no tips matching the DEF-03 pain signal — corpus looks clean here)', color, 'ok')}"
+        )
         return
     print(f"  {'tip_id':>7s} {'src_v':>6s} {'n_ret':>5s} {'avg_out':>7s}  preview")
     for tip_id, src_v, n_ret, avg_o, preview in rows:
-        print(f"  {tip_id:>7d} {src_v:>6.2f} {n_ret:>5d} {avg_o:>7.3f}  {_flag(preview, color, 'warn')}")
+        print(
+            f"  {tip_id:>7d} {src_v:>6.2f} {n_ret:>5d} {avg_o:>7.3f}  {_flag(preview, color, 'warn')}"
+        )
     print()
-    print(f"  {_flag('These tips looked good at birth (outcome_at_source > 0.5) but', color, 'warn')}")
-    print(f"  {_flag('rarely help on retrieval. The DEF-03 dream-pass per-tip credit', color, 'warn')}")
-    print(f"  {_flag('rewrite would let the dream pass downweight them automatically.', color, 'warn')}")
+    print(
+        f"  {_flag('These tips looked good at birth (outcome_at_source > 0.5) but', color, 'warn')}"
+    )
+    print(
+        f"  {_flag('rarely help on retrieval. The DEF-03 dream-pass per-tip credit', color, 'warn')}"
+    )
+    print(
+        f"  {_flag('rewrite would let the dream pass downweight them automatically.', color, 'warn')}"
+    )
 
 
 # ---------------------------------------------------------------------
@@ -317,12 +356,9 @@ def section_def03_pain(conn: psycopg.Connection, schema: str, color: bool) -> No
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--skill", default="stig",
-                        help="Skill schema to audit (default: stig)")
-    parser.add_argument("--run-id", default=None,
-                        help="Run id to focus on (default: most recent)")
-    parser.add_argument("--no-color", action="store_true",
-                        help="Disable ANSI colors")
+    parser.add_argument("--skill", default="stig", help="Skill schema to audit (default: stig)")
+    parser.add_argument("--run-id", default=None, help="Run id to focus on (default: most recent)")
+    parser.add_argument("--no-color", action="store_true", help="Disable ANSI colors")
     args = parser.parse_args()
 
     _load_env()

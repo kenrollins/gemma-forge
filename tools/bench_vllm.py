@@ -12,6 +12,7 @@ captured there.
 Usage:
     python tools/bench_vllm.py --base-url http://localhost:8050 --model /weights/gemma-4-31B-it
 """
+
 from __future__ import annotations
 
 import argparse
@@ -28,7 +29,9 @@ PROMPT = (
 )
 
 
-def stream_complete(base_url: str, model: str, max_tokens: int, temperature: float = 0.0) -> tuple[float, float, int, int]:
+def stream_complete(
+    base_url: str, model: str, max_tokens: int, temperature: float = 0.0
+) -> tuple[float, float, int, int]:
     """Returns (ttft_s, tok_per_s, completion_tokens, sse_chunks).
 
     Uses `stream_options.include_usage` so the final SSE event carries
@@ -36,14 +39,16 @@ def stream_complete(base_url: str, model: str, max_tokens: int, temperature: flo
     decoding paths where one SSE chunk may carry multiple verified
     tokens, making chunk-count an unreliable token estimate.
     """
-    body = json.dumps({
-        "model": model,
-        "prompt": PROMPT,
-        "max_tokens": max_tokens,
-        "temperature": temperature,
-        "stream": True,
-        "stream_options": {"include_usage": True},
-    }).encode()
+    body = json.dumps(
+        {
+            "model": model,
+            "prompt": PROMPT,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "stream": True,
+            "stream_options": {"include_usage": True},
+        }
+    ).encode()
     req = urllib.request.Request(
         f"{base_url}/v1/completions",
         data=body,
@@ -59,7 +64,7 @@ def stream_complete(base_url: str, model: str, max_tokens: int, temperature: flo
             line = raw.decode("utf-8", errors="replace").strip()
             if not line.startswith("data:"):
                 continue
-            payload = line[len("data:"):].strip()
+            payload = line[len("data:") :].strip()
             if payload == "[DONE]":
                 break
             try:
@@ -81,13 +86,19 @@ def stream_complete(base_url: str, model: str, max_tokens: int, temperature: flo
     t_end = time.perf_counter()
     ttft = (t_first - t_start) if t_first else float("nan")
     decode_time = (t_end - t_first) if t_first else float("nan")
-    tok_per_s = (completion_tokens - 1) / decode_time if decode_time > 0 and completion_tokens > 1 else float("nan")
+    tok_per_s = (
+        (completion_tokens - 1) / decode_time
+        if decode_time > 0 and completion_tokens > 1
+        else float("nan")
+    )
     return ttft, tok_per_s, completion_tokens, sse_chunks
 
 
 def run(base_url: str, model: str, lengths: list[int], repeats: int) -> None:
     print(f"endpoint={base_url} model={model} repeats={repeats}\n")
-    print(f"{'max_tokens':>10} | {'median_ttft_s':>13} | {'median_tok/s':>13} | {'tok/chunk':>9} | {'completed':>9}")
+    print(
+        f"{'max_tokens':>10} | {'median_ttft_s':>13} | {'median_tok/s':>13} | {'tok/chunk':>9} | {'completed':>9}"
+    )
     print("-" * 74)
     for length in lengths:
         ttfts: list[float] = []
@@ -97,7 +108,7 @@ def run(base_url: str, model: str, lengths: list[int], repeats: int) -> None:
         for i in range(repeats):
             try:
                 ttft, tok_per_s, n_tokens, n_chunks = stream_complete(base_url, model, length)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 print(f"  iter {i}: ERROR {exc}")
                 continue
             ttfts.append(ttft)
@@ -109,7 +120,9 @@ def run(base_url: str, model: str, lengths: list[int], repeats: int) -> None:
             print(f"{length:>10} | {'-':>13} | {'-':>13} | {'-':>9} | {0:>9}")
             continue
         tpc = statistics.median(per_chunk) if per_chunk else float("nan")
-        print(f"{length:>10} | {statistics.median(ttfts):>13.2f} | {statistics.median(tps):>13.2f} | {tpc:>9.2f} | {completed:>9}")
+        print(
+            f"{length:>10} | {statistics.median(ttfts):>13.2f} | {statistics.median(tps):>13.2f} | {tpc:>9.2f} | {completed:>9}"
+        )
 
 
 def main() -> None:

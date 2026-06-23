@@ -117,6 +117,14 @@ ignore = ["E501", "RUF001", "RUF002", "RUF003"]
 # parameters read as redefinitions to ruff — a known false positive.
 "tests/test_eviction.py" = ["F811"]
 
+[tool.ruff.lint.isort]
+# Deterministic first-party classification. ruff's `detect-same-package`
+# auto-detection resolves differently when gemma_forge is pip-installed (CI)
+# vs. a local source dir, causing I001 import-sort disagreements between
+# local and CI. Pin it explicitly so both agree.
+known-first-party = ["gemma_forge"]
+detect-same-package = false
+
 [tool.mypy]
 python_version = "3.11"
 # Right-sized from full `strict` (over-aspirational for a research harness):

@@ -34,6 +34,7 @@ schema is cleaned up.
 
 Usage: ./tools/smoke_memory_e2e.py
 """
+
 from __future__ import annotations
 
 import logging
@@ -50,9 +51,9 @@ logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(mes
 
 from psycopg_pool import ConnectionPool  # noqa: E402
 
+from gemma_forge.harness.clutch import Clutch, ClutchConfig  # noqa: E402
 from gemma_forge.harness.db import _conninfo, _load_dotenv_once  # noqa: E402
 from gemma_forge.harness.memory_store import PostgresMemoryStore  # noqa: E402
-from gemma_forge.harness.clutch import Clutch, ClutchConfig  # noqa: E402
 
 MIGRATIONS_DIR = REPO_ROOT / "migrations" / "stig"
 MIGRATION_SQL = "\n".join(p.read_text() for p in sorted(MIGRATIONS_DIR.glob("*.sql")))
@@ -65,17 +66,15 @@ def adapt_for_test_schema(sql: str) -> str:
 
 
 def make_schema(admin_pool: ConnectionPool, schema: str) -> None:
-    with admin_pool.connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(f'CREATE SCHEMA "{schema}"')
-            cur.execute(f'SET search_path TO "{schema}"')
-            cur.execute(adapt_for_test_schema(MIGRATION_SQL))
+    with admin_pool.connection() as conn, conn.cursor() as cur:
+        cur.execute(f'CREATE SCHEMA "{schema}"')
+        cur.execute(f'SET search_path TO "{schema}"')
+        cur.execute(adapt_for_test_schema(MIGRATION_SQL))
 
 
 def drop_schema(admin_pool: ConnectionPool, schema: str) -> None:
-    with admin_pool.connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
+    with admin_pool.connection() as conn, conn.cursor() as cur:
+        cur.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
 
 
 def step(label: str) -> None:
@@ -129,23 +128,36 @@ def main() -> int:
             assert isinstance(run1, str) and len(run1) >= 8
 
             step("save_item_outcome (new) and (update)")
-            store.save_item_outcome(run1, "smoke_rule_a", "Smoke A", "smoke-cat",
-                                    "completed", 1, 12.3)
+            store.save_item_outcome(
+                run1, "smoke_rule_a", "Smoke A", "smoke-cat", "completed", 1, 12.3
+            )
             # update path: same key, new outcome
-            store.save_item_outcome(run1, "smoke_rule_a", "Smoke A", "smoke-cat",
-                                    "completed", 2, 14.1)
+            store.save_item_outcome(
+                run1, "smoke_rule_a", "Smoke A", "smoke-cat", "completed", 2, 14.1
+            )
 
             step("save_attempt with banned_pattern")
-            store.save_attempt(run1, "smoke_rule_a", 1, "approach-1", True, "",
-                               "reflection text", "lesson text",
-                               "rm -rf /  # banned", 9.9)
+            store.save_attempt(
+                run1,
+                "smoke_rule_a",
+                1,
+                "approach-1",
+                True,
+                "",
+                "reflection text",
+                "lesson text",
+                "rm -rf /  # banned",
+                9.9,
+            )
 
             step("save_lesson (new)")
-            store.save_lesson("smoke-cat", "Use authselect, not pam-auth-update.",
-                              run1, "smoke_rule_a")
+            store.save_lesson(
+                "smoke-cat", "Use authselect, not pam-auth-update.", run1, "smoke_rule_a"
+            )
             step("save_lesson (duplicate → weight boost)")
-            store.save_lesson("smoke-cat", "Use authselect, not pam-auth-update.",
-                              run1, "smoke_rule_a")
+            store.save_lesson(
+                "smoke-cat", "Use authselect, not pam-auth-update.", run1, "smoke_rule_a"
+            )
 
             step("update_lesson_weight (success path)")
             lessons = store.load_lessons("smoke-cat", min_weight=0.0, limit=5)
@@ -169,7 +181,7 @@ def main() -> int:
 
             step("load_all_lessons (top by weight)")
             top = store.load_all_lessons(min_weight=0.0, limit=10)
-            assert any("authselect" in l.lesson for l in top), "smoke lesson missing"
+            assert any("authselect" in lesson.lesson for lesson in top), "smoke lesson missing"
 
             step("load_lessons (category-scoped)")
             cat_lessons = store.load_lessons("smoke-cat", min_weight=0.0, limit=10)
@@ -196,8 +208,9 @@ def main() -> int:
             print("Run S2 — second run lifecycle")
             step("start_run + end_run independently of Run S1")
             run2 = store.start_run("smoke-skill", {})
-            store.save_item_outcome(run2, "smoke_rule_b", "Smoke B", "smoke-cat",
-                                    "escalated", 5, 200.0)
+            store.save_item_outcome(
+                run2, "smoke_rule_b", "Smoke B", "smoke-cat", "escalated", 5, 200.0
+            )
             store.end_run(run2, {"remediated": 0, "escalated": 1})
             assert store.get_run_count() == 2
 

@@ -23,14 +23,14 @@ Why logsource-aware scoping:
     Pre-flight 3 discovered this by accident — see
     docs/journal/futures/detection-tuning-preflight.md for the trace.
 """
+
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
 import pandas as pd
-
 
 # Sigma's logsource taxonomy → (Channel pattern, EventID list) filter.
 # Covers the categories present in EVTX-ATTACK-SAMPLES; expand here when
@@ -52,6 +52,7 @@ _LOGSOURCE_FILTERS: dict[tuple[str, str], tuple[str, list[str]]] = {
 @dataclass(frozen=True)
 class LogsourceScope:
     """Materialized event subset for one Sigma rule's logsource declaration."""
+
     category: str
     product: str
     channel: str
@@ -78,9 +79,7 @@ class CorpusLoader:
                     "Did pre-flight 1 actually run? "
                     "Expected EVTX-ATTACK-SAMPLES checkout with evtx_data.csv."
                 )
-            self._df = pd.read_csv(
-                self._csv_path, low_memory=False, dtype=str
-            ).fillna("")
+            self._df = pd.read_csv(self._csv_path, low_memory=False, dtype=str).fillna("")
         return self._df
 
     @property
@@ -88,7 +87,9 @@ class CorpusLoader:
         return len(self._load())
 
     def scope_for_logsource(
-        self, category: str, product: str = "windows",
+        self,
+        category: str,
+        product: str = "windows",
     ) -> LogsourceScope:
         """Return the events subset matching a Sigma rule's logsource.
 
@@ -105,10 +106,7 @@ class CorpusLoader:
             )
         channel, event_ids = _LOGSOURCE_FILTERS[key]
         df = self._load()
-        subset = df[
-            (df["Channel"] == channel)
-            & (df["EventID"].isin(event_ids))
-        ].copy()
+        subset = df[(df["Channel"] == channel) & (df["EventID"].isin(event_ids))].copy()
         return LogsourceScope(
             category=category,
             product=product,
@@ -119,7 +117,8 @@ class CorpusLoader:
 
     @staticmethod
     def label_positives(
-        df: pd.DataFrame, positive_filename_keywords: Iterable[str],
+        df: pd.DataFrame,
+        positive_filename_keywords: Iterable[str],
     ) -> pd.Series:
         """Apply ground-truth labeling.
 

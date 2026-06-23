@@ -15,6 +15,7 @@ Post-run check that exercises the Phase F-H plumbing landed:
 Usage:
   ./tools/smoke_v2_events.py runs/run-YYYY-mm-dd.jsonl
 """
+
 from __future__ import annotations
 
 import collections
@@ -22,16 +23,28 @@ import json
 import sys
 from pathlib import Path
 
-
 REQUIRED_TIP_ADDED_KEYS = {
-    "tip_id", "tip_type", "text", "rule_id", "category",
-    "trigger_conditions", "application_context", "phase", "tips_total",
-    "outcome_at_source_value", "outcome_at_source_confidence",
-    "environment_tag", "source_attempt_id", "source_run_id",
+    "tip_id",
+    "tip_type",
+    "text",
+    "rule_id",
+    "category",
+    "trigger_conditions",
+    "application_context",
+    "phase",
+    "tips_total",
+    "outcome_at_source_value",
+    "outcome_at_source_confidence",
+    "environment_tag",
+    "source_attempt_id",
+    "source_run_id",
 }
 
 REQUIRED_BAN_ADDED_KEYS = {
-    "rule_id", "pattern", "attempt", "banned_patterns_total",
+    "rule_id",
+    "pattern",
+    "attempt",
+    "banned_patterns_total",
     "outcome_at_source_confidence",
 }
 
@@ -82,27 +95,36 @@ def main() -> int:
 
     # ---- Check 1: prompt_assembled carries both lesson snapshots -----
     print(color("1", "== prompt_assembled (Worker) has V1 + V2 snapshots =="))
-    worker_prompts = [e for e in events
-                      if e.get("event_type") == "prompt_assembled"
-                      and e.get("data", {}).get("phase") == "apply_fix"]
+    worker_prompts = [
+        e
+        for e in events
+        if e.get("event_type") == "prompt_assembled"
+        and e.get("data", {}).get("phase") == "apply_fix"
+    ]
     if not worker_prompts:
         fail("no apply_fix prompt_assembled events")
         failures += 1
     else:
         with_v1 = [e for e in worker_prompts if "category_lessons_loaded" in e["data"]]
         with_v2 = [e for e in worker_prompts if "v2_tips_loaded" in e["data"]]
-        ok(f"{len(worker_prompts)} Worker prompts; V1-snapshot on {len(with_v1)}, V2-snapshot on {len(with_v2)}")
+        ok(
+            f"{len(worker_prompts)} Worker prompts; V1-snapshot on {len(with_v1)}, V2-snapshot on {len(with_v2)}"
+        )
         nonempty_v2 = sum(1 for e in with_v2 if e["data"]["v2_tips_loaded"])
         if nonempty_v2:
             ok(f"{nonempty_v2} prompts had ≥1 V2 tip retrieved")
         else:
-            warn("no prompt had any V2 tips retrieved — tips table may be empty or no similarity match")
+            warn(
+                "no prompt had any V2 tips retrieved — tips table may be empty or no similarity match"
+            )
 
     # ---- Check 2: tip_added events well-formed -----------------------
     print(color("1", "\n== tip_added events carry the enriched key set =="))
     tip_adds = [e for e in events if e.get("event_type") == "tip_added"]
     if not tip_adds:
-        warn("no tip_added events — Reflector may not have emitted TIPS_JSON, or parser dropped all blocks")
+        warn(
+            "no tip_added events — Reflector may not have emitted TIPS_JSON, or parser dropped all blocks"
+        )
     else:
         ok(f"{len(tip_adds)} tip_added events")
         phases = collections.Counter(e["data"].get("phase") for e in tip_adds)
@@ -116,13 +138,18 @@ def main() -> int:
         else:
             ok("all required keys present on sample event")
         # Check tip_type is in the vocabulary
-        bad_types = [e["data"]["tip_type"] for e in tip_adds
-                     if e["data"].get("tip_type") not in {"strategy", "recovery", "optimization", "warning"}]
+        bad_types = [
+            e["data"]["tip_type"]
+            for e in tip_adds
+            if e["data"].get("tip_type") not in {"strategy", "recovery", "optimization", "warning"}
+        ]
         if bad_types:
             fail(f"tip_added with unknown tip_type: {set(bad_types)}")
             failures += 1
         else:
-            ok(f"all tip_type values in vocabulary; distribution: {dict(collections.Counter(e['data']['tip_type'] for e in tip_adds))}")
+            ok(
+                f"all tip_type values in vocabulary; distribution: {dict(collections.Counter(e['data']['tip_type'] for e in tip_adds))}"
+            )
 
     # ---- Check 3: ban_added carries outcome_at_source_confidence -----
     print(color("1", "\n== ban_added carries outcome_at_source_confidence =="))
@@ -147,7 +174,9 @@ def main() -> int:
     else:
         with_sig = [e for e in evals if "outcome_signal" in e["data"]]
         if len(with_sig) != len(evals):
-            fail(f"{len(evals) - len(with_sig)}/{len(evals)} evaluation events missing outcome_signal")
+            fail(
+                f"{len(evals) - len(with_sig)}/{len(evals)} evaluation events missing outcome_signal"
+            )
             failures += 1
         else:
             ok(f"all {len(evals)} evaluation events have outcome_signal")
@@ -171,9 +200,11 @@ def main() -> int:
     print(color("1", "\n== stig.tips table received the inserts =="))
     try:
         import sys as _sys
+
         REPO_ROOT = Path(__file__).resolve().parents[1]
         _sys.path.insert(0, str(REPO_ROOT))
         from gemma_forge.harness.db import get_pool
+
         pool = get_pool("forge_admin")
         with pool.connection() as c, c.cursor() as cur:
             cur.execute("SELECT COUNT(*) FROM stig.tips WHERE retired_at IS NULL")
@@ -186,7 +217,9 @@ def main() -> int:
             n_fresh = cur.fetchone()[0]
         ok(f"{n_active} active tips in stig.tips; {n_fresh} written in the last 2 hours")
         if tip_adds and n_fresh == 0:
-            fail(f"tip_added emitted {len(tip_adds)} events but no tips inserted in last 2h — writer path broken?")
+            fail(
+                f"tip_added emitted {len(tip_adds)} events but no tips inserted in last 2h — writer path broken?"
+            )
             failures += 1
     except Exception as exc:
         warn(f"could not query stig.tips: {exc}")
@@ -203,11 +236,17 @@ def main() -> int:
             """)
             total, with_outcome = cur.fetchone()
         if total == 0:
-            warn("no tip_retrievals rows in last 2h — V2 retrieval may not have found anything to load")
+            warn(
+                "no tip_retrievals rows in last 2h — V2 retrieval may not have found anything to load"
+            )
         else:
-            ok(f"{total} tip_retrievals rows; {with_outcome} have outcome_value filled ({with_outcome/total*100:.0f}%)")
+            ok(
+                f"{total} tip_retrievals rows; {with_outcome} have outcome_value filled ({with_outcome / total * 100:.0f}%)"
+            )
             if with_outcome == 0 and total > 0:
-                fail("tip_retrievals written but no outcomes updated — update_retrieval_outcomes not firing?")
+                fail(
+                    "tip_retrievals written but no outcomes updated — update_retrieval_outcomes not firing?"
+                )
                 failures += 1
     except Exception as exc:
         warn(f"could not query stig.tip_retrievals: {exc}")

@@ -8,8 +8,8 @@ STIG-specific tools (OpenSCAP, SSH, virsh snapshots, mission healthcheck).
 The harness imports this at runtime when the stig-rhel9 skill is loaded.
 """
 
+import contextlib
 import logging
-from typing import Optional
 
 from gemma_forge.harness.interfaces import (
     Checkpoint,
@@ -23,7 +23,6 @@ from gemma_forge.harness.interfaces import (
     OutcomeSignal,
     WorkItem,
     WorkQueue,
-    outcome_signal_from_eval_result,
 )
 from gemma_forge.harness.tools.healthcheck import mission_healthcheck
 from gemma_forge.harness.tools.journal import read_recent_journal
@@ -54,12 +53,13 @@ async def run_stig_scan() -> str:
     assert _ssh_config is not None
     full = await stig_scan(_ssh_config, _stig_profile, _stig_datastream)
     lines = full.split("\n")
-    rules = [l for l in lines if l.startswith("- ")]
+    rules = [line for line in lines if line.startswith("- ")]
     header = lines[0] if lines else ""
 
     # Show category summary + all rules (not truncated) so the Architect
     # can make informed ordering decisions across the full rule set.
     from collections import Counter
+
     cats: Counter = Counter()
     for r in rules:
         parts = r[2:].split(": ", 1)
@@ -70,8 +70,7 @@ async def run_stig_scan() -> str:
     return (
         f"{header}\n\n"
         f"Total failing: {len(rules)} rules\n"
-        f"By category: {cat_summary}\n\n"
-        + "\n".join(rules)
+        f"By category: {cat_summary}\n\n" + "\n".join(rules)
     )
 
 
@@ -107,11 +106,13 @@ class StigWorkQueue:
                 if len(parts) == 2:
                     rule_id = parts[0].strip()
                     title = parts[1].strip()
-                    items.append(WorkItem(
-                        id=rule_id,
-                        title=title,
-                        category=_categorize_rule(rule_id),
-                    ))
+                    items.append(
+                        WorkItem(
+                            id=rule_id,
+                            title=title,
+                            category=_categorize_rule(rule_id),
+                        )
+                    )
         return items
 
 
@@ -121,8 +122,9 @@ class StigExecutor:
     def __init__(self, ssh_config: SSHConfig):
         self._ssh = ssh_config
 
-    async def apply(self, item: WorkItem, fix_script: str,
-                    revert_script: str, description: str) -> str:
+    async def apply(
+        self, item: WorkItem, fix_script: str, revert_script: str, description: str
+    ) -> str:
         return await ssh_apply(self._ssh, fix_script, revert_script, description)
 
     def get_agent_tools(self) -> list:
@@ -239,11 +241,12 @@ class StigEvaluator:
             else:
                 value = 0.5
         else:
-            fm = result.failure_mode.value if hasattr(result.failure_mode, "value") else str(result.failure_mode)
-            if fm == "health_failure":
-                value = -0.2
-            else:
-                value = 0.0
+            fm = (
+                result.failure_mode.value
+                if hasattr(result.failure_mode, "value")
+                else str(result.failure_mode)
+            )
+            value = -0.2 if fm == "health_failure" else 0.0
         return OutcomeSignal(
             value=value,
             confidence=1.0,
@@ -262,8 +265,7 @@ class StigEvaluator:
         health = await mission_healthcheck(self._ssh)
         health_ok = "HEALTHY" in health
 
-        rule_result = await stig_check_rule(
-            self._ssh, item.id, self._profile, self._datastream)
+        rule_result = await stig_check_rule(self._ssh, item.id, self._profile, self._datastream)
         rule_ok = "PASS" in rule_result.upper()
 
         journal = await read_recent_journal(self._ssh)
@@ -276,9 +278,12 @@ class StigEvaluator:
                 passed=True,
                 summary=f"health={health_ok} rule={rule_ok} journal={journal_clean}",
                 signals={
-                    "health": health, "health_ok": health_ok,
-                    "rule_check": rule_result, "rule_ok": rule_ok,
-                    "journal": journal[:300], "journal_clean": journal_clean,
+                    "health": health,
+                    "health_ok": health_ok,
+                    "rule_check": rule_result,
+                    "rule_ok": rule_ok,
+                    "journal": journal[:300],
+                    "journal_clean": journal_clean,
                 },
             )
 
@@ -302,9 +307,12 @@ class StigEvaluator:
             failure_mode=mode,
             summary=f"health={health_ok} rule={rule_ok} journal={journal_clean}",
             signals={
-                "health": health, "health_ok": health_ok,
-                "rule_check": rule_result, "rule_ok": rule_ok,
-                "journal": journal[:300], "journal_clean": journal_clean,
+                "health": health,
+                "health_ok": health_ok,
+                "rule_check": rule_result,
+                "rule_ok": rule_ok,
+                "journal": journal[:300],
+                "journal_clean": journal_clean,
             },
         )
 
@@ -409,9 +417,11 @@ class StigSkillRuntime:
         if self._xccdf_cache:
             return len(self._xccdf_cache)
         from gemma_forge.harness.tools.openscap import extract_xccdf_descriptions
+
         try:
             self._xccdf_cache = await extract_xccdf_descriptions(
-                self._ssh, datastream=self._datastream,
+                self._ssh,
+                datastream=self._datastream,
             )
         except Exception as exc:
             logger.warning("DEF-28 XCCDF prefetch failed: %s", exc)
@@ -466,7 +476,7 @@ class StigSkillRuntime:
         self,
         reason: str,
         items: list,
-        emit: Optional[EmitEvent] = None,
+        emit: EmitEvent | None = None,
     ) -> tuple[bool, str, list[DeferredItemOutcome]]:
         """Resolve deferred reboot-required STIG rules via per-family reboot.
 
@@ -514,22 +524,29 @@ class StigSkillRuntime:
 
         logger.info(
             "resolve_deferred: %d items across %d families: %s",
-            len(items), len(by_family),
+            len(items),
+            len(by_family),
             {f: len(by_family[f]) for f in family_order},
         )
-        emit("deferred_resolve_plan", {
-            "total_items": len(items),
-            "total_families": len(by_family),
-            "family_order": family_order,
-            "families": {f: [it.id for it in by_family[f]] for f in family_order},
-        })
+        emit(
+            "deferred_resolve_plan",
+            {
+                "total_items": len(items),
+                "total_families": len(by_family),
+                "family_order": family_order,
+                "families": {f: [it.id for it in by_family[f]] for f in family_order},
+            },
+        )
 
         outcomes: list[DeferredItemOutcome] = []
         for pos, family in enumerate(family_order, start=1):
             family_items = by_family[family]
             family_outcomes = await self._process_stig_family_batch(
-                family, family_items,
-                emit=emit, position=pos, total_families=len(family_order),
+                family,
+                family_items,
+                emit=emit,
+                position=pos,
+                total_families=len(family_order),
             )
             outcomes.extend(family_outcomes)
 
@@ -554,29 +571,39 @@ class StigSkillRuntime:
         """Snapshot, reboot, verify one family. On any failure: revert all."""
         snap_name = f"stig-pre-family-{family}"
         logger.info(
-            "family=%s: %d items: %s", family, len(family_items),
+            "family=%s: %d items: %s",
+            family,
+            len(family_items),
             [i.id for i in family_items],
         )
-        emit("family_batch_start", {
-            "family": family,
-            "position": position,
-            "total_families": total_families,
-            "item_count": len(family_items),
-            "item_ids": [it.id for it in family_items],
-            "snapshot_name": snap_name,
-        })
+        emit(
+            "family_batch_start",
+            {
+                "family": family,
+                "position": position,
+                "total_families": total_families,
+                "item_count": len(family_items),
+                "item_ids": [it.id for it in family_items],
+                "snapshot_name": snap_name,
+            },
+        )
 
         snap_ok, snap_detail = await self._checkpoint.save(snap_name)
         if not snap_ok:
             logger.error("family=%s snapshot save failed: %s", family, snap_detail)
-            emit("family_batch_complete", {
-                "family": family, "passed": False,
-                "reason": "family_snapshot_save_failed",
-                "detail": snap_detail[:200],
-            })
+            emit(
+                "family_batch_complete",
+                {
+                    "family": family,
+                    "passed": False,
+                    "reason": "family_snapshot_save_failed",
+                    "detail": snap_detail[:200],
+                },
+            )
             return [
                 DeferredItemOutcome(
-                    rule_id=item.id, passed=False,
+                    rule_id=item.id,
+                    passed=False,
                     reason="family_snapshot_save_failed",
                     metadata={"family": family, "detail": snap_detail[:200]},
                 )
@@ -585,31 +612,46 @@ class StigSkillRuntime:
 
         try:
             outcomes = await self._reboot_and_verify_family(
-                family, family_items, emit=emit,
+                family,
+                family_items,
+                emit=emit,
             )
             passed_n = sum(1 for o in outcomes if o.passed)
-            emit("family_batch_complete", {
-                "family": family, "passed": True,
-                "items_verified": passed_n, "items_total": len(outcomes),
-            })
+            emit(
+                "family_batch_complete",
+                {
+                    "family": family,
+                    "passed": True,
+                    "items_verified": passed_n,
+                    "items_total": len(outcomes),
+                },
+            )
             return outcomes
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.exception("family=%s: unhandled exception", family)
             err_tag = type(exc).__name__.lower()
-            emit("family_exception", {
-                "family": family,
-                "exception_type": type(exc).__name__,
-                "detail": str(exc)[:200],
-            })
+            emit(
+                "family_exception",
+                {
+                    "family": family,
+                    "exception_type": type(exc).__name__,
+                    "detail": str(exc)[:200],
+                },
+            )
             await self._checkpoint.restore(snap_name)
-            emit("family_batch_complete", {
-                "family": family, "passed": False,
-                "reason": f"family_exception_{err_tag}",
-                "detail": str(exc)[:200],
-            })
+            emit(
+                "family_batch_complete",
+                {
+                    "family": family,
+                    "passed": False,
+                    "reason": f"family_exception_{err_tag}",
+                    "detail": str(exc)[:200],
+                },
+            )
             return [
                 DeferredItemOutcome(
-                    rule_id=item.id, passed=False,
+                    rule_id=item.id,
+                    passed=False,
                     reason=f"family_exception_{err_tag}",
                     metadata={"family": family, "exception": str(exc)[:200]},
                 )
@@ -618,7 +660,7 @@ class StigSkillRuntime:
         finally:
             try:
                 await self._checkpoint.delete(snap_name)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 logger.warning("family=%s snapshot delete failed: %s", family, exc)
 
     async def _reboot_and_verify_family(
@@ -631,15 +673,14 @@ class StigSkillRuntime:
         """Reboot, wait for SSH, healthcheck, per-item re-evaluate."""
         import asyncio as _aio
         import time as _time
+
         from gemma_forge.harness.tools.ssh import _run_ssh
 
         # --- 1. Issue reboot --------------------------------------------
         logger.info("family=%s: issuing reboot", family)
         emit("family_reboot_issued", {"family": family})
-        try:
+        with contextlib.suppress(Exception):  # SSH drops mid-reboot, expected
             await _run_ssh(self._ssh, "sudo reboot")
-        except Exception:
-            pass  # SSH drops mid-reboot, expected
 
         # --- 2. Wait for SSH back ---------------------------------------
         # Per-family timeout: FIPS-mode kernel boot from a non-FIPS baseline
@@ -665,19 +706,26 @@ class StigSkillRuntime:
                     break
             except Exception:
                 pass
-            emit("family_ssh_wait_tick", {
-                "family": family,
-                "elapsed_s": round(_time.time() - wait_start + 10, 1),
-                "attempt": attempt, "max_wait_s": max_wait_s,
-            })
+            emit(
+                "family_ssh_wait_tick",
+                {
+                    "family": family,
+                    "elapsed_s": round(_time.time() - wait_start + 10, 1),
+                    "attempt": attempt,
+                    "max_wait_s": max_wait_s,
+                },
+            )
             await _aio.sleep(5)
 
         if not ssh_up:
-            emit("family_ssh_timeout", {
-                "family": family,
-                "waited_s": round(_time.time() - wait_start + 10, 1),
-                "max_wait_s": max_wait_s,
-            })
+            emit(
+                "family_ssh_timeout",
+                {
+                    "family": family,
+                    "waited_s": round(_time.time() - wait_start + 10, 1),
+                    "max_wait_s": max_wait_s,
+                },
+            )
             raise RuntimeError("reboot_ssh_timeout")
 
         # --- 3. Mission healthcheck -------------------------------------
@@ -686,7 +734,8 @@ class StigSkillRuntime:
         if "HEALTHY" not in health:
             logger.error(
                 "family=%s post-reboot healthcheck failed: %s",
-                family, health[:200],
+                family,
+                health[:200],
             )
             emit("family_healthcheck_failed", {"family": family, "detail": health[:200]})
             raise RuntimeError("reboot_health_failed")
@@ -697,29 +746,46 @@ class StigSkillRuntime:
         outcomes: list[DeferredItemOutcome] = []
         for item in family_items:
             rule_result = await stig_check_rule(
-                self._ssh, item.id, self._profile, self._datastream,
+                self._ssh,
+                item.id,
+                self._profile,
+                self._datastream,
             )
             rule_ok = "PASS" in rule_result.upper()
             reason = "family_verified" if rule_ok else "family_still_failing"
             outcomes.append(
                 DeferredItemOutcome(
-                    rule_id=item.id, passed=rule_ok, reason=reason,
+                    rule_id=item.id,
+                    passed=rule_ok,
+                    reason=reason,
                     metadata={"family": family, "rule_check": rule_result[:200]},
                 )
             )
-            emit("family_item_verified", {
-                "family": family, "rule_id": item.id,
-                "passed": rule_ok, "outcome_reason": reason,
-            })
+            emit(
+                "family_item_verified",
+                {
+                    "family": family,
+                    "rule_id": item.id,
+                    "passed": rule_ok,
+                    "outcome_reason": reason,
+                },
+            )
 
         passed_n = sum(1 for o in outcomes if o.passed)
         logger.info(
             "family=%s: verified %d/%d items post-reboot",
-            family, passed_n, len(outcomes),
+            family,
+            passed_n,
+            len(outcomes),
         )
-        emit("family_verify_complete", {
-            "family": family, "passed": passed_n, "total": len(outcomes),
-        })
+        emit(
+            "family_verify_complete",
+            {
+                "family": family,
+                "passed": passed_n,
+                "total": len(outcomes),
+            },
+        )
         return outcomes
 
 
@@ -727,7 +793,8 @@ def _categorize_rule(rule_id: str) -> str:
     """Classify a STIG rule into a coarse family."""
     rid = rule_id.lower()
     name = rid.split("content_rule_", 1)[-1]
-    if "aide" in rid: return "integrity-monitoring"
+    if "aide" in rid:
+        return "integrity-monitoring"
     if any(k in rid for k in ("fips", "crypto", "hash", "cipher", "ssl", "tls")):
         return "cryptography"
     # Partition/mount rules check before "audit" substring: rules like
@@ -737,19 +804,32 @@ def _categorize_rule(rule_id: str) -> str:
     # so they still fall through to the audit branch below.
     if name.startswith("partition_for_") or name.startswith("mount_option_"):
         return "filesystem"
-    if "audit" in rid: return "audit"
-    if "sudo" in rid or "nopasswd" in rid: return "privileged-access"
-    if "partition" in rid or "mount" in rid: return "filesystem"
-    if "selinux" in rid: return "mac"
-    if any(k in rid for k in ("kernel", "sysctl", "grub", "boot")): return "kernel"
-    if any(k in rid for k in ("firewall", "firewalld", "iptables")): return "network-firewall"
-    if "ssh" in rid: return "ssh"
-    if any(k in rid for k in ("password", "pam", "faillock")): return "authentication"
-    if any(k in rid for k in ("banner", "motd", "issue")): return "banner"
-    if any(k in rid for k in ("package", "rpm", "dnf", "gpg")): return "package-management"
-    if any(k in rid for k in ("log", "rsyslog", "journald")): return "logging"
-    if "service" in rid or "systemd" in rid: return "service-config"
-    if any(k in rid for k in ("user", "account", "umask")): return "user-account"
+    if "audit" in rid:
+        return "audit"
+    if "sudo" in rid or "nopasswd" in rid:
+        return "privileged-access"
+    if "partition" in rid or "mount" in rid:
+        return "filesystem"
+    if "selinux" in rid:
+        return "mac"
+    if any(k in rid for k in ("kernel", "sysctl", "grub", "boot")):
+        return "kernel"
+    if any(k in rid for k in ("firewall", "firewalld", "iptables")):
+        return "network-firewall"
+    if "ssh" in rid:
+        return "ssh"
+    if any(k in rid for k in ("password", "pam", "faillock")):
+        return "authentication"
+    if any(k in rid for k in ("banner", "motd", "issue")):
+        return "banner"
+    if any(k in rid for k in ("package", "rpm", "dnf", "gpg")):
+        return "package-management"
+    if any(k in rid for k in ("log", "rsyslog", "journald")):
+        return "logging"
+    if "service" in rid or "systemd" in rid:
+        return "service-config"
+    if any(k in rid for k in ("user", "account", "umask")):
+        return "user-account"
     return "other"
 
 
@@ -760,6 +840,7 @@ def build_runtime(harness_cfg: dict) -> "StigSkillRuntime":
     skill-specific knowledge — this function owns the config layout.
     """
     from gemma_forge.harness.tools.ssh import SSHConfig
+
     vm_cfg = harness_cfg.get("vm", {}) or {}
     stig_cfg = harness_cfg.get("stig", {}) or {}
     ssh_config = SSHConfig(
@@ -768,9 +849,11 @@ def build_runtime(harness_cfg: dict) -> "StigSkillRuntime":
         key_path=vm_cfg.get("ssh_key", "/data/vm/gemma-forge/keys/adm-forge"),
     )
     profile = stig_cfg.get(
-        "profile", "xccdf_org.ssgproject.content_profile_stig",
+        "profile",
+        "xccdf_org.ssgproject.content_profile_stig",
     )
     datastream = stig_cfg.get(
-        "datastream", "/usr/share/xml/scap/ssg/content/ssg-rl9-ds.xml",
+        "datastream",
+        "/usr/share/xml/scap/ssg/content/ssg-rl9-ds.xml",
     )
     return StigSkillRuntime(ssh_config, profile, datastream)

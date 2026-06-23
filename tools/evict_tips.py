@@ -20,6 +20,7 @@ Intended to be called:
   - From the dream pass, as an additive step (integration TBD)
   - From the harness, automatically at end-of-run (integration TBD)
 """
+
 from __future__ import annotations
 
 import argparse
@@ -62,23 +63,26 @@ def _skill_evaluator_metadata(skill: str):
     # name ends with "Evaluator" and carries a .metadata class attribute.
     for name in dir(mod):
         cls = getattr(mod, name)
-        if (isinstance(cls, type) and name.endswith("Evaluator")
-                and hasattr(cls, "metadata")):
+        if isinstance(cls, type) and name.endswith("Evaluator") and hasattr(cls, "metadata"):
             return cls.metadata
-    raise SystemExit(
-        f"evict_tips: {runtime_path} has no *Evaluator class with .metadata"
-    )
+    raise SystemExit(f"evict_tips: {runtime_path} has no *Evaluator class with .metadata")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--skill", default="stig")
-    parser.add_argument("--min-retrievals", type=int, default=None,
-                        help="Override skill's min_retrievals_before_eviction.")
-    parser.add_argument("--threshold", type=float, default=None,
-                        help="Override skill's eviction_threshold.")
-    parser.add_argument("--dry-run", action="store_true",
-                        help="Compute + report but do not retire any tips.")
+    parser.add_argument(
+        "--min-retrievals",
+        type=int,
+        default=None,
+        help="Override skill's min_retrievals_before_eviction.",
+    )
+    parser.add_argument(
+        "--threshold", type=float, default=None, help="Override skill's eviction_threshold."
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Compute + report but do not retire any tips."
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 
@@ -94,8 +98,9 @@ def main() -> int:
             meta = _skill_evaluator_metadata(args.skill)
         except Exception as exc:
             logger.error("Could not load %s skill metadata: %s", args.skill, exc)
-            logger.error("Either fix the skill import, or pass explicit "
-                         "--min-retrievals and --threshold.")
+            logger.error(
+                "Either fix the skill import, or pass explicit --min-retrievals and --threshold."
+            )
             return 2
         min_retrievals = args.min_retrievals or meta.min_retrievals_before_eviction
         threshold = args.threshold if args.threshold is not None else meta.eviction_threshold
@@ -103,8 +108,13 @@ def main() -> int:
         min_retrievals = args.min_retrievals
         threshold = args.threshold
 
-    logger.info("Eviction sweep: skill=%s min_retrievals=%d threshold=%.2f dry_run=%s",
-                args.skill, min_retrievals, threshold, args.dry_run)
+    logger.info(
+        "Eviction sweep: skill=%s min_retrievals=%d threshold=%.2f dry_run=%s",
+        args.skill,
+        min_retrievals,
+        threshold,
+        args.dry_run,
+    )
 
     report = evict_low_utility_tips(
         skill=args.skill,
@@ -115,12 +125,13 @@ def main() -> int:
 
     print()
     print(f"  Active tips before sweep:          {report.total_active_tips}")
-    print(f"  Tips with ≥{min_retrievals} outcome(s):            "
-          f"{report.tips_with_sufficient_evidence}")
-    print(f"  Tips below threshold {threshold}:            "
-          f"{len(report.retired)}")
+    print(
+        f"  Tips with ≥{min_retrievals} outcome(s):            "
+        f"{report.tips_with_sufficient_evidence}"
+    )
+    print(f"  Tips below threshold {threshold}:            {len(report.retired)}")
     if args.dry_run:
-        print(f"  [dry-run] no rows updated")
+        print("  [dry-run] no rows updated")
     else:
         print(f"  Tips retired this sweep:           {report.tips_retired_this_sweep}")
     print(f"  Active tips after sweep:           {report.remaining_active}")
@@ -130,8 +141,10 @@ def main() -> int:
         print("  Retired tips (sorted by avg_utility ascending):")
         for c in report.retired[:25]:
             src_short = (c.source_rule_id or "").split("content_rule_")[-1][:40]
-            print(f"    tip_id={c.tip_id:<6} avg_u={c.avg_utility:.3f}  "
-                  f"n={c.n_outcomes}  [{c.tip_type}]  src={src_short}")
+            print(
+                f"    tip_id={c.tip_id:<6} avg_u={c.avg_utility:.3f}  "
+                f"n={c.n_outcomes}  [{c.tip_type}]  src={src_short}"
+            )
             print(f"      {c.text_preview}")
         if len(report.retired) > 25:
             print(f"    ... +{len(report.retired) - 25} more")

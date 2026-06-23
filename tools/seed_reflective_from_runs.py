@@ -46,6 +46,7 @@ Modes:
 
 Idempotent by default via ``MERGE`` on a stable identifier per node.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -79,8 +80,8 @@ def pg_conninfo(role: str) -> str:
     }[role]
     return (
         f"host={os.environ['PG_HOST']} "
-        f"port={os.environ.get('PG_PORT','5432')} "
-        f"dbname={os.environ.get('PG_DATABASE','gemma_forge')} "
+        f"port={os.environ.get('PG_PORT', '5432')} "
+        f"dbname={os.environ.get('PG_DATABASE', 'gemma_forge')} "
         f"user={role} password={os.environ[pw_var]}"
     )
 
@@ -104,22 +105,24 @@ def fetch_relational(skill: str) -> dict:
                 fix_rate = None
                 if remed is not None and esc is not None and (remed + esc) > 0:
                     fix_rate = round(remed / (remed + esc), 4)
-                out["runs"].append({
-                    "run_id": rid,
-                    "started_at": started.isoformat() if started else None,
-                    "ended_at": ended.isoformat() if ended else None,
-                    "fix_rate": fix_rate,
-                })
+                out["runs"].append(
+                    {
+                        "run_id": rid,
+                        "started_at": started.isoformat() if started else None,
+                        "ended_at": ended.isoformat() if ended else None,
+                        "fix_rate": fix_rate,
+                    }
+                )
 
-            cur.execute(
-                "SELECT DISTINCT item_id, category, title FROM work_items"
-            )
+            cur.execute("SELECT DISTINCT item_id, category, title FROM work_items")
             for item_id, category, title in cur.fetchall():
-                out["rules"].append({
-                    "rule_id": item_id,
-                    "category": category,
-                    "title": title,
-                })
+                out["rules"].append(
+                    {
+                        "rule_id": item_id,
+                        "category": category,
+                        "title": title,
+                    }
+                )
 
             cur.execute(
                 """
@@ -129,16 +132,18 @@ def fetch_relational(skill: str) -> dict:
                 """
             )
             for aid, run_id, rule_id, num, passed, created, lesson, ban in cur.fetchall():
-                out["attempts"].append({
-                    "attempt_id": f"{run_id}::{rule_id}::{num}::{aid}",
-                    "run_id": run_id,
-                    "rule_id": rule_id,
-                    "attempt_num": num,
-                    "eval_passed": bool(passed),
-                    "created_at": created.isoformat() if created else None,
-                    "lesson_text": lesson or "",
-                    "banned_pattern": ban or "",
-                })
+                out["attempts"].append(
+                    {
+                        "attempt_id": f"{run_id}::{rule_id}::{num}::{aid}",
+                        "run_id": run_id,
+                        "rule_id": rule_id,
+                        "attempt_num": num,
+                        "eval_passed": bool(passed),
+                        "created_at": created.isoformat() if created else None,
+                        "lesson_text": lesson or "",
+                        "banned_pattern": ban or "",
+                    }
+                )
 
             cur.execute(
                 """
@@ -148,17 +153,19 @@ def fetch_relational(skill: str) -> dict:
                 """
             )
             for lid, cat, text, srun, sitem, succ, fail, weight, created in cur.fetchall():
-                out["lessons"].append({
-                    "lesson_id": f"sqlite:{lid}",
-                    "category": cat,
-                    "text": text,
-                    "source_run_id": srun,
-                    "source_item_id": sitem,
-                    "success_count": succ or 0,
-                    "failure_count": fail or 0,
-                    "weight": float(weight) if weight is not None else 0.5,
-                    "created_at": created.isoformat() if created else None,
-                })
+                out["lessons"].append(
+                    {
+                        "lesson_id": f"sqlite:{lid}",
+                        "category": cat,
+                        "text": text,
+                        "source_run_id": srun,
+                        "source_item_id": sitem,
+                        "success_count": succ or 0,
+                        "failure_count": fail or 0,
+                        "weight": float(weight) if weight is not None else 0.5,
+                        "created_at": created.isoformat() if created else None,
+                    }
+                )
     return out
 
 
@@ -201,7 +208,8 @@ async def write_to_neo4j(data: dict, skill: str, reset: bool, dry_run: bool) -> 
                     n.ended_at = r.ended_at,
                     n.fix_rate = r.fix_rate
                 """,
-                rows=data["runs"], skill=skill,
+                rows=data["runs"],
+                skill=skill,
             )
 
             print(f"seed_reflective: writing {len(data['rules'])} Rule nodes...")
@@ -212,13 +220,14 @@ async def write_to_neo4j(data: dict, skill: str, reset: bool, dry_run: bool) -> 
                 SET n.category = r.category,
                     n.title = r.title
                 """,
-                rows=data["rules"], skill=skill,
+                rows=data["rules"],
+                skill=skill,
             )
 
             # Attempts can be large (1826 rows). Chunk by 500.
             print(f"seed_reflective: writing {len(data['attempts'])} Attempt nodes + edges...")
             for i in range(0, len(data["attempts"]), 500):
-                chunk = data["attempts"][i:i+500]
+                chunk = data["attempts"][i : i + 500]
                 await session.run(
                     """
                     UNWIND $rows AS a
@@ -236,12 +245,13 @@ async def write_to_neo4j(data: dict, skill: str, reset: bool, dry_run: bool) -> 
                     MERGE (n)-[:ON_RULE]->(rule)
                     MERGE (n)-[:IN_RUN]->(run)
                     """,
-                    rows=chunk, skill=skill,
+                    rows=chunk,
+                    skill=skill,
                 )
 
             print(f"seed_reflective: writing {len(data['lessons'])} Lesson nodes + edges...")
             for i in range(0, len(data["lessons"]), 500):
-                chunk = data["lessons"][i:i+500]
+                chunk = data["lessons"][i : i + 500]
                 await session.run(
                     """
                     UNWIND $rows AS l
@@ -264,7 +274,8 @@ async def write_to_neo4j(data: dict, skill: str, reset: bool, dry_run: bool) -> 
                     FOREACH (_ IN CASE WHEN run IS NULL THEN [] ELSE [1] END |
                         MERGE (n)-[:LEARNED_IN]->(run))
                     """,
-                    rows=chunk, skill=skill,
+                    rows=chunk,
+                    skill=skill,
                 )
 
             # DERIVED_FROM (best-effort): for each Lesson with source_run_id +
@@ -289,7 +300,8 @@ async def write_to_neo4j(data: dict, skill: str, reset: bool, dry_run: bool) -> 
             counts = {}
             for label in ("Run", "Rule", "Attempt", "Lesson"):
                 rec = await session.run(
-                    f"MATCH (n:{label} {{group_id: $skill}}) RETURN count(n) AS c", skill=skill,
+                    f"MATCH (n:{label} {{group_id: $skill}}) RETURN count(n) AS c",
+                    skill=skill,
                 )
                 counts[label] = (await rec.single())["c"]
             edge_rec = await session.run(
@@ -324,10 +336,16 @@ async def main_async(skill: str, reset: bool, dry_run: bool) -> None:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--skill", default="stig", help="group_id partition (default: stig)")
-    ap.add_argument("--reset", action="store_true", help="DETACH DELETE existing nodes for this group_id first")
-    ap.add_argument("--dry-run", action="store_true", help="Pull from Postgres but do not write to Neo4j")
+    ap.add_argument(
+        "--reset", action="store_true", help="DETACH DELETE existing nodes for this group_id first"
+    )
+    ap.add_argument(
+        "--dry-run", action="store_true", help="Pull from Postgres but do not write to Neo4j"
+    )
     args = ap.parse_args()
     asyncio.run(main_async(args.skill, args.reset, args.dry_run))
 

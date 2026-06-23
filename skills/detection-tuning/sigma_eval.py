@@ -23,12 +23,13 @@ Why we parse the YAML directly instead of using pysigma's AST:
     us the exact semantics we need with ~80 lines instead of fighting
     pysigma's type lattice.
 """
+
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
 import pandas as pd
 import yaml
@@ -95,7 +96,9 @@ def _make_matcher(modifier: str | None) -> Callable[[str, str], bool]:
 
 
 def _eval_field(
-    field_value: str, modifiers: list[str], rule_value,
+    field_value: str,
+    modifiers: list[str],
+    rule_value,
 ) -> bool:
     """Apply a single field's matcher(s) against a single event value."""
     if "cidr" in modifiers:
@@ -202,11 +205,11 @@ def _eval_condition(
     py_expr = re.sub(r"\b[A-Za-z_][A-Za-z0-9_]*\b", sub_name, expanded)
 
     try:
-        return bool(eval(py_expr, {"__builtins__": {}}, {}))  # noqa: S307 — sandboxed expr
+        return bool(eval(py_expr, {"__builtins__": {}}, {}))
     except Exception as exc:
         raise RuleParseError(
             f"Could not evaluate condition: {condition!r} → {py_expr!r} ({exc})"
-        )
+        ) from exc
 
 
 # -- Public API --------------------------------------------------------------
@@ -246,9 +249,7 @@ def compile_rule(rule: dict) -> Callable[[pd.Series], bool]:
             # Some rules use a list-of-dicts for OR-ing alternatives within a
             # named block. Friday-night slice doesn't handle this; surface
             # cleanly so the harness can classify.
-            raise RuleParseError(
-                f"block {name!r} is a list — not supported in Friday-night slice"
-            )
+            raise RuleParseError(f"block {name!r} is a list — not supported in Friday-night slice")
         block_preds[name] = _build_block_predicate(block)
 
     def predicate(row: pd.Series) -> bool:
@@ -271,8 +272,14 @@ def evaluate_rule(
     """
     rule = load_rule(rule_path)
     predicate = compile_rule(rule)
-    matched = events.apply(predicate, axis=1) if len(events) else pd.Series(
-        [], dtype=bool, index=events.index,
+    matched = (
+        events.apply(predicate, axis=1)
+        if len(events)
+        else pd.Series(
+            [],
+            dtype=bool,
+            index=events.index,
+        )
     )
     return _score(matched, positive_mask)
 
@@ -286,7 +293,12 @@ def _score(matched: pd.Series, positive: pd.Series) -> EvalScores:
     recall = tp / (tp + fn) if (tp + fn) else 0.0
     f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) else 0.0
     return EvalScores(
-        tp=tp, fp=fp, fn=fn, tn=tn,
-        precision=precision, recall=recall, f1=f1,
+        tp=tp,
+        fp=fp,
+        fn=fn,
+        tn=tn,
+        precision=precision,
+        recall=recall,
+        f1=f1,
         matched_count=int(matched.sum()),
     )

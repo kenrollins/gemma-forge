@@ -23,6 +23,7 @@ Modes:
     --skip-smoke-tests       Default: ignore JSONL files with <100 events.
     --include-smoke-tests    Override the above and ingest everything.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -34,7 +35,6 @@ import sys
 from pathlib import Path
 
 import psycopg
-from psycopg import sql
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SQLITE_PATH = REPO_ROOT / "memory" / "stig-rhel9.db"
@@ -57,7 +57,7 @@ def load_env() -> None:
 def epoch_to_ts(value: float | None) -> dt.datetime | None:
     if value is None:
         return None
-    return dt.datetime.fromtimestamp(float(value), tz=dt.timezone.utc)
+    return dt.datetime.fromtimestamp(float(value), tz=dt.UTC)
 
 
 def parse_iso(value: str | None) -> dt.datetime | None:
@@ -99,7 +99,9 @@ def migrate_sqlite(conn: psycopg.Connection, sqlite_path: Path, dry_run: bool) -
     cur = conn.cursor() if not dry_run else None
 
     # runs
-    rows = sq.execute("SELECT id, skill, started_at, ended_at, config, summary FROM runs").fetchall()
+    rows = sq.execute(
+        "SELECT id, skill, started_at, ended_at, config, summary FROM runs"
+    ).fetchall()
     counts["runs"] = len(rows)
     if not dry_run:
         for r in rows:
@@ -289,9 +291,7 @@ def ingest_jsonl_run(
                 run_id = path.stem.replace("run-", "") + "-orphan"
                 started_at = ts
 
-            rows.append(
-                (run_id, ts, elapsed, etype, agent, iteration, rule_id, json.dumps(data))
-            )
+            rows.append((run_id, ts, elapsed, etype, agent, iteration, rule_id, json.dumps(data)))
 
     if not rows:
         if cur is not None:
@@ -338,7 +338,9 @@ def ingest_jsonl_run(
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--dry-run", action="store_true", help="Plan only, no writes.")
     ap.add_argument("--reset", action="store_true", help="TRUNCATE destination tables first.")
     ap.add_argument(
@@ -360,7 +362,9 @@ def main() -> None:
 
     conninfo = f"host={pg_host} port={pg_port} dbname={pg_db} user=forge_admin password={admin_pw} options=-c\\ search_path=stig"
 
-    print(f"migrate: connecting to {pg_host}:{pg_port}/{pg_db} as forge_admin (dry_run={args.dry_run})")
+    print(
+        f"migrate: connecting to {pg_host}:{pg_port}/{pg_db} as forge_admin (dry_run={args.dry_run})"
+    )
 
     with psycopg.connect(conninfo) as conn:
         cur = conn.cursor()
@@ -387,8 +391,10 @@ def main() -> None:
 
         # 2. JSONL event log import.
         files = jsonl_files(args.include_smoke_tests)
-        print(f"migrate: {len(files)} JSONL file(s) to process "
-              f"({'including' if args.include_smoke_tests else 'excluding'} smoke tests)")
+        print(
+            f"migrate: {len(files)} JSONL file(s) to process "
+            f"({'including' if args.include_smoke_tests else 'excluding'} smoke tests)"
+        )
         total_events = 0
         for f in files:
             run_id, n = ingest_jsonl_run(conn, f, args.dry_run)
@@ -405,7 +411,15 @@ def main() -> None:
             print("migrate: commit.")
 
         # Final counts (read-only, also runs in dry-run for sanity).
-        for tbl in ("runs", "work_items", "attempts", "lessons_current", "run_events", "turns", "bans"):
+        for tbl in (
+            "runs",
+            "work_items",
+            "attempts",
+            "lessons_current",
+            "run_events",
+            "turns",
+            "bans",
+        ):
             cur.execute(f"SELECT COUNT(*) FROM stig.{tbl}")
             print(f"  stig.{tbl}: {cur.fetchone()[0]}")
 

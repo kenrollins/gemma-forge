@@ -71,7 +71,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Validate Compose v2 file
-        run: docker compose -f docker-compose.yml config --quiet
+        run: |
+          cp .env.example .env   # placeholder values so interpolation resolves
+          docker compose -f docker-compose.yml config --quiet
 
   # Phase 7 will add: sbom (Syft), image signing (Cosign keyless via OIDC),
   # OpenSSF Scorecard (weekly schedule), Dependabot (already wired via

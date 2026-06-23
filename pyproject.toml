@@ -68,8 +68,8 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "ruff>=0.5,<1.0",
-    "mypy>=1.10,<2.0",
+    "ruff==0.15.9",  # pinned: lint results must match local + CI exactly
+    "mypy==1.20.0",  # pinned: type-check results must match local + CI exactly
     "pytest>=8.0,<9.0",
     "pytest-asyncio>=0.23,<1.0",
     "pytest-cov>=5.0,<6.0",

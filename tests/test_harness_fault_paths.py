@@ -32,6 +32,10 @@ from gemma_forge.harness.tools.ssh import (
     snapshot_restore_progress,
 )
 
+# Integration suite: exercises the harness against a live LLM + VM.
+# Skipped in CI / by default; run with --run-slow.
+pytestmark = pytest.mark.slow
+
 
 @pytest.fixture
 def vm_config() -> SSHConfig:

@@ -42,6 +42,10 @@ from gemma_forge.harness.tools.ssh import (
     snapshot_save_progress,
 )
 
+# Integration suite: drives a live VM over SSH. Skipped in CI / by default;
+# run with --run-slow.
+pytestmark = pytest.mark.slow
+
 
 # Fixture: ensure baseline VM state before each test
 @pytest.fixture(autouse=True)

@@ -42,6 +42,11 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("opentelemetry").setLevel(logging.CRITICAL)
 
 
+# Integration suite: real vLLM calls on :8050. Skipped in CI / by default;
+# run with --run-slow (needs the live model serving).
+pytestmark = pytest.mark.slow
+
+
 @pytest.fixture
 def llm() -> VllmLlm:
     return VllmLlm(

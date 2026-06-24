@@ -18,8 +18,9 @@ one_line: "gemma-forge mapped onto the 5-Layer Enterprise AI Partner Map, with c
 
 This architecture wasn't designed top-down. It emerged from building
 the system, running it, watching it fail, and fixing what broke.
-Thirty-seven journal entries of iteration — plus two shipping
-skills (STIG and CVE Response) — is where we ended up, not where we
+Forty-four journal entries of iteration — plus four skills built
+(STIG and CVE Response shipped; detection-tuning and network-pentest
+built and honestly set aside) — is where we ended up, not where we
 planned to be on day one. Every component choice has a story behind
 it, and most of those stories involve trying something else first.
 
@@ -337,12 +338,12 @@ consistent.
       <div style="color:#9CA3AF; font-size:0.8rem; margin-top:0.2rem;">bf16 full precision, native tool calling, 128K context.</div>
     </div>
     <div style="background:rgba(0,0,0,0.25); border:1px solid rgba(0,118,206,0.35); border-radius:6px; padding:0.6rem 0.75rem;">
-      <div style="font-weight:600; font-size:0.9rem;">vLLM 0.19.0</div>
-      <div style="color:#9CA3AF; font-size:0.8rem; margin-top:0.2rem;">OpenAI-compatible REST, continuous batching, direct calls.</div>
+      <div style="font-weight:600; font-size:0.9rem;">vLLM 0.21.0 + MTP</div>
+      <div style="color:#9CA3AF; font-size:0.8rem; margin-top:0.2rem;">OpenAI-compatible REST, continuous batching, MTP speculative decoding.</div>
     </div>
     <div style="background:rgba(0,0,0,0.25); border:1px solid rgba(0,118,206,0.35); border-radius:6px; padding:0.6rem 0.75rem;">
       <div style="font-weight:600; font-size:0.9rem;">Tensor Parallel = 4</div>
-      <div style="color:#9CA3AF; font-size:0.8rem; margin-top:0.2rem;">Model sharded across all four L4 GPUs, ~14 tok/s sustained.</div>
+      <div style="color:#9CA3AF; font-size:0.8rem; margin-top:0.2rem;">Model sharded across all four L4 GPUs, ~41 tok/s with MTP.</div>
     </div>
   </div>
 </div>
@@ -420,7 +421,7 @@ don't.
 | **5 — Application** | Open WebUI | Harvey, Veeva AI, Glean | STIG + CVE Response skills, Dashboard, this Journal |
 | **4 — Orchestration** | LangChain / LangGraph, LlamaIndex, CrewAI, Google ADK | Microsoft Agent Framework | Ralph Loop + ADK + five Protocol interfaces + V2 memory (Postgres + Neo4j / Graphiti) |
 | **3 — Model** | Llama 3.x, Mistral / Mixtral, Phi-3, Qwen, DeepSeek, Gemma 4 | GPT-5, Claude, Gemini API | Gemma 4 31B Dense bf16 |
-| **3 — Model (inference engine)** | vLLM, NVIDIA Triton | TensorRT-LLM, NVIDIA NIM | vLLM 0.19.0, TP=4 across 4× L4 |
+| **3 — Model (inference engine)** | vLLM, NVIDIA Triton | TensorRT-LLM, NVIDIA NIM | vLLM 0.21.0 + MTP, TP=4 across 4× L4 |
 | **2 — Platform / MLOps** | OTel + Jaeger + Prometheus + Grafana, Langfuse, MLflow, W&B | Arize AI, Datadog LLM | OTel + Jaeger + Prometheus + Grafana |
 | **1 — Infrastructure** | MinIO, Ceph, Postgres + pgvector, Proxmox VE, libvirt + KVM | Snowflake, Databricks, Weka, VMware vSphere | Dell PowerEdge XR7620 + 4× NVIDIA L4 + libvirt + Rocky 9 + OpenTofu |
 
@@ -466,10 +467,10 @@ touches, and the treatment that goes into the mechanism.
 - [**Adding a Skill**](../../adding-a-skill.md) — how to implement
   the five Protocol interfaces and wire into the harness's
   optional extension points.
-- [**Developer Journal**](../journey/index.md) — 37 chronological
-  field notes on how this was built. For the current state of the
-  architecture: [journey/33 — The Second Skill](../journey/33-second-skill-cve-pivot.md),
-  [journey/34 — Run 6](../journey/34-run-6-ordering-works-runtime-doesnt.md),
-  and [journey/37 — Per-Family Reboot Batching Lands](../journey/37-per-family-reboot-batching-landed.md).
+- [**Developer Journal**](../journey/index.md) — 44 chronological
+  field notes on how this was built. For the latest work:
+  [journey/38.13 — Run 14, the STIG arc closes at 90.3%](../journey/38.13-run-14-the-arc-closes.md),
+  [journey/41 — the pen-test skill's honest run](../journey/41-pentest-first-run-and-measurement.md),
+  and [journey/43 — the 12B-vs-31B experiment](../journey/43-memory-isnt-reasoning.md).
 - [**Gotchas**](../gotchas/index.md) — atomic "X breaks Y because
   Z" lessons, each tagged to a specific layer.

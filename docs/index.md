@@ -159,8 +159,8 @@ hardware.
     [the origin](journal/journey/00-origin.md), jump to the
     [overnight run](journal/journey/14-overnight-run-findings.md)
     that changed everything, or skip to
-    [the CVE pivot](journal/journey/33-second-skill-cve-pivot.md) and
-    [per-family reboot batching](journal/journey/37-per-family-reboot-batching-landed.md)
+    [the CVE pivot](journal/journey/33-second-skill-cve-pivot.md) or
+    [the 12B-vs-31B experiment](journal/journey/43-memory-isnt-reasoning.md)
     for the latest work.
 
     [:octicons-arrow-right-24: Read the journey](journal/journey/index.md)
@@ -205,7 +205,7 @@ hardware.
 <div style="background: linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(239, 68, 68, 0.05)); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px 8px 0 0; padding: 1.2rem 1.5rem;">
 <h3 style="color: #EF4444;">&#9316; Layer 5 — Application</h3>
 <p style="margin: 0.3rem 0;"><strong>STIG Remediation Skill</strong> · <strong>CVE Response Skill</strong> · <strong>gemma-forge Dashboard</strong> · <strong>This Documentation Site</strong></p>
-<p style="margin: 0.3rem 0; opacity: 0.7; font-style: italic; font-size: 0.85rem;">Where the user sees results. Two skills ship today — STIG hardening and CVE remediation — running on the same harness. Adding a third is a folder and five Python classes.</p>
+<p style="margin: 0.3rem 0; opacity: 0.7; font-style: italic; font-size: 0.85rem;">Where the user sees results. STIG and CVE ship as production skills; two more (detection-tuning, network-pentest) were built and set aside — four on the same harness. Adding one is a folder and five Python classes.</p>
 </div>
 
 <div style="background: linear-gradient(135deg, rgba(168, 85, 247, 0.15), rgba(168, 85, 247, 0.05)); border: 1px solid rgba(168, 85, 247, 0.3); border-top: none; padding: 1.2rem 1.5rem;">
@@ -216,8 +216,8 @@ hardware.
 
 <div style="background: linear-gradient(135deg, rgba(0, 118, 206, 0.15), rgba(0, 118, 206, 0.05)); border: 1px solid rgba(0, 118, 206, 0.3); border-top: none; padding: 1.2rem 1.5rem;">
 <h3 style="color: #0076CE;">&#9314; Layer 3 — Model</h3>
-<p style="margin: 0.3rem 0;"><strong>Gemma 4 31B Dense bf16</strong> · <strong>vLLM 0.19.0</strong> · <strong>Tensor Parallel = 4</strong></p>
-<p style="margin: 0.3rem 0; opacity: 0.7; font-style: italic; font-size: 0.85rem;">Where inference happens. Full precision across all four GPUs, ~14 tok/s sustained, no NVLink required.</p>
+<p style="margin: 0.3rem 0;"><strong>Gemma 4 31B Dense bf16</strong> · <strong>vLLM 0.21.0 + MTP</strong> · <strong>Tensor Parallel = 4</strong></p>
+<p style="margin: 0.3rem 0; opacity: 0.7; font-style: italic; font-size: 0.85rem;">Where inference happens. Full precision across all four GPUs, ~41 tok/s with MTP speculative decoding (2.7× the 15 tok/s baseline), no NVLink required.</p>
 </div>
 
 <div style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(16, 185, 129, 0.05)); border: 1px solid rgba(16, 185, 129, 0.3); border-top: none; padding: 1.2rem 1.5rem;">

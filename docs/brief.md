@@ -43,8 +43,8 @@ The architecture combines two patterns:
 - **DISA STIG remediation** on Rocky Linux 9 — the anchor use case.
   Exercises every interesting property of the architecture:
   persistence across many retries, revert-on-failure, verifiable
-  outcomes, and real target-system side effects. 270 rules, 7 runs
-  including a 19-hour overnight completion.
+  outcomes, and real target-system side effects. 270 rules, 14 runs;
+  the experimental arc closed at a 90.3% fix rate.
 - **CVE Response** on Rocky Linux 9 — the second-skill validation.
   Autonomous advisory remediation via Vuls (scan) and `dnf advisory`
   (apply), with per-package-family reboot batching and snapshot
@@ -53,9 +53,11 @@ The architecture combines two patterns:
   every one first-try.
 
 STIG is the hard case. CVE is the easy case. Both run on the same
-harness without modification. The harness is skill-agnostic: adding
-a new use case is a folder-per-skill exercise with no harness
-modifications.
+harness without modification — and two more skills (detection-tuning
+and network-pentest) were since built on it and honestly set aside,
+validating the skill-agnostic claim across four domains. The harness
+is skill-agnostic: adding a use case is a folder-per-skill exercise
+with no harness modifications.
 
 ---
 
@@ -84,7 +86,7 @@ wasn't worth the modest VRAM savings.
 | Function calling | Native (Gemma 4 tool-call format) |
 | Parallelism | Tensor Parallel = 4 across all 4 GPUs |
 | KV cache | ~6.5 GB across 4 GPUs at bf16 (TP=4 shards the KV heads) |
-| Throughput | ~14 tok/s sustained (TP=4 on 4× L4, no NVLink) |
+| Throughput | ~41 tok/s with MTP speculative decoding (15 tok/s baseline; TP=4 on 4× L4, no NVLink) |
 
 The model serves all three agent roles (Architect, Worker, Reflector)
 through a single vLLM instance. This simplifies operations and keeps
@@ -94,8 +96,10 @@ the supply chain to one model weight file.
 
 ## The inference engine: vLLM
 
-[vLLM 0.19.0](https://docs.vllm.ai/) provides the OpenAI-compatible
-REST interface. Key architectural decisions:
+[vLLM 0.21.0](https://docs.vllm.ai/) provides the OpenAI-compatible
+REST interface, with Gemma 4 MTP speculative decoding (~2.7× throughput
+at full precision — see [ADR-0018](adr/0018-vllm-mtp-cutover.md)). Key
+architectural decisions:
 
 - **Direct REST, no proxy.** No LiteLLM, no commercial API gateway.
   The harness talks directly to vLLM's `/v1/chat/completions` endpoint.
@@ -295,20 +299,19 @@ exploration.
 
 ### STIG — the hard case
 
-Seven complete runs of the 270-rule DISA STIG profile. Each run
-builds on the previous via cross-run memory. Numbers below are from
-**Run 6**, which landed the ordering constraint (auto-dependency
-respect on immutable cascades) and retired 356 low-utility tips via
-auto-consolidation:
+Fourteen complete runs of the 270-rule DISA STIG profile. Each run
+builds on the previous via cross-run memory. The four-run experimental
+arc (Run 8 → Run 14) closed cleanly; numbers below are from **Run 14**,
+the arc's close, with the MTP cutover
+([ADR-0018](adr/0018-vllm-mtp-cutover.md)) in production:
 
-| Metric | Run 6 |
-|--------|-------|
-| Rules attempted | 270 |
-| Fix rate | **61.9%** (+5.6pp vs Run 5) |
-| Wall time | 19.1 hours |
-| `audit_rules_immutable` cascade | Position **84/84** (fully absorbed; was 11/83 in Run 5) |
-| Mechanism field compliance on tips | 100% (781 tips) |
-| Low-utility tips retired at run-end | 356 (auto-consolidation) |
+| Metric | Run 14 |
+|--------|--------|
+| Rules attempted (ex-skip) | 258 |
+| Fix rate | **90.3%** (233/258) |
+| First-attempt success | **97.0%** |
+| Wall time | 5.03 hours (vs 19.1h at Run 6, pre-MTP) |
+| Architectural ceiling | named at ~90% for the current paradigm |
 
 STIG is where the reflexion loop earns its keep — multi-attempt
 fixes, Architect re-engagements, Reflector plateaus, and genuine
@@ -377,7 +380,7 @@ architecture works.
 | Layer | Component | Why |
 |-------|-----------|-----|
 | **Model** | Gemma 4 31B Dense bf16 | Open weights, native tool calling, Day-0 vLLM support |
-| **Inference** | vLLM 0.19.0, TP=4 | Direct OpenAI-compatible REST, continuous batching |
+| **Inference** | vLLM 0.21.0 + MTP, TP=4 | Direct OpenAI-compatible REST, continuous batching, speculative decoding |
 | **Harness** | Python + Google ADK | Ralph loop + reflexion, skill-agnostic interfaces |
 | **Memory** | Postgres + Neo4j (Graphiti) | Structured-tip utility tracking, causal-graph relationships, history-based eviction |
 | **Target** | libvirt VM + virsh snapshots | Two-tier revert safety (script + full-state snapshot) |
@@ -408,7 +411,7 @@ architecture works.
 **If you want the full story:**
 
 - [**Developer Journal**](https://kenrollins.github.io/gemma-forge/journal/journey/) —
-  37 chronological field notes from origin through the CVE skill.
+  44 chronological field notes from origin through the 12B-vs-31B experiment.
   Start at [Entry 00: Origin](https://kenrollins.github.io/gemma-forge/journal/journey/00-origin/)
   or jump to whatever catches your eye. Two favorites for early
   readers: [the 10-hour overnight run](https://kenrollins.github.io/gemma-forge/journal/journey/14-overnight-run-findings/)
@@ -419,6 +422,6 @@ architecture works.
 **If you're building something similar:**
 
 - [**Gotchas**](https://kenrollins.github.io/gemma-forge/journal/gotchas/) —
-  13 atomic "X breaks Y because Z" lessons that cost hours to discover
+  18 atomic "X breaks Y because Z" lessons that cost hours to discover
 - [**Adding a Skill**](https://kenrollins.github.io/gemma-forge/adding-a-skill/) —
   how to author a new skill for the harness

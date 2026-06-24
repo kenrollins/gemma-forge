@@ -171,6 +171,7 @@ nav:
       - "41 - The Honest Run 1 vs Run 2: +0pp, and What the Failures Surface": journal/journey/41-pentest-first-run-and-measurement.md
       - "42 - Straight-Up: the 12B Sees the Same Memory and Still Can't Crack the Hard Rule": journal/journey/42-12b-vs-31b-straight-up.md
       - "43 - Memory Isn't Reasoning: Where the 12B Hits Its Ceiling": journal/journey/43-memory-isnt-reasoning.md
+      - 44 - The Month Loop Engineering Got a Name: journal/journey/44-loop-engineering-gets-a-name.md
   - Futures:
       - Overview: journal/futures/index.md
       - The Harness Is a Training Data Factory: journal/futures/harness-as-training-data-factory.md

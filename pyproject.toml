@@ -126,7 +126,7 @@ known-first-party = ["gemma_forge"]
 detect-same-package = false
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"  # match the runtime (CI + host run 3.12); parse 3.12-syntax installed stubs
 # Right-sized from full `strict` (over-aspirational for a research harness):
 # real type-bug detection stays on (union-attr, arg-type, attr-defined,
 # return-value, assignment — all mypy defaults, reinforced by check_untyped_defs).
@@ -136,6 +136,14 @@ python_version = "3.11"
 check_untyped_defs = true
 warn_unused_ignores = true
 warn_redundant_casts = true
+ignore_missing_imports = true
+
+# Heavy untyped scientific deps: don't analyze their internals. Insulates the
+# build from third-party stub drift across versions (e.g. numpy shipping
+# 3.12-syntax stubs that break under an older target).
+[[tool.mypy.overrides]]
+module = ["numpy.*", "sentence_transformers.*"]
+follow_imports = "skip"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

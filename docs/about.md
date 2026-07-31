@@ -6,8 +6,8 @@ title: About
 
 ## What this project is
 
-gemma-forge is a personal exploration by **Ken Rollins**, Chief AI
-Technology Strategist in Dell Federal, into two things in combination:
+gemma-forge is a personal exploration by **Ken Rollins**, Federal Field
+CTO — Emerging Technologies at Dell, into two things in combination:
 
 1. **Ralph loop architecture** — a pattern for autonomous-but-accountable
    agent systems that grind through problems with persistence, learning

@@ -7,7 +7,7 @@ title: "gemma-forge: Architecture Brief"
 > **An exploration of Ralph loop architecture and Gemma 4 at the edge —
 > building your own agentic harness, from scratch.**
 >
-> By **Ken Rollins**, Chief AI Technology Strategist in Dell Federal.
+> By **Ken Rollins**, Federal Field CTO — Emerging Technologies at Dell.
 >
 > Repository: [github.com/kenrollins/gemma-forge](https://github.com/kenrollins/gemma-forge)
 > · Site: [kenrollins.github.io/gemma-forge](https://kenrollins.github.io/gemma-forge/)

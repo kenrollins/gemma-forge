@@ -10,7 +10,7 @@ hide:
 !!! quote ""
     **An exploration of Ralph loop architecture and Gemma 4 at the edge — building your own agentic harness, from scratch.**
 
-    By **Ken Rollins**, Chief AI Technology Strategist in Dell Federal.
+    By **Ken Rollins**, Federal Field CTO — Emerging Technologies at Dell.
 
 ---
 
